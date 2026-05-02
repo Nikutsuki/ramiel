@@ -1,0 +1,29 @@
+.zig-cache/
+zig-out/
+zig-pkg
+
+src/renderer/vulkan/shaders/*.spv
+
+.env
+examples/overlay/thirdparty/
+
+*.png
+
+src/thirdparty/ffmpeg_windows_x64/
+src/thirdparty/ffmpeg_linux_x64/
+
+# Audio player example library — user-provided files at run time. Match
+# only the repo-root `./audio` directory; never `src/audio`.
+/audio/
+
+# Editor / AI tooling
+.claude/
+.gemini/
+.vscode/
+.idea/
+
+# Personal notes
+todo.md
+AGENTS.md
+CLAUDE.md
+zig.md
