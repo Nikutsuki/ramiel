@@ -55,6 +55,7 @@ pub const DevToolsTabModule = @import("devtools/modules.zig").TabModule;
 pub const Style = @import("ui/layout.zig").Style;
 pub const tw = @import("ui/tw.zig");
 pub const uix = @import("ui/uix.zig");
+pub const state = @import("state.zig");
 
 pub const palette = @import("assets/palette.zig");
 pub const theme = @import("ui/theme.zig");
@@ -161,6 +162,7 @@ test {
     _ = @import("ui/context.zig");
     _ = @import("ui/tw.zig");
     _ = @import("ui/uix.zig");
+    _ = @import("state.zig");
     _ = @import("ui/components/root.zig");
     _ = @import("ui/components/plot.zig");
     _ = @import("animation/easing.zig");

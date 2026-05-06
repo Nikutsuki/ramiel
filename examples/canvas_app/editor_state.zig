@@ -1,8 +1,20 @@
 const std = @import("std");
-const PixelBuffer = @import("ramiel").renderer.PixelBuffer;
+const lib = @import("ramiel");
+const PixelBuffer = lib.renderer.PixelBuffer;
 const FilterKind = @import("filters.zig").FilterKind;
 
 pub const EditorState = struct {
+    pub const snapshot_version: lib.state.SnapshotVersion = 1;
+
+    pub const Snapshot = struct {
+        palette_open: bool = false,
+        show_help: bool = false,
+        active_filter: ?FilterKind = null,
+        filter_params: [64]f32 = [_]f32{0.0} ** 64,
+        dither_palette_hsv: []const [3]f32 = &.{},
+        dither_selected_color: usize = 0,
+    };
+
     allocator: std.mem.Allocator,
     history: std.ArrayList(PixelBuffer),
     base_buffer: ?PixelBuffer = null,
@@ -108,6 +120,46 @@ pub const EditorState = struct {
     pub fn setPaletteQuery(self: *EditorState, query: []const u8) !void {
         self.palette_query.clearRetainingCapacity();
         try self.palette_query.appendSlice(self.allocator, query);
+    }
+
+    pub fn snapshot(self: *const EditorState) Snapshot {
+        return .{
+            .palette_open = self.palette_open,
+            .show_help = self.show_help,
+            .active_filter = self.active_filter,
+            .filter_params = self.filter_params,
+            .dither_palette_hsv = self.dither_palette_hsv.items,
+            .dither_selected_color = self.dither_selected_color,
+        };
+    }
+
+    pub fn restoreSnapshot(self: *EditorState, data: *const Snapshot) !void {
+        self.palette_open = data.palette_open;
+        self.show_help = data.show_help;
+        self.active_filter = data.active_filter;
+        self.filter_params = data.filter_params;
+
+        self.dither_palette_hsv.clearRetainingCapacity();
+        try self.dither_palette_hsv.appendSlice(self.allocator, data.dither_palette_hsv);
+        if (self.dither_palette_hsv.items.len == 0) {
+            try self.dither_palette_hsv.append(self.allocator, .{ 0.0, 0.0, 0.0 });
+            try self.dither_palette_hsv.append(self.allocator, .{ 0.0, 0.0, 1.0 });
+        }
+        self.dither_selected_color = @min(data.dither_selected_color, self.dither_palette_hsv.items.len - 1);
+
+        self.palette_query.clearRetainingCapacity();
+        self.setStatusText("Restored state");
+    }
+
+    pub fn snapshotJsonAlloc(self: *const EditorState, allocator: std.mem.Allocator) ![]u8 {
+        return lib.state.stringifyEnvelopeAlloc(Snapshot, allocator, snapshot_version, self.snapshot(), .{});
+    }
+
+    pub fn restoreSnapshotJson(self: *EditorState, bytes: []const u8) !void {
+        var parsed = try lib.state.parseEnvelope(Snapshot, self.allocator, bytes, .{ .ignore_unknown_fields = true });
+        defer parsed.deinit();
+        try lib.state.expectEnvelopeVersion(Snapshot, &parsed, snapshot_version);
+        try self.restoreSnapshot(&parsed.value.data);
     }
 
     pub fn deinit(self: *EditorState) void {

@@ -119,6 +119,25 @@ pub const Dispatch = struct {
 };
 
 pub const AppState = struct {
+    pub const snapshot_version: lib.state.SnapshotVersion = 1;
+
+    pub const ViewSnapshot = struct {
+        pan_x: f32 = 0.0,
+        pan_y: f32 = 0.0,
+        zoom: f32 = 1.0,
+    };
+
+    pub const BrushSnapshot = struct {
+        radius: f32 = 20.0,
+        color: [4]u8 = .{ 255, 255, 255, 255 },
+    };
+
+    pub const Snapshot = struct {
+        view: ViewSnapshot = .{},
+        brush: BrushSnapshot = .{},
+        editor: EditorState.Snapshot,
+    };
+
     font_data: *FontData = undefined,
     base_canvas: ?*Canvas = null,
     preview_canvas: ?*Canvas = null,
@@ -138,6 +157,43 @@ pub const AppState = struct {
     brush_color: [4]u8 = .{ 255, 255, 255, 255 },
     brush_stroke_active: bool = false,
     editor: EditorState = undefined,
+
+    pub fn snapshot(self: *const AppState) Snapshot {
+        return .{
+            .view = .{
+                .pan_x = self.pan_x,
+                .pan_y = self.pan_y,
+                .zoom = self.zoom,
+            },
+            .brush = .{
+                .radius = self.brush_radius,
+                .color = self.brush_color,
+            },
+            .editor = self.editor.snapshot(),
+        };
+    }
+
+    pub fn restoreSnapshot(self: *AppState, data: *const Snapshot) !void {
+        self.pan_x = data.view.pan_x;
+        self.pan_y = data.view.pan_y;
+        self.zoom = data.view.zoom;
+        self.is_panning = false;
+        self.brush_radius = data.brush.radius;
+        self.brush_color = data.brush.color;
+        self.brush_stroke_active = false;
+        try self.editor.restoreSnapshot(&data.editor);
+    }
+
+    pub fn snapshotJsonAlloc(self: *const AppState, allocator: std.mem.Allocator) ![]u8 {
+        return lib.state.stringifyEnvelopeAlloc(Snapshot, allocator, snapshot_version, self.snapshot(), .{});
+    }
+
+    pub fn restoreSnapshotJson(self: *AppState, bytes: []const u8) !void {
+        var parsed = try lib.state.parseEnvelope(Snapshot, self.editor.allocator, bytes, .{ .ignore_unknown_fields = true });
+        defer parsed.deinit();
+        try lib.state.expectEnvelopeVersion(Snapshot, &parsed, snapshot_version);
+        try self.restoreSnapshot(&parsed.value.data);
+    }
 };
 
 pub fn isMaskFilter(kind: ?filters.FilterKind) bool {
