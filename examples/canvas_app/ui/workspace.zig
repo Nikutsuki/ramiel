@@ -1,50 +1,36 @@
 const core = @import("../core.zig");
+const tw = core.tw;
 
 pub fn buildLeftCanvas(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode {
+    const ux = core.uix.builder(core.AppMessage, ui);
     return if (state.base_canvas) |canvas|
-        ui.canvas(.{
-            .style = .{
-                .width = .{ .percent = 50 },
-                .height = .Full,
-                .flex_grow = 1,
-            },
+        ux.canvas(.{
+            .class = .{ tw.w_pct(50), tw.h_full, tw.grow_1 },
             .target = canvas,
             .pan_x = state.pan_x,
             .pan_y = state.pan_y,
             .zoom = state.zoom,
         })
     else
-        ui.div(.{
-            .style = .{
-                .width = .{ .percent = 50 },
-                .height = .Full,
-            },
+        ux.div(.{
+            .class = .{ tw.w_pct(50), tw.h_full },
         });
 }
 
 pub fn buildRightCanvas(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode {
+    const ux = core.uix.builder(core.AppMessage, ui);
     return if (state.preview_canvas) |canvas|
-        ui.canvas(.{
-            .style = .{
-                .width = .{ .percent = 50 },
-                .height = .Full,
-                .flex_grow = 1,
-            },
+        ux.canvas(.{
+            .class = .{ tw.w_pct(50), tw.h_full, tw.grow_1 },
             .target = canvas,
             .pan_x = state.pan_x,
             .pan_y = state.pan_y,
             .zoom = state.zoom,
-            .events = &.{
-                .{ .event = .scroll, .msg = .{ .canvas_scrolled = {} } },
-                .{ .event = .pointer_move, .msg = .{ .canvas_pointer_move = {} } },
-            },
+            .on_scroll = .{ .canvas_scrolled = {} },
+            .on_pointer_move = .{ .canvas_pointer_move = {} },
         })
     else
-        ui.div(.{
-            .style = .{
-                .width = .{ .percent = 50 },
-                .height = .Full,
-            },
+        ux.div(.{
+            .class = .{ tw.w_pct(50), tw.h_full },
         });
 }
-

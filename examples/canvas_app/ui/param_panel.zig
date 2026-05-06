@@ -2,7 +2,7 @@ const std = @import("std");
 const core = @import("../core.zig");
 const lib = @import("ramiel");
 const filters = @import("../filters.zig");
-const layout = lib.layout;
+const tw = core.tw;
 
 pub fn build(
     allocator: std.mem.Allocator,
@@ -12,15 +12,16 @@ pub fn build(
 ) !*core.AppNode {
     const comp = lib.components.Builder(core.AppMessage){ .ui = ui };
     const tokens = ui.active_theme.tokens;
+    const ux = core.uix.builder(core.AppMessage, ui);
     var param_children = std.ArrayList(*core.AppNode).empty;
     defer param_children.deinit(allocator);
 
     if (state.editor.active_filter) |filter| {
         const meta = filters.getFilterMeta(filter);
-        try param_children.append(allocator, try ui.text(.{
+        try param_children.append(allocator, try ux.text(.{
             .content = meta.name,
             .font = font,
-            .style = .{ .text_color = tokens.text_main, .margin = .{ .bottom = 8 } },
+            .class = .{ tw.text_color(tokens.text_main), tw.mb(2) },
         }));
 
         for (meta.params, 0..) |param_def, param_idx| {
@@ -30,7 +31,7 @@ pub fn build(
                 .slider => {
                     const current_val = state.editor.filter_params[param_idx];
                     const label_text = try std.fmt.allocPrint(ui.build_arena.allocator(), "{s}: {d:.1}", .{ param_def.name, current_val });
-                    try param_children.append(allocator, try ui.text(.{ .content = label_text, .font = font, .style = .{ .text_color = tokens.text_main } }));
+                    try param_children.append(allocator, try ux.text(.{ .content = label_text, .font = font, .class = tw.text_color(tokens.text_main) }));
 
                     var normalized = if (@abs(param_def.max - param_def.min) > 0.0001)
                         (current_val - param_def.min) / (param_def.max - param_def.min)
@@ -50,7 +51,7 @@ pub fn build(
                     }));
                 },
                 .radio => {
-                    try param_children.append(allocator, try ui.text(.{ .content = param_def.name, .font = font, .style = .{ .text_color = tokens.text_main } }));
+                    try param_children.append(allocator, try ux.text(.{ .content = param_def.name, .font = font, .class = tw.text_color(tokens.text_main) }));
                     const options = param_def.options orelse &.{};
                     var active_index: usize = @as(usize, @intFromFloat(@max(0.0, state.editor.filter_params[param_idx])));
                     if (core.isMaskFilter(filter) and param_idx == 0) {
@@ -67,63 +68,58 @@ pub fn build(
                     }));
                 },
                 .palette_editor => {
-                    try param_children.append(allocator, try ui.text(.{ .content = param_def.name, .font = font, .style = .{ .text_color = tokens.text_main } }));
+                    try param_children.append(allocator, try ux.text(.{ .content = param_def.name, .font = font, .class = tw.text_color(tokens.text_main) }));
 
-                    var swatches = std.ArrayList(*core.AppNode).empty;
-                    defer swatches.deinit(allocator);
+                    var swatches = try ux.keyedList(state.editor.dither_palette_hsv.items.len);
                     for (state.editor.dither_palette_hsv.items, 0..) |hsv, i| {
                         const rgb = lib.Color.hsvToRgb(hsv[0], hsv[1], hsv[2]);
                         const is_selected = i == state.editor.dither_selected_color;
-                        var swatch_style = layout.Style{
-                            .width = .{ .exact = 24.0 },
-                            .height = .{ .exact = 24.0 },
-                            .background_color = .{ rgb[0], rgb[1], rgb[2], 1.0 },
-                            .corner_radius = layout.CornerRadius.all(4.0),
-                            .cursor = .pointer,
-                        };
+                        var swatch_style = tw.style(.{
+                            tw.square(24.0),
+                            tw.bg(.{ rgb[0], rgb[1], rgb[2], 1.0 }),
+                            tw.rounded(4.0),
+                            tw.cursor_pointer,
+                        });
                         if (is_selected) {
-                            swatch_style.border = .{
-                                .top = .{ .width = 2.0, .color = tokens.action_default },
-                                .right = .{ .width = 2.0, .color = tokens.action_default },
-                                .bottom = .{ .width = 2.0, .color = tokens.action_default },
-                                .left = .{ .width = 2.0, .color = tokens.action_default },
-                            };
+                            swatch_style = tw.apply(swatch_style, tw.border(2.0, tokens.action_default));
                         }
-                        try swatches.append(allocator, try ui.div(.{
+                        try swatches.append(swatches.keyAt(i, core.NodeIds.palette_swatches, i), try ux.div(.{
                             .style = swatch_style,
-                            .events = &.{.{ .event = .click, .msg = .{ .palette_select = i } }},
+                            .on_click = .{ .palette_select = i },
                         }));
                     }
-                    try param_children.append(allocator, try ui.div(.{
-                        .style = .{ .direction = .Row, .gap = 6.0, .flex_wrap = .Wrap },
-                        .children = swatches.items,
+                    try param_children.append(allocator, try ux.div(.{
+                        .class = .{ tw.flex_row, tw.gap_px(6.0), tw.flex_wrap },
+                        .children = swatches.slice(),
                     }));
 
-                    try param_children.append(allocator, try ui.div(.{
-                        .style = .{ .direction = .Row, .gap = 8.0, .margin = .{ .top = 6.0 } },
-                        .children = &.{
-                            try ui.button(.{
+                    try param_children.append(allocator, try ux.div(.{
+                        .class = .{ tw.flex_row, tw.gap(2), tw.mt(1.5) },
+                        .children = .{
+                            try ux.button(.{
                                 .label = "+ Add",
                                 .font = font,
-                                .style = .{
-                                    .padding = .{ .left = 8.0, .right = 8.0, .top = 4.0, .bottom = 4.0 },
-                                    .background_color = tokens.action_default,
-                                    .corner_radius = layout.CornerRadius.all(6.0),
+                                .class = .{
+                                    tw.px(2),
+                                    tw.py(1),
+                                    tw.bg(tokens.action_default),
+                                    tw.rounded(6.0),
                                 },
-                                .label_style = .{ .text_color = tokens.text_inverse },
-                                .events = &.{.{ .event = .click, .msg = .{ .palette_add = {} } }},
+                                .label_class = tw.text_color(tokens.text_inverse),
+                                .on_click = .{ .palette_add = {} },
                             }),
-                            try ui.button(.{
+                            try ux.button(.{
                                 .label = "- Remove",
                                 .font = font,
-                                .style = .{
-                                    .padding = .{ .left = 8.0, .right = 8.0, .top = 4.0, .bottom = 4.0 },
-                                    .background_color = tokens.bg_base,
-                                    .corner_radius = layout.CornerRadius.all(6.0),
-                                    .border = .all(1.0, tokens.border_subtle),
+                                .class = .{
+                                    tw.px(2),
+                                    tw.py(1),
+                                    tw.bg(tokens.bg_base),
+                                    tw.rounded(6.0),
+                                    tw.border(1.0, tokens.border_subtle),
                                 },
-                                .label_style = .{ .text_color = tokens.text_main },
-                                .events = &.{.{ .event = .click, .msg = .{ .palette_remove = {} } }},
+                                .label_class = tw.text_color(tokens.text_main),
+                                .on_click = .{ .palette_remove = {} },
                             }),
                         },
                     }));
@@ -144,24 +140,24 @@ pub fn build(
                     }
                 },
             }
-            try param_children.append(allocator, try ui.div(.{ .style = .{ .height = .{ .exact = 8.0 } } }));
+            try param_children.append(allocator, try ux.div(.{ .class = tw.h(8.0) }));
         }
     } else {
-        try param_children.append(allocator, try ui.text(.{
+        try param_children.append(allocator, try ux.text(.{
             .content = "No active filter",
             .font = font,
-            .style = .{ .text_color = tokens.text_muted },
+            .class = tw.text_color(tokens.text_muted),
         }));
     }
 
-    return try ui.div(.{
-        .style = .{
-            .direction = .Column,
-            .width = .{ .exact = 250 },
-            .height = .Full,
-            .background_color = tokens.bg_surface,
-            .padding = .{ .left = 12, .right = 12, .top = 12, .bottom = 12 },
-            .gap = 8,
+    return try ux.div(.{
+        .class = .{
+            tw.flex_col,
+            tw.w(250),
+            tw.h_full,
+            tw.bg(tokens.bg_surface),
+            tw.p(3),
+            tw.gap(2),
         },
         .children = param_children.items,
     });

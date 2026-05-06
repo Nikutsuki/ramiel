@@ -10,6 +10,8 @@ pub const PixelBuffer = lib.renderer.PixelBuffer;
 pub const UpdateAction = lib.UpdateAction;
 pub const WindowContext = lib.WindowContext;
 pub const Color = lib.Color;
+pub const tw = lib.tw;
+pub const uix = lib.uix;
 
 pub const AppMessage = union(enum) {
     rebuild_requested: void,
@@ -41,9 +43,15 @@ const T = lib.For(AppMessage);
 pub const AppUIContext = T.UIContext;
 pub const AppNode = T.Node;
 pub const AppInteractionMessage = T.InteractionMessage;
+pub const Uix = T.Uix;
 pub const App = lib.Application(AppState, AppMessage);
 
-pub const NodeIds = lib.declareIds(.{"palette_input"}){};
+pub const NodeIds = lib.declareIds(.{
+    "palette_input",
+    "root_children",
+    "palette_suggestions",
+    "palette_swatches",
+}){};
 
 pub const ROOT_PADDING: f32 = 16.0;
 pub const ROOT_GAP: f32 = 8.0;

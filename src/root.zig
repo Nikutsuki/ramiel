@@ -54,6 +54,7 @@ pub const DevToolsState = @import("devtools/state.zig").DevToolsState;
 pub const DevToolsTabModule = @import("devtools/modules.zig").TabModule;
 pub const Style = @import("ui/layout.zig").Style;
 pub const tw = @import("ui/tw.zig");
+pub const uix = @import("ui/uix.zig");
 
 pub const palette = @import("assets/palette.zig");
 pub const theme = @import("ui/theme.zig");
@@ -150,6 +151,7 @@ pub fn For(comptime MessageT: type) type {
         pub const InteractionMessage = @import("ui/types.zig").InteractionMessage(MessageT);
         pub const InteractionRegistry = @import("ui/interaction.zig").InteractionRegistry(MessageT);
         pub const EventBinding = @import("ui/types.zig").EventBinding(MessageT);
+        pub const Uix = @import("ui/uix.zig").Builder(MessageT);
     };
 }
 
@@ -157,6 +159,8 @@ test {
     _ = @import("ui/layout.zig");
     _ = @import("ui/node.zig");
     _ = @import("ui/context.zig");
+    _ = @import("ui/tw.zig");
+    _ = @import("ui/uix.zig");
     _ = @import("ui/components/root.zig");
     _ = @import("ui/components/plot.zig");
     _ = @import("animation/easing.zig");

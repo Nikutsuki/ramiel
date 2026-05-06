@@ -5,8 +5,8 @@ pub const tracy_impl = @import("tracy_impl");
 const lib = @import("ramiel");
 
 const layout = lib.layout;
-const Style = layout.Style;
-const Spacing = layout.Spacing;
+const tw = lib.tw;
+const uix = lib.uix;
 const comp = lib.components;
 const PlotState = comp.PlotState;
 const PlotSeries = comp.PlotSeries;
@@ -566,27 +566,20 @@ fn tick(app: *App) lib.UpdateAction {
 fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     const arena = ui.build_arena.allocator();
     const builder = comp.Builder(AppMessage){ .ui = ui };
+    const ux = uix.builder(AppMessage, ui);
     const font = state.font_data;
 
-    const sidebar_header = try ui.text(.{
+    const sidebar_header = try ux.text(.{
         .content = "Library",
         .font = font,
-        .style = .{
-            .text_color = .{ 0.8, 0.85, 0.95, 1.0 },
-            .font_size = 14,
-            .padding = .{ .left = 12, .right = 12, .top = 12, .bottom = 8 },
-        },
+        .class = .{ tw.text_color(.{ 0.8, 0.85, 0.95, 1.0 }), tw.text_sm, tw.px(3), tw.pt(3), tw.pb(2) },
     });
 
     const tree_node = if (state.library.items.len == 0)
-        try ui.text(.{
+        try ux.text(.{
             .content = "Drop audio files in ./audio",
             .font = font,
-            .style = .{
-                .text_color = .{ 0.6, 0.65, 0.75, 1.0 },
-                .font_size = 11,
-                .padding = .{ .left = 12, .right = 12, .top = 8, .bottom = 8 },
-            },
+            .class = .{ tw.text_color(.{ 0.6, 0.65, 0.75, 1.0 }), tw.text(11), tw.px(3), tw.py(2) },
         })
     else
         try builder.treeFromSource(TreeItem, &state.tree_state, state.library.items, .{
@@ -599,37 +592,33 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             }.wrap,
             .userdata = @as(?*const anyopaque, @ptrCast(@constCast(state))),
         }, .{
-            .style = .{ .width = .Full, .height = .Full, .padding = .all(8.0) },
-            .row_style = .{
-                .padding = .{ .left = 6, .right = 8, .top = 4, .bottom = 4 },
-                .corner_radius = .all(4.0),
-            },
+            .style = tw.style(.{ tw.w_full, tw.h_full, tw.p_px(8.0) }),
+            .row_style = tw.style(.{ tw.px(2), tw.py(1), tw.pl(1.5), tw.rounded(4.0) }),
             .active_row_color = .{ 0.4, 0.85, 0.6, 0.22 },
             .hover_row_color = .{ 0.3, 0.4, 0.55, 0.14 },
         });
 
-    const sidebar = try ui.div(.{
-        .style = .{
-            .width = .{ .exact = 260.0 },
-            .height = .Full,
-            .direction = .Column,
-            .background_color = .{ 0.10, 0.11, 0.14, 1.0 },
-            .border = .{ .right = .{ .width = 1, .color = .{ 0.18, 0.20, 0.26, 1.0 } } },
-            .overflow_y = .scroll,
+    const sidebar = try ux.div(.{
+        .style = tw.style(.{
+            tw.w(260.0),
+            tw.h_full,
+            tw.flex_col,
+            tw.bg(.{ 0.10, 0.11, 0.14, 1.0 }),
+            tw.overflow_y_scroll,
+            tw.border_r(1, .{ 0.18, 0.20, 0.26, 1.0 }),
+        }),
+        .class = .{
             .scrollbar_width = 8,
             .scrollbar_color = .{ 0.4, 0.45, 0.55, 0.6 },
             .scrollbar_radius = 4,
         },
-        .children = &.{ sidebar_header, tree_node },
+        .children = .{ sidebar_header, tree_node },
     });
 
-    const title_text = try ui.text(.{
+    const title_text = try ux.text(.{
         .content = state.current_label orelse "Select a track",
         .font = font,
-        .style = .{
-            .font_size = 18,
-            .text_color = .{ 0.95, 0.97, 1.0, 1.0 },
-        },
+        .class = .{ tw.text_lg, tw.text_color(.{ 0.95, 0.97, 1.0, 1.0 }) },
     });
 
     const wave_plot = try builder.plot(.{
@@ -637,12 +626,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .state = @constCast(&state.wave_state),
         .on_change = lib.bindTag(AppMessage, PlotMsg, .waveform_msg),
     }, .{
-        .style = .{
-            .width = .Full,
-            .height = .{ .exact = 180.0 },
-            .background_color = .{ 0.06, 0.07, 0.10, 1.0 },
-            .corner_radius = layout.CornerRadius.all(6.0),
-        },
+        .style = tw.style(.{ tw.w_full, tw.h(180.0), tw.bg(.{ 0.06, 0.07, 0.10, 1.0 }), tw.rounded(6.0) }),
         .background_color = .{ 0.06, 0.07, 0.10, 1.0 },
         .bare = true,
         .enable_pan = false,
@@ -654,12 +638,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .state = @constCast(&state.spectrum_state),
         .on_change = lib.bindTag(AppMessage, PlotMsg, .waveform_msg),
     }, .{
-        .style = .{
-            .width = .Full,
-            .height = .{ .exact = 140.0 },
-            .background_color = .{ 0.06, 0.07, 0.10, 1.0 },
-            .corner_radius = layout.CornerRadius.all(6.0),
-        },
+        .style = tw.style(.{ tw.w_full, tw.h(140.0), tw.bg(.{ 0.06, 0.07, 0.10, 1.0 }), tw.rounded(6.0) }),
         .background_color = .{ 0.06, 0.07, 0.10, 1.0 },
         .bare = true,
         .enable_pan = false,
@@ -699,13 +678,10 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         try formatTime(arena, state.cursor_seconds),
         try formatTime(arena, state.duration_seconds),
     });
-    const time_text = try ui.text(.{
+    const time_text = try ux.text(.{
         .content = time_str,
         .font = font,
-        .style = .{
-            .font_size = 12,
-            .text_color = .{ 0.7, 0.75, 0.85, 1.0 },
-        },
+        .class = .{ tw.text_xs, tw.text_color(.{ 0.7, 0.75, 0.85, 1.0 }) },
     });
 
     const playing = if (state.playback_id) |pid|
@@ -718,25 +694,21 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     const play_label = if (playing) "Pause" else "Play";
     const play_btn = try makeButton(ui, font, NodeIds.play_btn, play_label, .{ .toggle_play = {} });
     const stop_btn = try makeButton(ui, font, NodeIds.stop_btn, "Stop", .{ .stop = {} });
-    const transport_row = try ui.div(.{
-        .style = .{
-            .direction = .Row,
-            .gap = 8.0,
-            .margin = .{ .top = 8 },
-        },
-        .children = &.{ play_btn, stop_btn },
+    const transport_row = try ux.div(.{
+        .class = .{ tw.flex_row, tw.gap(2), tw.mt(2) },
+        .children = .{ play_btn, stop_btn },
     });
 
-    const main_pane = try ui.div(.{
-        .style = .{
-            .flex_grow = 1.0,
-            .height = .Full,
-            .direction = .Column,
-            .gap = 12.0,
-            .padding = .all(20.0),
-            .background_color = .{ 0.07, 0.08, 0.11, 1.0 },
+    const main_pane = try ux.div(.{
+        .class = .{
+            tw.grow_1,
+            tw.h_full,
+            tw.flex_col,
+            tw.gap_px(12.0),
+            tw.p_px(20.0),
+            tw.bg(.{ 0.07, 0.08, 0.11, 1.0 }),
         },
-        .children = &.{
+        .children = .{
             title_text,
             wave_plot,
             spectrum_plot,
@@ -747,13 +719,9 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         },
     });
 
-    return ui.div(.{
-        .style = .{
-            .width = .screen,
-            .height = .screen,
-            .direction = .Row,
-        },
-        .children = &.{ sidebar, main_pane },
+    return ux.div(.{
+        .class = .{ tw.size_screen, tw.flex_row },
+        .children = .{ sidebar, main_pane },
     });
 }
 
@@ -764,6 +732,7 @@ fn buildVizControls(
 ) anyerror!*AppNode {
     const arena = ui.build_arena.allocator();
     const builder = comp.Builder(AppMessage){ .ui = ui };
+    const ux = uix.builder(AppMessage, ui);
 
     const mirror_idx: usize = switch (state.mirror_mode) {
         .none => 0,
@@ -828,27 +797,28 @@ fn buildVizControls(
         lib.bindTag(AppMessage, f32, .bar_gap_change),
     );
 
-    return ui.div(.{
-        .style = .{
-            .direction = .Column,
-            .gap = 8.0,
-            .margin = .{ .top = 12 },
-            .padding = .{ .top = 12, .bottom = 4, .left = 0, .right = 0 },
-            .border = .{ .top = .{ .width = 1, .color = .{ 0.18, 0.20, 0.26, 1.0 } } },
-        },
-        .children = &.{
-            try ui.text(.{
+    return ux.div(.{
+        .style = tw.style(.{
+            tw.flex_col,
+            tw.gap(2),
+            tw.mt(3),
+            tw.pt(3),
+            tw.pb(1),
+            tw.border_t(1, .{ 0.18, 0.20, 0.26, 1.0 }),
+        }),
+        .children = .{
+            try ux.text(.{
                 .content = "spectrum",
                 .font = font,
-                .style = .{ .text_color = .{ 0.7, 0.75, 0.85, 1.0 }, .font_size = 12 },
+                .class = .{ tw.text_color(.{ 0.7, 0.75, 0.85, 1.0 }), tw.text_xs },
             }),
-            try ui.div(.{
-                .style = .{ .direction = .Row, .align_items = .Center, .gap = 10.0 },
-                .children = &.{
-                    try ui.text(.{
+            try ux.div(.{
+                .class = .{ tw.flex_row, tw.items_center, tw.gap_px(10.0) },
+                .children = .{
+                    try ux.text(.{
                         .content = "mirror",
                         .font = font,
-                        .style = .{ .text_color = .{ 0.78, 0.83, 0.92, 1.0 }, .font_size = 12 },
+                        .class = .{ tw.text_color(.{ 0.78, 0.83, 0.92, 1.0 }), tw.text_xs },
                     }),
                     mirror_dd,
                 },
@@ -870,6 +840,7 @@ fn labeledSlider(
     cb: *const fn (f32, ?*const anyopaque) AppMessage,
 ) anyerror!*AppNode {
     const builder = comp.Builder(AppMessage){ .ui = ui };
+    const ux = uix.builder(AppMessage, ui);
     const slider_node = try builder.slider(.{
         .base_id = id,
         .value = value,
@@ -882,25 +853,17 @@ fn labeledSlider(
             .background_color = .{ 0.95, 0.97, 1.0, 1.0 },
         } },
     });
-    return ui.div(.{
-        .style = .{
-            .direction = .Row,
-            .align_items = .Center,
-            .gap = 10.0,
-        },
-        .children = &.{
-            try ui.text(.{
+    return ux.div(.{
+        .class = .{ tw.flex_row, tw.items_center, tw.gap_px(10.0) },
+        .children = .{
+            try ux.text(.{
                 .content = label_text,
                 .font = font,
-                .style = .{
-                    .text_color = .{ 0.78, 0.83, 0.92, 1.0 },
-                    .font_size = 12,
-                    .width = .{ .exact = 160.0 },
-                },
+                .class = .{ tw.text_color(.{ 0.78, 0.83, 0.92, 1.0 }), tw.text_xs, tw.w(160.0) },
             }),
-            try ui.div(.{
-                .style = .{ .flex_grow = 1.0 },
-                .children = &.{slider_node},
+            try ux.div(.{
+                .class = tw.grow_1,
+                .children = .{slider_node},
             }),
         },
     });
@@ -923,23 +886,25 @@ fn makeButton(
     label: []const u8,
     msg: AppMessage,
 ) anyerror!*AppNode {
-    return ui.div(.{
+    const ux = uix.builder(AppMessage, ui);
+    return ux.div(.{
         .id = id,
-        .style = .{
-            .padding = .{ .left = 14, .right = 14, .top = 8, .bottom = 8 },
-            .background_color = .{ 0.16, 0.18, 0.24, 1.0 },
-            .corner_radius = layout.CornerRadius.all(4.0),
-            .border = layout.Border.all(1.0, .{ 0.28, 0.33, 0.44, 1.0 }),
-            .cursor = .pointer,
-            .hover_color = .{ 0.20, 0.23, 0.30, 1.0 },
-            .transition = layout.TransitionStyle.forColors(80),
+        .class = .{
+            tw.px(3.5),
+            tw.py(2),
+            tw.bg(.{ 0.16, 0.18, 0.24, 1.0 }),
+            tw.rounded(4.0),
+            tw.border(1.0, .{ 0.28, 0.33, 0.44, 1.0 }),
+            tw.cursor_pointer,
+            tw.hover(.{ 0.20, 0.23, 0.30, 1.0 }),
+            tw.transition_colors(80),
         },
-        .events = &.{.{ .event = .click, .msg = msg }},
-        .children = &.{
-            try ui.text(.{
+        .on_click = msg,
+        .children = .{
+            try ux.text(.{
                 .content = label,
                 .font = font,
-                .style = .{ .text_color = .{ 0.95, 0.97, 1.0, 1.0 }, .pointer_events = .none },
+                .class = .{ tw.text_color(.{ 0.95, 0.97, 1.0, 1.0 }), tw.pointer_events_none },
             }),
         },
     });
@@ -950,18 +915,19 @@ fn buildRowContent(ctx: *AppUIContext, item: comp.TreeItem, userdata: ?*const an
     const found = findItemById(state.library.items, item.id);
     const label = if (found) |it| it.label else item.id;
     const is_group = if (found) |it| it.is_group else false;
-    return ctx.text(.{
+    const ux = uix.builder(AppMessage, ctx);
+    return ux.text(.{
         .content = label,
         .font = state.font_data,
-        .style = .{
-            .pointer_events = .none,
-            .text_color = if (item.is_selected)
+        .class = .{
+            tw.pointer_events_none,
+            tw.text_color(if (item.is_selected)
                 .{ 1.0, 1.0, 1.0, 1.0 }
             else if (is_group)
                 .{ 0.78, 0.83, 0.92, 1.0 }
             else
-                .{ 0.88, 0.91, 0.96, 1.0 },
-            .font_size = if (is_group) @as(f32, 13) else @as(f32, 12),
+                .{ 0.88, 0.91, 0.96, 1.0 }),
+            tw.text(if (is_group) @as(f32, 13) else @as(f32, 12)),
         },
     });
 }
