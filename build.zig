@@ -24,6 +24,7 @@ pub fn build(b: *std.Build) void {
     const build_options = b.addOptions();
     build_options.addOption(bool, "devtools", devtools_enabled);
     const build_options_module = build_options.createModule();
+    var ffmpeg_bin_install: ?*std.Build.Step.InstallDir = null;
 
     // Dependencies
     const zglfw_dep = b.dependency("zglfw", .{ .target = target, .optimize = optimize });
@@ -43,7 +44,7 @@ pub fn build(b: *std.Build) void {
     const tracy_impl_module = if (tracy_enabled) tracy_dep.module("tracy_impl_enabled") else tracy_dep.module("tracy_impl_disabled");
 
     // Core Library Module
-    const mod_2d = b.addModule("ramiel", .{
+    const ramiel_mod = b.addModule("ramiel", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
@@ -51,43 +52,43 @@ pub fn build(b: *std.Build) void {
         .link_libcpp = true,
     });
 
-    if (is_windows) applyWindowsCImportWorkarounds(mod_2d);
+    if (is_windows) applyWindowsCImportWorkarounds(ramiel_mod);
 
-    mod_2d.addImport("glfw", glfw_mod);
-    mod_2d.addImport("vk", vk_proto);
-    mod_2d.addImport("nfd", nfd_mod);
-    mod_2d.addImport("tracy", tracy_dep.module("tracy"));
-    mod_2d.addImport("tracy_impl", tracy_impl_module);
-    mod_2d.addImport("build_options", build_options_module);
+    ramiel_mod.addImport("glfw", glfw_mod);
+    ramiel_mod.addImport("vk", vk_proto);
+    ramiel_mod.addImport("nfd", nfd_mod);
+    ramiel_mod.addImport("tracy", tracy_dep.module("tracy"));
+    ramiel_mod.addImport("tracy_impl", tracy_impl_module);
+    ramiel_mod.addImport("build_options", build_options_module);
 
-    mod_2d.linkLibrary(glfw_c_dep.artifact("glfw"));
-    mod_2d.linkLibrary(harfbuzz_dep.artifact("harfbuzz"));
-    mod_2d.linkLibrary(freetype_dep.artifact("freetype"));
+    ramiel_mod.linkLibrary(glfw_c_dep.artifact("glfw"));
+    ramiel_mod.linkLibrary(harfbuzz_dep.artifact("harfbuzz"));
+    ramiel_mod.linkLibrary(freetype_dep.artifact("freetype"));
 
     if (is_windows) {
-        mod_2d.linkSystemLibrary("user32", .{});
-        mod_2d.linkSystemLibrary("dwmapi", .{});
-        mod_2d.linkSystemLibrary("d3d11", .{});
-        mod_2d.linkSystemLibrary("dxgi", .{});
-        mod_2d.linkSystemLibrary("dcomp", .{});
-        mod_2d.addCSourceFile(.{
+        ramiel_mod.linkSystemLibrary("user32", .{});
+        ramiel_mod.linkSystemLibrary("dwmapi", .{});
+        ramiel_mod.linkSystemLibrary("d3d11", .{});
+        ramiel_mod.linkSystemLibrary("dxgi", .{});
+        ramiel_mod.linkSystemLibrary("dcomp", .{});
+        ramiel_mod.addCSourceFile(.{
             .file = b.path("src/window/dxgi_overlay.cpp"),
             .flags = &[_][]const u8{"-std=c++17"},
         });
     }
 
     // Third-party Includes & Sources
-    mod_2d.addSystemIncludePath(b.path("src/thirdparty/vma"));
-    mod_2d.addCSourceFile(.{ .file = b.path("src/thirdparty/vma/vma.cpp"), .flags = &[_][]const u8{ "-std=c++17", "-fno-exceptions", "-fno-rtti" } });
+    ramiel_mod.addSystemIncludePath(b.path("src/thirdparty/vma"));
+    ramiel_mod.addCSourceFile(.{ .file = b.path("src/thirdparty/vma/vma.cpp"), .flags = &[_][]const u8{ "-std=c++17", "-fno-exceptions", "-fno-rtti" } });
 
-    mod_2d.addSystemIncludePath(b.path("src/thirdparty/stb_image"));
-    mod_2d.addCSourceFile(.{ .file = b.path("src/thirdparty/stb_image/stb_image.cpp"), .flags = &[_][]const u8{ "-std=c++17", "-fno-sanitize=alignment" } });
+    ramiel_mod.addSystemIncludePath(b.path("src/thirdparty/stb_image"));
+    ramiel_mod.addCSourceFile(.{ .file = b.path("src/thirdparty/stb_image/stb_image.cpp"), .flags = &[_][]const u8{ "-std=c++17", "-fno-sanitize=alignment" } });
 
-    mod_2d.addSystemIncludePath(b.path("src/thirdparty/nanosvg"));
-    mod_2d.addCSourceFile(.{ .file = b.path("src/thirdparty/nanosvg/nanosvg_impl.c"), .flags = &[_][]const u8{"-std=c99"} });
+    ramiel_mod.addSystemIncludePath(b.path("src/thirdparty/nanosvg"));
+    ramiel_mod.addCSourceFile(.{ .file = b.path("src/thirdparty/nanosvg/nanosvg_impl.c"), .flags = &[_][]const u8{"-std=c99"} });
 
-    mod_2d.addSystemIncludePath(b.path("src/thirdparty/miniaudio"));
-    mod_2d.addCSourceFile(.{ .file = b.path("src/thirdparty/miniaudio/miniaudio_impl.c"), .flags = &[_][]const u8{ "-std=c99", "-O3", "-fno-sanitize=undefined" } });
+    ramiel_mod.addSystemIncludePath(b.path("src/thirdparty/miniaudio"));
+    ramiel_mod.addCSourceFile(.{ .file = b.path("src/thirdparty/miniaudio/miniaudio_impl.c"), .flags = &[_][]const u8{ "-std=c99", "-O3", "-fno-sanitize=undefined" } });
 
     // FFmpeg Integration
     const ffmpeg_base_path = switch (target.result.os.tag) {
@@ -95,40 +96,63 @@ pub fn build(b: *std.Build) void {
         .linux => "src/thirdparty/ffmpeg_linux_x64",
         else => @panic("Unsupported OS for FFmpeg integration"),
     };
-    mod_2d.addSystemIncludePath(b.path(b.fmt("{s}/include", .{ffmpeg_base_path})));
-    mod_2d.addLibraryPath(b.path(b.fmt("{s}/lib", .{ffmpeg_base_path})));
-    mod_2d.linkSystemLibrary("avcodec", .{ .use_pkg_config = .no });
-    mod_2d.linkSystemLibrary("avformat", .{ .use_pkg_config = .no });
-    mod_2d.linkSystemLibrary("avutil", .{ .use_pkg_config = .no });
-    mod_2d.linkSystemLibrary("swresample", .{ .use_pkg_config = .no });
+    ramiel_mod.addSystemIncludePath(b.path(b.fmt("{s}/include", .{ffmpeg_base_path})));
+    ramiel_mod.addLibraryPath(b.path(b.fmt("{s}/lib", .{ffmpeg_base_path})));
+    ramiel_mod.linkSystemLibrary("avcodec", .{ .use_pkg_config = .no });
+    ramiel_mod.linkSystemLibrary("avformat", .{ .use_pkg_config = .no });
+    ramiel_mod.linkSystemLibrary("avutil", .{ .use_pkg_config = .no });
+    ramiel_mod.linkSystemLibrary("swresample", .{ .use_pkg_config = .no });
 
     switch (target.result.os.tag) {
         .macos => {
-            mod_2d.linkFramework("CoreAudio", .{});
-            mod_2d.linkFramework("AudioToolbox", .{});
-            mod_2d.linkFramework("CoreFoundation", .{});
+            ramiel_mod.linkFramework("CoreAudio", .{});
+            ramiel_mod.linkFramework("AudioToolbox", .{});
+            ramiel_mod.linkFramework("CoreFoundation", .{});
         },
         .linux => {
-            mod_2d.linkSystemLibrary("pthread", .{});
-            mod_2d.linkSystemLibrary("m", .{});
-            mod_2d.linkSystemLibrary("dl", .{});
+            ramiel_mod.linkSystemLibrary("pthread", .{});
+            ramiel_mod.linkSystemLibrary("m", .{});
+            ramiel_mod.linkSystemLibrary("dl", .{});
         },
         .windows => {
-            mod_2d.linkSystemLibrary("bcrypt", .{});
-            mod_2d.linkSystemLibrary("secur32", .{});
-            mod_2d.linkSystemLibrary("ws2_32", .{});
-            b.installDirectory(.{
+            ramiel_mod.linkSystemLibrary("bcrypt", .{});
+            ramiel_mod.linkSystemLibrary("secur32", .{});
+            ramiel_mod.linkSystemLibrary("ws2_32", .{});
+            const install_ffmpeg_bin = b.addInstallDirectory(.{
                 .source_dir = b.path(b.fmt("{s}/bin", .{ffmpeg_base_path})),
                 .install_dir = .bin,
                 .install_subdir = "",
             });
+            b.getInstallStep().dependOn(&install_ffmpeg_bin.step);
+            ffmpeg_bin_install = install_ffmpeg_bin;
         },
         else => {},
     }
 
+    const bindRunEnvironment = struct {
+        fn apply(
+            builder: *std.Build,
+            run_cmd: *std.Build.Step.Run,
+            ffmpeg_install: ?*std.Build.Step.InstallDir,
+            is_win: bool,
+        ) void {
+            if (!is_win) return;
+            const install = ffmpeg_install orelse return;
+            run_cmd.step.dependOn(&install.step);
+
+            const env = run_cmd.getEnvMap();
+            const current_path = env.get("PATH") orelse "";
+            const install_bin = builder.getInstallPath(.bin, "");
+            env.put(
+                "PATH",
+                builder.fmt("{s}{c}{s}", .{ install_bin, std.fs.path.delimiter, current_path }),
+            ) catch @panic("OOM");
+        }
+    }.apply;
+
     // MSDFGen Integration
     const msdf_flags = &[_][]const u8{ "-std=c++17", "-DMSDFGEN_USE_CPP11", "-DMSDFGEN_PUBLIC=", "-DMSDFGEN_EXT_PUBLIC=", "-DMSDFGEN_EXTENSIONS", "-DMSDFGEN_DISABLE_SVG", "-DMSDFGEN_DISABLE_PNG" };
-    mod_2d.addSystemIncludePath(msdfgen_dep.path(""));
+    ramiel_mod.addSystemIncludePath(msdfgen_dep.path(""));
 
     const msdf_core_sources = [_][]const u8{
         "core/contour-combiners.cpp",    "core/Contour.cpp",               "core/convergent-curve-ordering.cpp",
@@ -140,9 +164,9 @@ pub fn build(b: *std.Build) void {
         "core/save-rgba.cpp",            "core/save-tiff.cpp",             "core/Scanline.cpp",
         "core/sdf-error-estimation.cpp", "core/shape-description.cpp",     "core/Shape.cpp",
     };
-    for (msdf_core_sources) |src| mod_2d.addCSourceFile(.{ .file = msdfgen_dep.path(src), .flags = msdf_flags });
-    mod_2d.addCSourceFile(.{ .file = msdfgen_dep.path("ext/import-font.cpp"), .flags = msdf_flags });
-    mod_2d.addCSourceFile(.{ .file = b.path("src/renderer/font/msdf_bridge.cpp"), .flags = msdf_flags });
+    for (msdf_core_sources) |src| ramiel_mod.addCSourceFile(.{ .file = msdfgen_dep.path(src), .flags = msdf_flags });
+    ramiel_mod.addCSourceFile(.{ .file = msdfgen_dep.path("ext/import-font.cpp"), .flags = msdf_flags });
+    ramiel_mod.addCSourceFile(.{ .file = b.path("src/renderer/font/msdf_bridge.cpp"), .flags = msdf_flags });
 
     // Shader Compilation
     const shader_compile_step = b.step("shaders", "Compile Vulkan shaders");
@@ -217,11 +241,12 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize }),
     });
     main_exe.step.dependOn(shader_compile_step);
-    bindExecutableConfig(main_exe, mod_2d, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = false, .shell = false });
+    bindExecutableConfig(main_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = false, .shell = false });
     b.installArtifact(main_exe);
 
     const run_cmd = b.addRunArtifact(main_exe);
     run_cmd.step.dependOn(b.getInstallStep());
+    bindRunEnvironment(b, run_cmd, ffmpeg_bin_install, is_windows);
     if (b.args) |args| run_cmd.addArgs(args);
     b.step("run", "Run the app").dependOn(&run_cmd.step);
 
@@ -230,7 +255,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize }),
     });
     main_exe_check.step.dependOn(shader_compile_step);
-    bindExecutableConfig(main_exe_check, mod_2d, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = false, .shell = false });
+    bindExecutableConfig(main_exe_check, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = false, .shell = false });
     check_step.dependOn(&main_exe_check.step);
 
     // Target Generation
@@ -256,7 +281,7 @@ pub fn build(b: *std.Build) void {
             .root_module = b.createModule(.{ .root_source_file = b.path(ex.path), .target = target, .optimize = optimize }),
         });
         ex_check.step.dependOn(shader_compile_step);
-        bindExecutableConfig(ex_check, mod_2d, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
+        bindExecutableConfig(ex_check, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
         check_step.dependOn(&ex_check.step);
 
         // Standard Artifact Step
@@ -265,10 +290,11 @@ pub fn build(b: *std.Build) void {
             .root_module = b.createModule(.{ .root_source_file = b.path(ex.path), .target = target, .optimize = optimize }),
         });
         ex_exe.step.dependOn(shader_compile_step);
-        bindExecutableConfig(ex_exe, mod_2d, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
+        bindExecutableConfig(ex_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
         b.installArtifact(ex_exe);
 
         const run_ex_cmd = b.addRunArtifact(ex_exe);
+        bindRunEnvironment(b, run_ex_cmd, ffmpeg_bin_install, is_windows);
         b.step(b.fmt("run-{s}", .{std.mem.replaceOwned(u8, b.allocator, ex.name, "_", "-") catch @panic("OOM")}), b.fmt("Run the {s} example", .{ex.name})).dependOn(&run_ex_cmd.step);
     }
 
@@ -282,7 +308,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     reconcile_traverse_bench.root_module.addImport("zbench", zbench_dep.module("zbench"));
-    reconcile_traverse_bench.root_module.addImport("ramiel", mod_2d);
+    reconcile_traverse_bench.root_module.addImport("ramiel", ramiel_mod);
 
     const run_bench = b.addRunArtifact(reconcile_traverse_bench);
     if (b.args) |args| run_bench.addArgs(args);
@@ -291,7 +317,7 @@ pub fn build(b: *std.Build) void {
     bench_step.dependOn(&run_bench.step);
 
     // Testing
-    const mod_tests = b.addTest(.{ .root_module = mod_2d });
+    const mod_tests = b.addTest(.{ .root_module = ramiel_mod });
     mod_tests.step.dependOn(shader_compile_step);
     const run_mod_tests = b.addRunArtifact(mod_tests);
 
