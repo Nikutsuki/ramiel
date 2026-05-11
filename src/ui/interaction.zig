@@ -25,6 +25,14 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
         hovered_node: ?*Node(MessageT) = null,
 
+        /// Cursor-containment chain from root → deepest hovered node, captured each
+        /// frame. Used to fire hover_enter/hover_exit on every node that gained or
+        /// lost containment, not only the deepest hit. Without this, an inner div
+        /// with `tw.hover` (sets hover_color, hit-claims) silently steals events
+        /// from an ancestor that owns the actual on_hover_enter binding.
+        hover_chain: std.ArrayList(*Node(MessageT)) = .empty,
+        prev_hover_chain: std.ArrayList(*Node(MessageT)) = .empty,
+
         mouse_x: f64 = 0.0,
         mouse_y: f64 = 0.0,
         mouse_mods: i32 = 0,
@@ -32,6 +40,9 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         previous_mouse_down: bool = false,
         mouse_just_pressed: bool = false,
         mouse_just_released: bool = false,
+        previous_right_down: bool = false,
+        right_just_released: bool = false,
+        click_press_target: ?*Node(MessageT) = null,
         is_dragging: bool = false,
         scroll_delta_x: f32 = 0.0,
         scroll_delta_y: f32 = 0.0,
@@ -303,6 +314,8 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             destroyResidualMessages(MessageT, self.allocator, self.external_queue.items);
             self.message_queue.deinit(self.allocator);
             self.external_queue.deinit(self.allocator);
+            self.hover_chain.deinit(self.allocator);
+            self.prev_hover_chain.deinit(self.allocator);
         }
 
         pub fn requestFocus(self: *Self, id: NodeId) void {
@@ -345,6 +358,8 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
         pub fn resetForNewTree(self: *Self) void {
             self.hovered_node = null;
+            self.hover_chain.clearRetainingCapacity();
+            self.prev_hover_chain.clearRetainingCapacity();
             self.active_drag_node = null;
             self.active_drag_axis = .None;
             self.active_drag_has_moved = false;
@@ -362,6 +377,78 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             self.external_mutex.lockUncancelable(std.Options.debug_io);
             self.external_queue.clearRetainingCapacity();
             self.external_mutex.unlock(std.Options.debug_io);
+        }
+
+        fn swapHoverChains(self: *Self) void {
+            const tmp = self.prev_hover_chain;
+            self.prev_hover_chain = self.hover_chain;
+            self.hover_chain = tmp;
+        }
+
+        fn cursorInsideNode(self: *const Self, node: *Node(MessageT)) bool {
+            const rect = node.getTransformedRect();
+            const x: f32 = @floatCast(self.mouse_x);
+            const y: f32 = @floatCast(self.mouse_y);
+            return x >= rect.x and x <= rect.x + rect.width and
+                y >= rect.y and y <= rect.y + rect.height;
+        }
+
+        /// Walk parents from the hit upward; collect every ancestor whose bounds
+        /// contain the cursor. The chain is appended in reverse (deepest first), then
+        /// reversed so it reads root → hit. Cursor-containment is rechecked per
+        /// ancestor so transformed/clipped intermediates don't accidentally appear.
+        fn buildHoverChainFromHit(self: *Self, hit: *Node(MessageT)) void {
+            self.hover_chain.append(self.allocator, hit) catch return;
+            var cur: ?*Node(MessageT) = hit.parent;
+            while (cur) |node| {
+                if (self.cursorInsideNode(node)) {
+                    self.hover_chain.append(self.allocator, node) catch return;
+                }
+                cur = node.parent;
+            }
+            std.mem.reverse(*Node(MessageT), self.hover_chain.items);
+        }
+
+        fn chainContains(chain: []const *Node(MessageT), node: *Node(MessageT)) bool {
+            for (chain) |n| {
+                if (n == node) return true;
+            }
+            return false;
+        }
+
+        /// Diff prev vs current chain. Nodes that left fire hover_exit (and lose
+        /// is_hovered + animate blend out). Nodes that entered fire hover_enter
+        /// (gain is_hovered + animate blend in). Order: exits (deepest first) then
+        /// enters (root first), matching standard DOM hover semantics.
+        fn diffHoverChain(self: *Self, current_time: f64) void {
+            // Exits: deepest first. Iterate prev in reverse.
+            var i: usize = self.prev_hover_chain.items.len;
+            while (i > 0) {
+                i -= 1;
+                const node = self.prev_hover_chain.items[i];
+                if (chainContains(self.hover_chain.items, node)) continue;
+                node.is_hovered = false;
+                if (node.style.hover_color != null) {
+                    self.paint_requested = true;
+                    self.onHoverChanged(node, 0.0, current_time);
+                }
+                if (node.hasEventBinding(.hover_exit)) {
+                    self.dispatchNodeEvent(node, .hover_exit, .none);
+                }
+            }
+
+            // Enters: root first.
+            for (self.hover_chain.items) |node| {
+                if (chainContains(self.prev_hover_chain.items, node)) continue;
+                node.is_hovered = true;
+                if (node.style.hover_color != null) {
+                    self.paint_requested = true;
+                    self.onHoverChanged(node, 1.0, current_time);
+                }
+                if (node.hasEventBinding(.hover_enter)) {
+                    self.dispatchNodeEvent(node, .hover_enter, .none);
+                }
+            }
         }
 
         fn dispatchNodeEvent(self: *Self, node: *Node(MessageT), event_type: types.EventType, data: EventData) void {
@@ -413,6 +500,10 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             self.is_dragging = current_mouse_down;
 
             self.previous_mouse_down = current_mouse_down;
+
+            const current_right_down = win.isMouseButtonDown(glfw.MouseButtonRight);
+            self.right_just_released = !current_right_down and self.previous_right_down;
+            self.previous_right_down = current_right_down;
         }
 
         pub fn processInteractions(self: *Self, root: *Node(MessageT), win: *WindowContext, current_time: f64) void {
@@ -428,7 +519,6 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                 }
             }
 
-            const previous_hover = self.hovered_node;
             self.hovered_node = null;
 
             const mouse_is_down = self.previous_mouse_down;
@@ -518,28 +608,18 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                 _ = self.hitTest(root);
             }
 
-            if (previous_hover != self.hovered_node) {
-                if (previous_hover) |prev| {
-                    prev.is_hovered = false;
-                    if (prev.style.hover_color != null) {
-                        self.paint_requested = true;
-                        self.onHoverChanged(prev, 0.0, current_time);
-                    }
-                    if (prev.hasEventBinding(.hover_exit)) {
-                        self.dispatchNodeEvent(prev, .hover_exit, .none);
-                    }
-                }
-                if (self.hovered_node) |node| {
-                    node.is_hovered = true;
-                    if (node.style.hover_color != null) {
-                        self.paint_requested = true;
-                        self.onHoverChanged(node, 1.0, current_time);
-                    }
-                    if (node.hasEventBinding(.hover_enter)) {
-                        self.dispatchNodeEvent(node, .hover_enter, .none);
-                    }
-                }
+            // Build current hover chain: walk parents from hovered_node up to root,
+            // include every ancestor whose bounds contain the cursor. Then diff against
+            // last frame to fire hover_enter/hover_exit on every gained/lost node.
+            // This decouples event dispatch from the deepest-wins hit-test claim, so
+            // an inner div with `tw.hover` no longer steals events from an ancestor
+            // that owns the actual hover_enter/hover_exit binding.
+            self.swapHoverChains();
+            self.hover_chain.clearRetainingCapacity();
+            if (self.hovered_node) |hit| {
+                self.buildHoverChainFromHit(hit);
             }
+            self.diffHoverChain(current_time);
 
             if (self.hovered_node) |hovered| {
                 if (hovered.hasEventBinding(.pointer_move)) {
@@ -632,20 +712,10 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                         }
                     }
 
-                    var click_target: ?*Node(MessageT) = target;
-                    while (click_target) |n| {
-                        if (n.hasEventBinding(.click)) {
-                            const idx = self.resolveSpatialIndex(n);
-                            self.dispatchNodeEvent(n, .click, .{ .mouse = .{
-                                .x = @floatCast(self.mouse_x),
-                                .y = @floatCast(self.mouse_y),
-                                .mods = self.mouse_mods,
-                                .cursor_index = idx,
-                            } });
-                            break;
-                        }
-                        click_target = n.parent;
-                    }
+                    // Remember the press target so click is dispatched on release
+                    // only if (a) the release lands on the same node and (b) no drag
+                    // was registered between press and release.
+                    self.click_press_target = target;
                 } else {
                     if (self.focused_node) |prev_focus| {
                         prev_focus.is_focused = false;
@@ -705,6 +775,50 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                             break;
                         }
                         up_target = n.parent;
+                    }
+                }
+            }
+
+            // Dispatch click on release if it landed on the same node we pressed
+            // and no drag motion was detected. This is what callers usually mean by
+            // "click" and lets nodes carry both .on_click and .on_drag without the
+            // click firing on every drag attempt.
+            if (self.mouse_just_released) {
+                const pressed = self.click_press_target;
+                self.click_press_target = null;
+                if (pressed) |press_node| {
+                    if (!self.active_drag_has_moved and self.hovered_node != null) {
+                        var click_target: ?*Node(MessageT) = press_node;
+                        while (click_target) |n| {
+                            if (n.hasEventBinding(.click)) {
+                                const idx = self.resolveSpatialIndex(n);
+                                self.dispatchNodeEvent(n, .click, .{ .mouse = .{
+                                    .x = @floatCast(self.mouse_x),
+                                    .y = @floatCast(self.mouse_y),
+                                    .mods = self.mouse_mods,
+                                    .cursor_index = idx,
+                                } });
+                                break;
+                            }
+                            click_target = n.parent;
+                        }
+                    }
+                }
+            }
+
+            if (self.right_just_released) {
+                if (self.hovered_node) |target| {
+                    var ctx_target: ?*Node(MessageT) = target;
+                    while (ctx_target) |n| {
+                        if (n.hasEventBinding(.context_menu)) {
+                            self.dispatchNodeEvent(n, .context_menu, .{ .mouse = .{
+                                .x = @floatCast(self.mouse_x),
+                                .y = @floatCast(self.mouse_y),
+                                .mods = self.mouse_mods,
+                            } });
+                            break;
+                        }
+                        ctx_target = n.parent;
                     }
                 }
             }
@@ -773,7 +887,17 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                     }
                 }
             }
-            return resolved;
+
+            // The cache may be holding placeholder metrics (when a text input's
+            // buffer is empty). Clamp the resolved index to the actual buffer
+            // length so callers don't store cursor positions past the end and
+            // crash later in delete/range arithmetic.
+            const buf_len: usize = switch (tn.payload) {
+                .text_input => tn.payload.text_input.buffer.items.len,
+                .text_area => tn.payload.text_area.buffer.items.len,
+                else => return resolved,
+            };
+            return @min(resolved, buf_len);
         }
 
         fn findTextNode(self: *Self, node: *Node(MessageT)) ?*Node(MessageT) {
@@ -787,12 +911,20 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         fn deleteSelectedRange(self: *Self, node: *Node(MessageT)) bool {
             const edit = editableTextRef(node) orelse return false;
 
-            const anchor = edit.selection_anchor.* orelse return false;
-            const start = @min(anchor, edit.cursor_index.*);
-            const end = @max(anchor, edit.cursor_index.*);
+            const anchor_raw = edit.selection_anchor.* orelse return false;
+            const buf_len = edit.buffer.items.len;
+            // The cursor / selection anchor can be advanced past the buffer when
+            // a placeholder is being rendered (its glyph metrics let click
+            // hit-tests pick a position beyond `buffer.items.len`). Clamp before
+            // computing the slice arithmetic to avoid integer underflow.
+            const anchor = @min(anchor_raw, buf_len);
+            const cursor = @min(edit.cursor_index.*, buf_len);
+            const start = @min(anchor, cursor);
+            const end = @max(anchor, cursor);
 
             if (start == end) {
                 edit.selection_anchor.* = null;
+                edit.cursor_index.* = cursor;
                 return false;
             }
 
@@ -1499,6 +1631,99 @@ test "hitTest: higher z-index wins over sibling insertion order" {
 
     try testing.expect(registry.hitTest(root));
     try testing.expect(registry.hovered_node == high);
+}
+
+test "hover chain: ancestor with hover_enter binding receives event when descendant claims hit via hover_color" {
+    const allocator = testing.allocator;
+    var registry = TestInteractionRegistry.init(allocator);
+    defer registry.deinit();
+
+    const root = try makeHitTestNode(allocator, .{}, 0, 0, 200, 200);
+    defer root.deinit();
+
+    const outer = try makeHitTestNode(allocator, .{}, 0, 0, 100, 100);
+    outer.events = try allocator.dupe(EventBinding(TestMessage), &.{
+        .{ .event = .hover_enter, .msg = 42 },
+        .{ .event = .hover_exit, .msg = 99 },
+    });
+
+    const inner = try makeHitTestNode(allocator, .{ .hover_color = .{ 1, 1, 1, 1 } }, 10, 10, 50, 50);
+
+    try outer.addChild(inner);
+    try root.addChild(outer);
+
+    registry.mouse_x = 30;
+    registry.mouse_y = 30;
+
+    try testing.expect(registry.hitTest(root));
+    try testing.expect(registry.hovered_node == inner);
+
+    registry.buildHoverChainFromHit(inner);
+    registry.diffHoverChain(0.0);
+
+    try testing.expectEqual(@as(usize, 1), registry.message_queue.items.len);
+    try testing.expectEqual(@as(TestMessage, 42), registry.message_queue.items[0].id);
+    try testing.expect(outer.is_hovered);
+    try testing.expect(inner.is_hovered);
+
+    // Move cursor outside both. Both should get hover_exit; outer fires its binding.
+    registry.message_queue.clearRetainingCapacity();
+    registry.mouse_x = 500;
+    registry.mouse_y = 500;
+    registry.swapHoverChains();
+    registry.hover_chain.clearRetainingCapacity();
+    registry.diffHoverChain(0.0);
+
+    try testing.expectEqual(@as(usize, 1), registry.message_queue.items.len);
+    try testing.expectEqual(@as(TestMessage, 99), registry.message_queue.items[0].id);
+    try testing.expect(!outer.is_hovered);
+    try testing.expect(!inner.is_hovered);
+}
+
+test "hover chain: cursor moves between gap and inner; outer fires no spurious enter/exit" {
+    const allocator = testing.allocator;
+    var registry = TestInteractionRegistry.init(allocator);
+    defer registry.deinit();
+
+    const root = try makeHitTestNode(allocator, .{}, 0, 0, 200, 200);
+    defer root.deinit();
+
+    const outer = try makeHitTestNode(allocator, .{}, 0, 0, 100, 100);
+    outer.events = try allocator.dupe(EventBinding(TestMessage), &.{
+        .{ .event = .hover_enter, .msg = 1 },
+        .{ .event = .hover_exit, .msg = 2 },
+    });
+
+    const inner = try makeHitTestNode(allocator, .{ .hover_color = .{ 1, 1, 1, 1 } }, 25, 25, 50, 50);
+
+    try outer.addChild(inner);
+    try root.addChild(outer);
+
+    // Frame 1: cursor inside outer's padding (gap), not inner. Hit = outer.
+    registry.mouse_x = 5;
+    registry.mouse_y = 5;
+    _ = registry.hitTest(root);
+    try testing.expect(registry.hovered_node == outer);
+    registry.buildHoverChainFromHit(registry.hovered_node.?);
+    registry.diffHoverChain(0.0);
+    try testing.expectEqual(@as(usize, 1), registry.message_queue.items.len);
+    try testing.expectEqual(@as(TestMessage, 1), registry.message_queue.items[0].id);
+
+    // Frame 2: cursor moves onto inner. Hit = inner. Outer must NOT fire enter again
+    // (it stays in chain) or fire exit (still contains cursor).
+    registry.message_queue.clearRetainingCapacity();
+    registry.swapHoverChains();
+    registry.hover_chain.clearRetainingCapacity();
+    registry.hovered_node = null;
+    registry.mouse_x = 50;
+    registry.mouse_y = 50;
+    _ = registry.hitTest(root);
+    try testing.expect(registry.hovered_node == inner);
+    registry.buildHoverChainFromHit(registry.hovered_node.?);
+    registry.diffHoverChain(0.0);
+    try testing.expectEqual(@as(usize, 0), registry.message_queue.items.len);
+    try testing.expect(outer.is_hovered);
+    try testing.expect(inner.is_hovered);
 }
 
 test "hitTest: later sibling wins when z-index ties" {
