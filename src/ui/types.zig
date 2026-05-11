@@ -39,6 +39,9 @@ pub const EventType = enum(u8) {
     text_input,
     scroll,
     pointer_move,
+    /// Right-mouse-button release over a node. Carries `EventData.mouse`
+    /// with the click position so the receiver can pop a context menu.
+    context_menu,
 };
 
 pub fn EventBinding(comptime MessageT: type) type {

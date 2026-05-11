@@ -13,6 +13,7 @@ const Canvas = @import("../renderer/canvas.zig").Canvas;
 const paint_context_mod = @import("paint_context.zig");
 const bench_prefetch = @import("bench_prefetch.zig");
 const components_module = @import("components/root.zig");
+const uix_module = @import("uix.zig");
 const theme_lib = @import("../ui/theme.zig");
 const freeEventPayloads = @import("node.zig").freeEventPayloads;
 
@@ -35,6 +36,7 @@ pub fn UIContext(comptime MessageT: type) type {
         root: *Node(MessageT),
 
         active_theme: theme_lib.Theme,
+        default_font: ?*FontData = null,
         needs_redraw: bool = true,
 
         id_map: std.AutoHashMap(NodeId, *Node(MessageT)),
@@ -111,6 +113,26 @@ pub fn UIContext(comptime MessageT: type) type {
 
         pub fn components(self: *Self) components_module.Builder(MessageT) {
             return .{ .ui = self };
+        }
+
+        pub fn ux(self: *Self) uix_module.Builder(MessageT) {
+            return uix_module.builder(MessageT, self);
+        }
+
+        pub fn scopedUx(self: *Self, comptime LocalMessageT: type, comptime parent_tag: anytype) uix_module.ScopedBuilder(MessageT, LocalMessageT, parent_tag) {
+            return uix_module.scopedBuilder(MessageT, LocalMessageT, parent_tag, self);
+        }
+
+        pub fn setDefaultFont(self: *Self, font: *FontData) void {
+            self.default_font = font;
+        }
+
+        pub fn getDefaultFont(self: *Self) ?*FontData {
+            return self.default_font;
+        }
+
+        fn resolveFont(self: *Self, font: ?*FontData) !*FontData {
+            return font orelse self.default_font orelse error.DefaultFontMissing;
         }
 
         fn registerNodeId(self: *@This(), node: *Node(MessageT), id: ?NodeId) !void {
@@ -235,7 +257,7 @@ pub fn UIContext(comptime MessageT: type) type {
             id: ?NodeId = null,
             style: Style = .{},
             content: []const u8,
-            font: *FontData,
+            font: ?*FontData = null,
             max_width: f32 = 0.0,
 
             events: []const types.EventBinding(MessageT) = &.{},
@@ -245,7 +267,7 @@ pub fn UIContext(comptime MessageT: type) type {
             id: ?NodeId = null,
             style: Style = .{},
             label: []const u8,
-            font: *FontData,
+            font: ?*FontData = null,
             label_max_width: f32 = 0.0,
             label_style: Style = .{},
 
@@ -255,9 +277,11 @@ pub fn UIContext(comptime MessageT: type) type {
         pub const TextInputDescriptor = struct {
             id: ?NodeId = null,
             style: Style = .{},
-            font: *FontData,
+            font: ?*FontData = null,
             max_width: f32 = 0.0,
             initial_text: []const u8 = "",
+            placeholder: []const u8 = "",
+            placeholder_color: ?[4]f32 = null,
 
             events: []const types.EventBinding(MessageT) = &.{},
         };
@@ -265,7 +289,7 @@ pub fn UIContext(comptime MessageT: type) type {
         pub const TextAreaDescriptor = struct {
             id: ?NodeId = null,
             style: Style = .{},
-            font: *FontData,
+            font: ?*FontData = null,
             max_width: f32 = 0.0,
             initial_text: []const u8 = "",
 
@@ -398,10 +422,12 @@ pub fn UIContext(comptime MessageT: type) type {
                 .animation = animation,
                 .start_time = self.current_time,
                 .children = desc.children,
+                .events = desc.events,
             });
         }
 
         pub fn text(self: *@This(), desc: TextDescriptor) !*Node(MessageT) {
+            const font = try self.resolveFont(desc.font);
             const node = try self.createNode();
             try self.registerNodeId(node, desc.id);
             node.style = desc.style;
@@ -411,7 +437,7 @@ pub fn UIContext(comptime MessageT: type) type {
             node.payload = .{
                 .text = .{
                     .content = try node.allocator.dupe(u8, desc.content),
-                    .font = desc.font,
+                    .font = font,
                     .max_width = desc.max_width,
                 },
             };
@@ -426,6 +452,7 @@ pub fn UIContext(comptime MessageT: type) type {
         }
 
         pub fn button(self: *@This(), desc: ButtonDescriptor) !*Node(MessageT) {
+            const font = try self.resolveFont(desc.font);
             var container_style = desc.style;
 
             if (container_style.background_color[3] == 0.0) {
@@ -458,7 +485,7 @@ pub fn UIContext(comptime MessageT: type) type {
             const label_node = try self.text(.{
                 .style = label_style,
                 .content = desc.label,
-                .font = desc.font,
+                .font = font,
                 .max_width = desc.label_max_width,
             });
 
@@ -477,6 +504,7 @@ pub fn UIContext(comptime MessageT: type) type {
         }
 
         pub fn textInput(self: *@This(), desc: TextInputDescriptor) !*Node(MessageT) {
+            const font = try self.resolveFont(desc.font);
             const node = try self.createNode();
             try self.registerNodeId(node, desc.id);
             node.style = desc.style;
@@ -488,8 +516,10 @@ pub fn UIContext(comptime MessageT: type) type {
                 .text_input = .{
                     .buffer = std.ArrayList(u8).empty,
                     .cursor_index = 0,
-                    .font = desc.font,
+                    .font = font,
                     .max_width = desc.max_width,
+                    .placeholder = desc.placeholder,
+                    .placeholder_color = desc.placeholder_color,
                 },
             };
 
@@ -502,6 +532,7 @@ pub fn UIContext(comptime MessageT: type) type {
         }
 
         pub fn textArea(self: *@This(), desc: TextAreaDescriptor) !*Node(MessageT) {
+            const font = try self.resolveFont(desc.font);
             const node = try self.createNode();
             try self.registerNodeId(node, desc.id);
             node.style = desc.style;
@@ -514,7 +545,7 @@ pub fn UIContext(comptime MessageT: type) type {
                 .text_area = .{
                     .buffer = std.ArrayList(u8).empty,
                     .cursor_index = 0,
-                    .font = desc.font,
+                    .font = font,
                     .max_width = desc.max_width,
                 },
             };
@@ -755,6 +786,8 @@ fn promoteToGPA(comptime MessageT: type, ctx: *UIContext(MessageT), desc: *Node(
                 .selection_anchor = ti.selection_anchor,
                 .font = ti.font,
                 .max_width = ti.max_width,
+                .placeholder = ti.placeholder,
+                .placeholder_color = ti.placeholder_color,
             } };
             if (ti.buffer.items.len > 0) {
                 try node.payload.text_input.buffer.appendSlice(ctx.gpa, ti.buffer.items);
@@ -913,10 +946,18 @@ fn patchPayload(comptime MessageT: type, retained: *Node(MessageT), desc: *Node(
                 const rti = &retained.payload.text_input;
                 const font_changed = rti.font != dti.font;
                 const max_width_changed = rti.max_width != dti.max_width;
+                const placeholder_changed = !std.mem.eql(u8, rti.placeholder, dti.placeholder);
                 rti.font = dti.font;
                 rti.max_width = dti.max_width;
+                rti.placeholder = dti.placeholder;
+                rti.placeholder_color = dti.placeholder_color;
                 if (font_changed or max_width_changed) {
                     retained.markSizeDirty();
+                }
+                // When the buffer is empty the layout cache holds the placeholder's
+                // glyphs; if the placeholder text itself changed we must re-shape.
+                if (placeholder_changed and rti.buffer.items.len == 0) {
+                    retained.markContentDirty();
                 }
             } else {
                 retained.payload = .{ .text_input = .{
@@ -924,6 +965,8 @@ fn patchPayload(comptime MessageT: type, retained: *Node(MessageT), desc: *Node(
                     .cursor_index = 0,
                     .font = dti.font,
                     .max_width = dti.max_width,
+                    .placeholder = dti.placeholder,
+                    .placeholder_color = dti.placeholder_color,
                 } };
                 if (dti.buffer.items.len > 0) {
                     try retained.payload.text_input.buffer.appendSlice(
@@ -1015,8 +1058,24 @@ fn clearInteractionRefsInSubtree(comptime MessageT: type, ctx: *UIContext(Messag
         ctx.interaction_registry.active_drag_node = null;
         ctx.interaction_registry.active_drag_axis = .None;
     }
+    // Hover chains (prev + current) hold raw node pointers across frames; if a
+    // hovered node is freed by reconcile, those chains would dereference freed
+    // memory in diffHoverChain. Strip the doomed pointer from both.
+    removeFromChain(MessageT, &ctx.interaction_registry.prev_hover_chain, node);
+    removeFromChain(MessageT, &ctx.interaction_registry.hover_chain, node);
     for (node.children.items) |child| {
         clearInteractionRefsInSubtree(MessageT, ctx, child);
+    }
+}
+
+fn removeFromChain(comptime MessageT: type, chain: *std.ArrayList(*Node(MessageT)), node: *Node(MessageT)) void {
+    var i: usize = 0;
+    while (i < chain.items.len) {
+        if (chain.items[i] == node) {
+            _ = chain.orderedRemove(i);
+        } else {
+            i += 1;
+        }
     }
 }
 
@@ -1229,4 +1288,18 @@ fn vec2Changed(a: [2]f32, b: [2]f32) bool {
 
 fn radiiChanged(a: [4]f32, b: [4]f32) bool {
     return a[0] != b[0] or a[1] != b[1] or a[2] != b[2] or a[3] != b[3];
+}
+
+test "text resolves explicit default font" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    try std.testing.expectError(error.DefaultFontMissing, ui.text(.{ .content = "missing" }));
+
+    var font: FontData = undefined;
+    ui.setDefaultFont(&font);
+    const node = try ui.text(.{ .content = "ok" });
+    defer node.deinit();
+
+    try std.testing.expectEqual(&font, node.payload.text.font);
 }

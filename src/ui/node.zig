@@ -65,6 +65,10 @@ pub const RenderPayload = union(enum) {
         selection_anchor: ?usize = null,
         font: *FontData,
         max_width: f32 = 0.0,
+        /// Rendered when buffer is empty. Contributes to layout (so the box keeps
+        /// its intrinsic height) and rendered in `placeholder_color`.
+        placeholder: []const u8 = "",
+        placeholder_color: ?[4]f32 = null,
     },
     text_area: struct {
         buffer: std.ArrayList(u8),
@@ -80,7 +84,7 @@ pub const RenderPayload = union(enum) {
         tint: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
         custom_params: [4]f32 = .{ 0.0, 0.0, 0.0, 0.0 },
     },
-    /// Render-time hook. userdata borrowed (must outlive frame); bump revision to repaint.
+
     custom_paint: struct {
         paint_fn: paint_context_mod.PaintFn,
         userdata: ?*const anyopaque = null,
@@ -113,8 +117,7 @@ pub fn Node(comptime MessageT: type) type {
         clip_children: bool = false,
         scroll_x: f32 = 0.0,
         scroll_y: f32 = 0.0,
-        // Last build's scroll directive. Reconcile compares to detect "build changed scroll"
-        // vs "build left default", so runtime drag/overflow scroll survives rebuilds.
+
         prev_desc_scroll_x: f32 = 0.0,
         prev_desc_scroll_y: f32 = 0.0,
 
@@ -364,6 +367,12 @@ pub fn Node(comptime MessageT: type) type {
 
         fn colorWithOpacity(color: [4]f32, opacity: f32) [4]f32 {
             return .{ color[0], color[1], color[2], std.math.clamp(color[3] * opacity, 0.0, 1.0) };
+        }
+
+        /// Used as the placeholder color when no explicit `placeholder_color` is
+        /// set on the input. Half-alpha of the active text color.
+        fn mutedFallback(color: [4]f32) [4]f32 {
+            return .{ color[0], color[1], color[2], color[3] * 0.45 };
         }
 
         pub fn render(
@@ -616,7 +625,12 @@ pub fn Node(comptime MessageT: type) type {
                         node_max_y <= view_min_y or abs_y >= view_max_y;
 
                     if (!is_offscreen) {
-                        const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
+                        const showing_placeholder = ti.buffer.items.len == 0 and ti.placeholder.len > 0;
+                        const base_color = if (showing_placeholder)
+                            (ti.placeholder_color orelse mutedFallback(self.style.text_color))
+                        else
+                            self.style.text_color;
+                        const text_color = colorWithOpacity(base_color, combined_opacity);
                         const combined_id: u32 = assets.EFFECT_MSDF_TEXT | (ti.font.atlas_tex_id & 0xFFFF);
                         const glyph_corner_radii = [4]f32{ self.style.font_weight, ti.font.sdf_padding, 0, 0 };
 

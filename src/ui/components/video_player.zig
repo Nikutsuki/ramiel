@@ -22,7 +22,7 @@ pub const CoreIcons = struct {
 pub const VideoPlayerDescriptor = struct {
     base_id: types.NodeId,
     style: Style = .{},
-    font: *FontData,
+    font: ?*FontData = null,
     controls_background_style: Style = .{
         .flex_grow = 1.0,
         .margin = .{

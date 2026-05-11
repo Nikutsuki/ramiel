@@ -39,7 +39,7 @@ const ResourceUsage = render_graph_module.ResourceUsage;
 const ResourceState = render_graph_module.ResourceState;
 
 const INITIAL_MAX_VERTICES: usize = 65536;
-const INITIAL_MAX_INDICES: usize = 98304; // 65536 * 1.5 — exact quad mesh ratio
+const INITIAL_MAX_INDICES: usize = 98304; // 65536 * 1.5 - exact quad mesh ratio
 const KAWASE_HANDLE_BASE: u32 = 10;
 const MAX_BINDLESS = Pipeline.MAX_BINDLESS_TEXTURES;
 const MAX_RENDER_PASSES = 128;

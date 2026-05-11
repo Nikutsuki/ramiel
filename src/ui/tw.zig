@@ -1,5 +1,7 @@
 const std = @import("std");
+const color_parser = @import("color.zig");
 const layout = @import("layout.zig");
+const theme_mod = @import("theme.zig");
 
 pub const Style = layout.Style;
 pub const Size = layout.Size;
@@ -27,6 +29,16 @@ pub fn apply(base: Style, partials: anytype) Style {
     return result;
 }
 
+pub fn styleTheme(tokens: theme_mod.SemanticTokens, partials: anytype) Style {
+    return applyTheme(.{}, tokens, partials);
+}
+
+pub fn applyTheme(base: Style, tokens: theme_mod.SemanticTokens, partials: anytype) Style {
+    var result = base;
+    applyThemedPartials(&result, tokens, partials);
+    return result;
+}
+
 fn applyPartials(result: *Style, partials: anytype) void {
     const info = @typeInfo(@TypeOf(partials));
     if (info == .@"struct" and info.@"struct".is_tuple) {
@@ -38,7 +50,30 @@ fn applyPartials(result: *Style, partials: anytype) void {
     }
 }
 
+fn applyThemedPartials(result: *Style, tokens: theme_mod.SemanticTokens, partials: anytype) void {
+    const info = @typeInfo(@TypeOf(partials));
+    if (info == .@"struct" and info.@"struct".is_tuple) {
+        inline for (info.@"struct".fields) |field| {
+            applyThemedPartial(result, tokens, @field(partials, field.name));
+        }
+    } else {
+        applyThemedPartial(result, tokens, partials);
+    }
+}
+
+fn applyThemedPartial(result: *Style, tokens: theme_mod.SemanticTokens, partial: anytype) void {
+    if (@TypeOf(partial) == ThemedPartial) {
+        applyThemeToken(result, tokens, partial);
+    } else {
+        applyPartial(result, partial);
+    }
+}
+
 fn applyPartial(result: *Style, partial: anytype) void {
+    if (@TypeOf(partial) == ThemedPartial) {
+        @compileError("theme-aware tw classes require active theme tokens; use uix `.class`, tw.styleTheme(tokens, ...), or tw.applyTheme(base, tokens, ...)");
+    }
+
     const PartialT = @TypeOf(partial);
     const info = @typeInfo(PartialT);
     if (info != .@"struct" or info.@"struct".is_tuple) {
@@ -51,6 +86,141 @@ fn applyPartial(result: *Style, partial: anytype) void {
         }
         @field(result, field.name) = @as(@TypeOf(@field(result, field.name)), @field(partial, field.name));
     }
+}
+
+pub const ThemeColor = enum {
+    bg_base,
+    bg_surface,
+    bg_elevated,
+    bg_subtle,
+    bg_overlay,
+    text_main,
+    text_muted,
+    text_inverse,
+    text_disabled,
+    text_accent,
+    action_default,
+    action_hover,
+    action_pressed,
+    action_disabled,
+    action_subtle,
+    action_text,
+    accent_default,
+    accent_hover,
+    accent_pressed,
+    accent_subtle,
+    accent_text,
+    secondary_default,
+    secondary_hover,
+    secondary_pressed,
+    secondary_subtle,
+    secondary_text,
+    status_success,
+    status_success_bg,
+    status_success_text,
+    status_warning,
+    status_warning_bg,
+    status_warning_text,
+    status_info,
+    status_info_bg,
+    status_info_text,
+    status_danger,
+    status_danger_bg,
+    status_danger_text,
+    border_subtle,
+    border_strong,
+    border_focus,
+};
+
+pub const ThemedProperty = enum {
+    background_color,
+    text_color,
+    hover_color,
+    border,
+    border_t,
+    border_r,
+    border_b,
+    border_l,
+    outline,
+    shadow,
+};
+
+pub const ThemedPartial = struct {
+    property: ThemedProperty,
+    token: ThemeColor,
+    width: f32 = 1.0,
+    offset: [2]f32 = .{ 0.0, 0.0 },
+    blur: f32 = 0.0,
+};
+
+pub fn bg_token(token: ThemeColor) ThemedPartial {
+    return .{ .property = .background_color, .token = token };
+}
+
+pub fn text_token(token: ThemeColor) ThemedPartial {
+    return .{ .property = .text_color, .token = token };
+}
+
+pub fn hover_token(token: ThemeColor) ThemedPartial {
+    return .{ .property = .hover_color, .token = token };
+}
+
+pub fn border_token(width: f32, token: ThemeColor) ThemedPartial {
+    return .{ .property = .border, .token = token, .width = width };
+}
+
+pub fn border_t_token(width: f32, token: ThemeColor) ThemedPartial {
+    return .{ .property = .border_t, .token = token, .width = width };
+}
+
+pub fn border_r_token(width: f32, token: ThemeColor) ThemedPartial {
+    return .{ .property = .border_r, .token = token, .width = width };
+}
+
+pub fn border_b_token(width: f32, token: ThemeColor) ThemedPartial {
+    return .{ .property = .border_b, .token = token, .width = width };
+}
+
+pub fn border_l_token(width: f32, token: ThemeColor) ThemedPartial {
+    return .{ .property = .border_l, .token = token, .width = width };
+}
+
+pub fn outline_token(width: f32, token: ThemeColor) ThemedPartial {
+    return .{ .property = .outline, .token = token, .width = width };
+}
+
+pub fn shadow_token(token: ThemeColor, offset: [2]f32, blur_px: f32) ThemedPartial {
+    return .{ .property = .shadow, .token = token, .offset = offset, .blur = blur_px };
+}
+
+fn applyThemeToken(result: *Style, tokens: theme_mod.SemanticTokens, partial: ThemedPartial) void {
+    const token_color = resolveThemeColor(tokens, partial.token);
+    switch (partial.property) {
+        .background_color => result.background_color = token_color,
+        .text_color => result.text_color = token_color,
+        .hover_color => result.hover_color = token_color,
+        .border => result.border = Border.all(partial.width, token_color),
+        .border_t => result.border.top = .{ .width = partial.width, .color = token_color },
+        .border_r => result.border.right = .{ .width = partial.width, .color = token_color },
+        .border_b => result.border.bottom = .{ .width = partial.width, .color = token_color },
+        .border_l => result.border.left = .{ .width = partial.width, .color = token_color },
+        .outline => result.outline = Border.all(partial.width, token_color),
+        .shadow => {
+            result.shadow_color = token_color;
+            result.shadow_offset = partial.offset;
+            result.shadow_blur = partial.blur;
+        },
+    }
+}
+
+pub fn resolveThemeColor(tokens: theme_mod.SemanticTokens, token: ThemeColor) [4]f32 {
+    return switch (token) {
+        inline else => |tag| @field(tokens, @tagName(tag)),
+    };
+}
+
+pub fn color(comptime input_str: []const u8) [4]f32 {
+    return comptime color_parser.parse(input_str);
 }
 
 pub fn rgba(r: f32, g: f32, b: f32, a: f32) [4]f32 {
@@ -70,9 +240,66 @@ pub fn rgba255(r: u8, g: u8, b: u8, a: u8) [4]f32 {
     );
 }
 
-pub const transparent = rgba(0, 0, 0, 0);
-pub const white = rgba(1, 1, 1, 1);
-pub const black = rgba(0, 0, 0, 1);
+pub const transparent = color("#0000");
+pub const white = color("#fff");
+pub const black = color("#000");
+
+pub const bg_base = bg_token(.bg_base);
+pub const bg_surface = bg_token(.bg_surface);
+pub const bg_elevated = bg_token(.bg_elevated);
+pub const bg_subtle = bg_token(.bg_subtle);
+pub const bg_overlay = bg_token(.bg_overlay);
+pub const bg_action = bg_token(.action_default);
+pub const bg_action_hover = bg_token(.action_hover);
+pub const bg_action_pressed = bg_token(.action_pressed);
+pub const bg_action_disabled = bg_token(.action_disabled);
+pub const bg_action_subtle = bg_token(.action_subtle);
+pub const bg_accent = bg_token(.accent_default);
+pub const bg_accent_hover = bg_token(.accent_hover);
+pub const bg_accent_pressed = bg_token(.accent_pressed);
+pub const bg_accent_subtle = bg_token(.accent_subtle);
+pub const bg_secondary = bg_token(.secondary_default);
+pub const bg_secondary_hover = bg_token(.secondary_hover);
+pub const bg_secondary_pressed = bg_token(.secondary_pressed);
+pub const bg_secondary_subtle = bg_token(.secondary_subtle);
+pub const bg_success = bg_token(.status_success);
+pub const bg_success_subtle = bg_token(.status_success_bg);
+pub const bg_warning = bg_token(.status_warning);
+pub const bg_warning_subtle = bg_token(.status_warning_bg);
+pub const bg_info = bg_token(.status_info);
+pub const bg_info_subtle = bg_token(.status_info_bg);
+pub const bg_danger = bg_token(.status_danger);
+pub const bg_danger_subtle = bg_token(.status_danger_bg);
+
+pub const text_main = text_token(.text_main);
+pub const text_muted = text_token(.text_muted);
+pub const text_inverse = text_token(.text_inverse);
+pub const text_disabled = text_token(.text_disabled);
+pub const text_accent = text_token(.text_accent);
+pub const text_action = text_token(.action_default);
+pub const text_action_on = text_token(.action_text);
+pub const text_accent_on = text_token(.accent_text);
+pub const text_secondary = text_token(.secondary_text);
+pub const text_success = text_token(.status_success_text);
+pub const text_warning = text_token(.status_warning_text);
+pub const text_info = text_token(.status_info_text);
+pub const text_danger = text_token(.status_danger_text);
+
+pub const hover_action = hover_token(.action_hover);
+pub const hover_action_default = hover_token(.action_default);
+pub const hover_accent = hover_token(.accent_hover);
+pub const hover_secondary = hover_token(.secondary_hover);
+pub const hover_surface = hover_token(.bg_elevated);
+
+pub const border_subtle = border_token(1.0, .border_subtle);
+pub const border_strong = border_token(1.0, .border_strong);
+pub const border_focus = border_token(1.0, .border_focus);
+pub const border_action = border_token(1.0, .action_default);
+pub const border_success = border_token(1.0, .status_success);
+pub const border_warning = border_token(1.0, .status_warning);
+pub const border_info = border_token(1.0, .status_info);
+pub const border_danger = border_token(1.0, .status_danger);
+pub const outline_focus = outline_token(2.0, .border_focus);
 
 pub const text_xs = .{ .font_size = 12.0 };
 pub const text_sm = .{ .font_size = 14.0 };
@@ -92,8 +319,12 @@ pub fn leading(value_px: f32) struct { line_height: f32 } {
     return .{ .line_height = value_px };
 }
 
-pub fn text_color(color: [4]f32) struct { text_color: [4]f32 } {
-    return .{ .text_color = color };
+pub fn text_color(comptime color_str: []const u8) struct { text_color: [4]f32 } {
+    return .{ .text_color = color(color_str) };
+}
+
+pub fn text_color_value(color_value: [4]f32) struct { text_color: [4]f32 } {
+    return .{ .text_color = color_value };
 }
 
 pub const font_light = .{ .font_weight = 0.3 };
@@ -308,12 +539,20 @@ pub const overflow_y_hidden = .{ .overflow_y = layout.Overflow.hidden };
 pub const overflow_x_scroll = .{ .overflow_x = layout.Overflow.scroll };
 pub const overflow_y_scroll = .{ .overflow_y = layout.Overflow.scroll };
 
-pub fn bg(color: [4]f32) struct { background_color: [4]f32 } {
-    return .{ .background_color = color };
+pub fn bg(comptime color_str: []const u8) struct { background_color: [4]f32 } {
+    return .{ .background_color = color(color_str) };
 }
 
-pub fn hover(color: [4]f32) struct { hover_color: ?[4]f32 } {
-    return .{ .hover_color = color };
+pub fn bg_value(color_value: [4]f32) struct { background_color: [4]f32 } {
+    return .{ .background_color = color_value };
+}
+
+pub fn hover(comptime color_str: []const u8) struct { hover_color: ?[4]f32 } {
+    return .{ .hover_color = color(color_str) };
+}
+
+pub fn hover_value(color_value: [4]f32) struct { hover_color: ?[4]f32 } {
+    return .{ .hover_color = color_value };
 }
 
 pub fn opacity(value: f32) struct { opacity: f32 } {
@@ -331,32 +570,60 @@ pub const rounded_lg = .{ .corner_radius = CornerRadius.all(8) };
 pub const rounded_xl = .{ .corner_radius = CornerRadius.all(12) };
 pub const rounded_full = .{ .corner_radius = CornerRadius.all(9999) };
 
-pub fn border(width: f32, color: [4]f32) struct { border: Border } {
-    return .{ .border = Border.all(width, color) };
+pub fn border(width: f32, comptime color_str: []const u8) struct { border: Border } {
+    return .{ .border = Border.all(width, color(color_str)) };
 }
 
-pub fn border_t(width: f32, color: [4]f32) struct { border: Border } {
-    return .{ .border = .{ .top = .{ .width = width, .color = color } } };
+pub fn border_value(width: f32, color_value: [4]f32) struct { border: Border } {
+    return .{ .border = Border.all(width, color_value) };
 }
 
-pub fn border_r(width: f32, color: [4]f32) struct { border: Border } {
-    return .{ .border = .{ .right = .{ .width = width, .color = color } } };
+pub fn border_t(width: f32, comptime color_str: []const u8) struct { border: Border } {
+    return .{ .border = .{ .top = .{ .width = width, .color = color(color_str) } } };
 }
 
-pub fn border_b(width: f32, color: [4]f32) struct { border: Border } {
-    return .{ .border = .{ .bottom = .{ .width = width, .color = color } } };
+pub fn border_t_value(width: f32, color_value: [4]f32) struct { border: Border } {
+    return .{ .border = .{ .top = .{ .width = width, .color = color_value } } };
 }
 
-pub fn border_l(width: f32, color: [4]f32) struct { border: Border } {
-    return .{ .border = .{ .left = .{ .width = width, .color = color } } };
+pub fn border_r(width: f32, comptime color_str: []const u8) struct { border: Border } {
+    return .{ .border = .{ .right = .{ .width = width, .color = color(color_str) } } };
 }
 
-pub fn outline(width: f32, color: [4]f32) struct { outline: Border } {
-    return .{ .outline = Border.all(width, color) };
+pub fn border_r_value(width: f32, color_value: [4]f32) struct { border: Border } {
+    return .{ .border = .{ .right = .{ .width = width, .color = color_value } } };
 }
 
-pub fn shadow(color: [4]f32, offset: [2]f32, blur_px: f32) struct { shadow_color: [4]f32, shadow_offset: [2]f32, shadow_blur: f32 } {
-    return .{ .shadow_color = color, .shadow_offset = offset, .shadow_blur = blur_px };
+pub fn border_b(width: f32, comptime color_str: []const u8) struct { border: Border } {
+    return .{ .border = .{ .bottom = .{ .width = width, .color = color(color_str) } } };
+}
+
+pub fn border_b_value(width: f32, color_value: [4]f32) struct { border: Border } {
+    return .{ .border = .{ .bottom = .{ .width = width, .color = color_value } } };
+}
+
+pub fn border_l(width: f32, comptime color_str: []const u8) struct { border: Border } {
+    return .{ .border = .{ .left = .{ .width = width, .color = color(color_str) } } };
+}
+
+pub fn border_l_value(width: f32, color_value: [4]f32) struct { border: Border } {
+    return .{ .border = .{ .left = .{ .width = width, .color = color_value } } };
+}
+
+pub fn outline(width: f32, comptime color_str: []const u8) struct { outline: Border } {
+    return .{ .outline = Border.all(width, color(color_str)) };
+}
+
+pub fn outline_value(width: f32, color_value: [4]f32) struct { outline: Border } {
+    return .{ .outline = Border.all(width, color_value) };
+}
+
+pub fn shadow(comptime color_str: []const u8, offset: [2]f32, blur_px: f32) struct { shadow_color: [4]f32, shadow_offset: [2]f32, shadow_blur: f32 } {
+    return .{ .shadow_color = color(color_str), .shadow_offset = offset, .shadow_blur = blur_px };
+}
+
+pub fn shadow_value(color_value: [4]f32, offset: [2]f32, blur_px: f32) struct { shadow_color: [4]f32, shadow_offset: [2]f32, shadow_blur: f32 } {
+    return .{ .shadow_color = color_value, .shadow_offset = offset, .shadow_blur = blur_px };
 }
 
 pub fn blur(value_px: f32) struct { blur: f32 } {
@@ -406,8 +673,8 @@ test "tw composes style partials over defaults" {
         items_center,
         gap(3),
         p(2),
-        bg(rgb255(12, 24, 48)),
-        text_color(white),
+        bg("#0c1830"),
+        text_color("#fff"),
     });
 
     try std.testing.expectEqual(layout.FlexDirection.Row, s.direction);
@@ -424,4 +691,19 @@ test "tw applies partials over existing style" {
     try std.testing.expectEqual(Size{ .exact = 100 }, s.width);
     try std.testing.expectEqual(Size{ .exact = 20 }, s.height);
     try std.testing.expectEqual(layout.FlexDirection.Column, s.direction);
+}
+
+test "tw resolves semantic theme classes through explicit tokens" {
+    const active_theme = theme_mod.Theme.init(.{ 0.62, 0.14, 255.0, 1.0 }, true);
+    const s = styleTheme(active_theme.tokens, .{
+        bg_surface,
+        text_muted,
+        border_focus,
+        hover_action,
+    });
+
+    try std.testing.expectEqual(active_theme.tokens.bg_surface, s.background_color);
+    try std.testing.expectEqual(active_theme.tokens.text_muted, s.text_color);
+    try std.testing.expectEqual(active_theme.tokens.border_focus, s.border.top.color);
+    try std.testing.expectEqual(active_theme.tokens.action_hover, s.hover_color.?);
 }

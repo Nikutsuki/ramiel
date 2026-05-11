@@ -19,9 +19,11 @@ pub const ColorScale = struct {
 pub const Palette = struct {
     brand: ColorScale,
     brand_secondary: ColorScale,
+    accent: ColorScale,
     neutral: ColorScale,
     success: ColorScale,
     warning: ColorScale,
+    info: ColorScale,
     danger: ColorScale,
 
     pub fn init(base_brand_oklch: [4]f32) Palette {
@@ -31,10 +33,12 @@ pub const Palette = struct {
 
         return .{
             .brand = generateScale(l, c, h),
-            .brand_secondary = generateScale(l, c * 0.8, @mod(h + 180.0, 360.0)),
-            .neutral = generateScale(0.5, 0.015, h),
+            .brand_secondary = generateScale(l, c * 0.72, @mod(h + 34.0, 360.0)),
+            .accent = generateScale(l, c * 0.9, @mod(h + 150.0, 360.0)),
+            .neutral = generateScale(0.5, 0.018, @mod(h + 8.0, 360.0)),
             .success = generateScale(0.6, 0.15, 140.0),
             .warning = generateScale(0.7, 0.16, 80.0),
+            .info = generateScale(0.62, 0.13, @mod(h + 220.0, 360.0)),
             .danger = generateScale(0.5, 0.18, 30.0),
         };
     }

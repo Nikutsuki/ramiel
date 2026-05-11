@@ -541,8 +541,7 @@ pub const TextureRegistry = struct {
 
         self.pending_mutex.unlock(std.Options.debug_io);
         defer uploads.deinit(self.allocator);
-        if (uploads.items.len > 0) {
-        }
+        if (uploads.items.len > 0) {}
 
         var uploaded_count: usize = 0;
         for (uploads.items) |upload| {
@@ -619,7 +618,7 @@ pub const TextureRegistry = struct {
                     .bytes_estimate = upload.bytes_estimate,
                 }) catch |err| {
                     std.log.warn(
-                        "texture_registry: lru track failed name='{s}' tex_id={d} err={s} — entry still linked but non-evictable",
+                        "texture_registry: lru track failed name='{s}' tex_id={d} err={s} - entry still linked but non-evictable",
                         .{ upload.name, gpu_id, @errorName(err) },
                     );
                     kv.value_ptr.* = .{
@@ -644,7 +643,7 @@ pub const TextureRegistry = struct {
                 uploaded_count += 1;
             } else {
                 std.log.warn(
-                    "texture_registry: upload entry miss name='{s}' tex_id={d} — destroying leaked texture",
+                    "texture_registry: upload entry miss name='{s}' tex_id={d} - destroying leaked texture",
                     .{ upload.name, gpu_id },
                 );
                 if (self.dynamic_textures.fetchRemove(gpu_id)) |removed| {

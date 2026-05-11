@@ -76,7 +76,7 @@ pub fn build(
         else => {},
     }
     if (rail_style.background_color[3] == 0.0) {
-        rail_style.background_color = tokens.bg_surface;
+        rail_style.background_color = tokens.bg_elevated;
     }
     const rail_h = switch (rail_style.height) {
         .exact => |h| h,

@@ -791,11 +791,26 @@ fn measureLeafContent(
                 cache.ellipsis != options.ellipsis or
                 cache.line_height != options.line_height or
                 cache.font_size != options.font_size;
-            if (node.flags.content or node.flags.size or options_changed) {
-                updateTextLayoutCache(node, text_layouter, input.font, input.buffer.items, options);
+            // When buffer is empty, shape the placeholder so the box keeps
+            // intrinsic size and the renderer naturally draws the placeholder
+            // glyphs (with `placeholder_color` instead of `text_color`).
+            const measure_text = if (input.buffer.items.len == 0) input.placeholder else input.buffer.items;
+            // Re-shape when dirty OR when the box is empty (cache may be holding
+            // either the placeholder or stale buffer text - re-shaping is cheap
+            // for one short string and avoids losing the placeholder render).
+            const empty_force = input.buffer.items.len == 0 and input.placeholder.len > 0;
+            if (node.flags.content or node.flags.size or options_changed or empty_force) {
+                updateTextLayoutCache(node, text_layouter, input.font, measure_text, options);
             }
             out_w.* = node.layout_result.text_cache.width;
-            out_h.* = node.layout_result.text_cache.height;
+            // Even with an empty placeholder, give the input one line-height of
+            // room so the cursor (and an eventually-typed first character) fit.
+            if (input.buffer.items.len == 0 and input.placeholder.len == 0) {
+                const font_scale = if (node.style.font_size > 0.0) (node.style.font_size / input.font.base_size) else 1.0;
+                out_h.* = input.font.line_height * font_scale;
+            } else {
+                out_h.* = node.layout_result.text_cache.height;
+            }
         },
         .text_area => |input| {
             const options = resolveTextMeasureOptions(node.style, input.max_width, content_w, false, true);
@@ -2091,7 +2106,7 @@ const PanicTextLayouter = struct {
         _: []const u8,
         _: f32,
     ) struct { width: f32, height: f32, metrics: []TextLayoutMetric } {
-        @panic("PanicTextLayouter.measureText called — layout tests must not use text nodes");
+        @panic("PanicTextLayouter.measureText called - layout tests must not use text nodes");
     }
 };
 
@@ -3570,7 +3585,7 @@ test "style: visual properties can be set inline" {
     try testing.expectApproxEqAbs(@as(f32, 0.35), s.opacity, 0.01);
 }
 
-test "box_sizing: border_box (default) — outer == stated size, content shrinks by padding" {
+test "box_sizing: border_box (default) - outer == stated size, content shrinks by padding" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 
@@ -3614,7 +3629,7 @@ test "box_sizing: border_box default matches explicit .border_box" {
     try testing.expectApproxEqAbs(a.layout_result.height, b_node.layout_result.height, 0.01);
 }
 
-test "box_sizing: content_box — outer grows by padding, children get full stated size" {
+test "box_sizing: content_box - outer grows by padding, children get full stated size" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 

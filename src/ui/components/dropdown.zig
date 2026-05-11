@@ -26,7 +26,7 @@ pub fn DropdownParams(comptime MessageT: type) type {
         on_select: *const fn (usize, ?*const anyopaque) MessageT,
         userdata: ?*const anyopaque = null,
 
-        font: *FontData,
+        font: ?*FontData = null,
         style: layout.Style = .{},
         trigger: TriggerStyle = .{},
         menu: MenuStyle = .{},

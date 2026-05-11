@@ -53,6 +53,7 @@ pub const VirtualListState = virtual_list_impl.VirtualListState;
 pub const VirtualListAxis = virtual_list_impl.Axis;
 pub const TreeDescriptor = tree_impl.TreeDescriptor;
 pub const TreeContext = tree_impl.TreeContext;
+pub const TreeSourceLogic = tree_impl.TreeSourceLogic;
 pub const TreeItem = tree_impl.TreeItem;
 pub const TreeDropPosition = tree_impl.DropPosition;
 pub const TreeCoreIcons = tree_impl.CoreIcons;
@@ -70,6 +71,63 @@ pub const applyVirtualListScrollDelta = virtual_list_impl.applyScrollDelta;
 pub const scrollVirtualListToEnd = virtual_list_impl.scrollToEnd;
 pub const updateColorPickerPlaneTexture = color_picker_impl.updatePlaneTexture;
 pub const deriveChildId = id_impl.deriveChildId;
+
+pub fn RadioGroupParams(comptime MessageT: type) type {
+    return struct {
+        logic: RadioGroupContext(MessageT),
+        visuals: RadioGroupDescriptor,
+    };
+}
+
+pub fn CheckboxGroupParams(comptime MessageT: type) type {
+    return struct {
+        logic: CheckboxGroupContext(MessageT),
+        visuals: CheckboxGroupDescriptor,
+    };
+}
+
+pub fn ColorPickerParams(comptime MessageT: type) type {
+    return struct {
+        logic: ColorPickerContext(MessageT),
+        visuals: ColorPickerDescriptor = .{},
+    };
+}
+
+pub fn VideoPlayerParams(comptime MessageT: type) type {
+    return struct {
+        desc: VideoPlayerDescriptor,
+        logic: VideoPlayerContext(MessageT),
+    };
+}
+
+pub fn AnimatedMediaParams(comptime MessageT: type) type {
+    return struct {
+        playback: *VideoPlayback,
+        desc: AnimatedMediaDescriptor = .{},
+        logic: AnimatedMediaContext(MessageT) = .{},
+    };
+}
+
+pub fn VirtualListParams(comptime MessageT: type) type {
+    return struct {
+        logic: VirtualListContext(MessageT),
+        desc: VirtualListDescriptor = .{},
+    };
+}
+
+pub fn TreeParams(comptime MessageT: type) type {
+    return struct {
+        logic: TreeContext(MessageT),
+        visuals: TreeDescriptor = .{},
+    };
+}
+
+pub fn PlotParams(comptime MessageT: type) type {
+    return struct {
+        logic: PlotContext(MessageT),
+        visuals: PlotDescriptor = .{},
+    };
+}
 
 pub fn Builder(comptime MessageT: type) type {
     return struct {
@@ -89,20 +147,20 @@ pub fn Builder(comptime MessageT: type) type {
             return radio_impl.build(MessageT, self.ui, params);
         }
 
-        pub inline fn radioGroup(self: Self, logic: RadioGroupContext(MessageT), visuals: RadioGroupDescriptor) !*Node(MessageT) {
-            return radio_group_impl.build(MessageT, self.ui, logic, visuals);
+        pub inline fn radioGroup(self: Self, params: RadioGroupParams(MessageT)) !*Node(MessageT) {
+            return radio_group_impl.build(MessageT, self.ui, params.logic, params.visuals);
         }
 
-        pub inline fn checkboxGroup(self: Self, logic: CheckboxGroupContext(MessageT), visuals: CheckboxGroupDescriptor) !*Node(MessageT) {
-            return checkbox_group_impl.build(MessageT, self.ui, logic, visuals);
+        pub inline fn checkboxGroup(self: Self, params: CheckboxGroupParams(MessageT)) !*Node(MessageT) {
+            return checkbox_group_impl.build(MessageT, self.ui, params.logic, params.visuals);
         }
 
         pub inline fn dropdown(self: Self, params: DropdownParams(MessageT)) !*Node(MessageT) {
             return dropdown_impl.build(MessageT, self.ui, params);
         }
 
-        pub inline fn colorPicker(self: Self, logic: ColorPickerContext(MessageT), visuals: ColorPickerDescriptor) !*Node(MessageT) {
-            return color_picker_impl.build(MessageT, self.ui, logic, visuals);
+        pub inline fn colorPicker(self: Self, params: ColorPickerParams(MessageT)) !*Node(MessageT) {
+            return color_picker_impl.build(MessageT, self.ui, params.logic, params.visuals);
         }
 
         pub inline fn icon(self: Self, desc: IconDescriptor) !*Node(MessageT) {
@@ -113,35 +171,67 @@ pub fn Builder(comptime MessageT: type) type {
             return video_impl.build(MessageT, self.ui, playback, style);
         }
 
-        pub inline fn videoPlayer(self: Self, desc: VideoPlayerDescriptor, logic: VideoPlayerContext(MessageT)) !*Node(MessageT) {
-            return video_player_impl.build(MessageT, self.ui, desc, logic);
+        pub inline fn videoPlayer(self: Self, params: VideoPlayerParams(MessageT)) !*Node(MessageT) {
+            return video_player_impl.build(MessageT, self.ui, params.desc, params.logic);
         }
 
-        pub inline fn animatedMedia(self: Self, playback: *VideoPlayback, desc: AnimatedMediaDescriptor, logic: AnimatedMediaContext(MessageT)) !*Node(MessageT) {
-            return animated_media_impl.build(MessageT, self.ui, playback, desc, logic);
+        pub inline fn animatedMedia(self: Self, params: AnimatedMediaParams(MessageT)) !*Node(MessageT) {
+            return animated_media_impl.build(MessageT, self.ui, params.playback, params.desc, params.logic);
         }
 
-        pub inline fn virtualList(self: Self, logic: VirtualListContext(MessageT), desc: VirtualListDescriptor) !*Node(MessageT) {
-            return virtual_list_impl.build(MessageT, self.ui, logic, desc);
+        pub inline fn virtualList(self: Self, params: VirtualListParams(MessageT)) !*Node(MessageT) {
+            return virtual_list_impl.build(MessageT, self.ui, params.logic, params.desc);
         }
 
-        pub inline fn tree(self: Self, logic: TreeContext(MessageT), visuals: TreeDescriptor) !*Node(MessageT) {
-            return tree_impl.build(MessageT, self.ui, logic, visuals);
+        pub inline fn tree(self: Self, params: TreeParams(MessageT)) !*Node(MessageT) {
+            return tree_impl.build(MessageT, self.ui, params.logic, params.visuals);
         }
 
-        pub inline fn plot(self: Self, logic: PlotContext(MessageT), visuals: PlotDescriptor) !*Node(MessageT) {
-            return plot_impl.build(MessageT, self.ui, logic, visuals);
+        pub inline fn plot(self: Self, params: PlotParams(MessageT)) !*Node(MessageT) {
+            return plot_impl.build(MessageT, self.ui, params.logic, params.visuals);
         }
 
         pub inline fn treeFromSource(
             self: Self,
-            comptime ItemT: type,
-            state: *const tree_impl.TreeState([]const u8),
-            root_items: []const ItemT,
-            logic: tree_impl.TreeSourceLogic(MessageT),
-            visuals: TreeDescriptor,
+            params: anytype,
         ) !*Node(MessageT) {
-            return tree_impl.buildFromSource(MessageT, ItemT, self.ui, state, root_items, logic, visuals);
+            const RootItemsT = @TypeOf(params.root_items);
+            const ptr = @typeInfo(RootItemsT).pointer;
+            const ItemT = switch (ptr.size) {
+                .slice => ptr.child,
+                else => @compileError("treeFromSource params.root_items must be a slice"),
+            };
+            const logic: tree_impl.TreeSourceLogic(MessageT) = params.logic;
+            const visuals: TreeDescriptor = if (@hasField(@TypeOf(params), "visuals")) params.visuals else .{};
+            return tree_impl.buildFromSource(
+                MessageT,
+                ItemT,
+                self.ui,
+                params.state,
+                params.root_items,
+                logic,
+                visuals,
+            );
         }
     };
+}
+
+test "component builder normalized params compile" {
+    const std = @import("std");
+    const theme = @import("../theme.zig");
+    var ui = try UIContext(u32).init(std.testing.allocator, theme.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    const b = Builder(u32){ .ui = &ui };
+    _ = b;
+    comptime {
+        _ = RadioGroupParams(u32);
+        _ = CheckboxGroupParams(u32);
+        _ = ColorPickerParams(u32);
+        _ = VideoPlayerParams(u32);
+        _ = AnimatedMediaParams(u32);
+        _ = VirtualListParams(u32);
+        _ = TreeParams(u32);
+        _ = PlotParams(u32);
+    }
 }
