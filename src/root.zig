@@ -11,6 +11,8 @@ pub const FontData = @import("renderer/font/font_registry.zig").FontData;
 pub const assets = @import("assets.zig");
 pub const glfw = @import("glfw");
 pub const Application = @import("app.zig").Application;
+pub const ManagedApp = @import("managed_app.zig").ManagedApp;
+pub const SinglePageApp = @import("managed_app.zig").SinglePageApp;
 pub const WindowConfig = @import("app.zig").WindowConfig;
 pub const WindowContext = @import("window/window.zig").WindowContext;
 pub const HotkeyFn = @import("app.zig").HotkeyFn;
@@ -49,6 +51,9 @@ pub const VideoManager = @import("video/manager.zig").VideoManager;
 pub const VideoPlayback = @import("video/playback.zig").VideoPlayback;
 pub const audio_waveform = @import("audio/waveform.zig");
 pub const audio_spectrum = @import("audio/spectrum.zig");
+pub const audio_engine = @import("audio/audio_engine.zig");
+pub const StreamSeekStatus = @import("audio/registry.zig").StreamSeekStatus;
+pub const AdvanceEvent = @import("audio/registry.zig").AdvanceEvent;
 pub const DevToolsTab = @import("devtools/state.zig").DevToolsTab;
 pub const DevToolsState = @import("devtools/state.zig").DevToolsState;
 pub const DevToolsTabModule = @import("devtools/modules.zig").TabModule;
@@ -63,38 +68,14 @@ pub const Theme = theme.Theme;
 pub const SemanticTokens = theme.SemanticTokens;
 pub const Palette = palette.Palette;
 
-const builtin = @import("builtin");
+pub const Runtime = @import("runtime.zig").Runtime;
+pub const FontSpec = @import("managed_app.zig").FontSpec;
 
-pub const Runtime = struct {
-    debug_allocator: if (builtin.mode == .Debug)
-        std.heap.DebugAllocator(.{})
-    else
-        void = if (builtin.mode == .Debug) undefined else {},
-
-    pub fn init() Runtime {
-        var rt: Runtime = .{};
-        if (builtin.mode == .Debug) rt.debug_allocator = .{};
-        return rt;
-    }
-
-    pub fn allocator(self: *Runtime) std.mem.Allocator {
-        if (builtin.mode == .Debug) return self.debug_allocator.allocator();
-        return std.heap.smp_allocator;
-    }
-
-    pub fn deinit(self: *Runtime) void {
-        if (builtin.mode == .Debug) {
-            if (self.debug_allocator.deinit() == .leak) {
-                std.debug.print("Memory leak detected.\n", .{});
-            }
-        }
-    }
-};
-
-pub fn declareIds(comptime tags: anytype) type {
+pub fn declareIds(comptime namespace: []const u8, comptime tags: anytype) type {
+    if (namespace.len == 0) @compileError("declareIds namespace must not be empty");
     const tags_type_info = @typeInfo(@TypeOf(tags));
     if (tags_type_info != .@"struct" or !tags_type_info.@"struct".is_tuple) {
-        @compileError("declareIds requires a tuple of string literals");
+        @compileError("declareIds requires a namespace and tuple of string literals");
     }
     const len = tags_type_info.@"struct".fields.len;
 
@@ -104,7 +85,7 @@ pub fn declareIds(comptime tags: anytype) type {
     inline for (0..len) |i| {
         const name: []const u8 = tags[i];
         const Holder = struct {
-            const v: NodeId = stableNodeId(name);
+            const v: NodeId = stableNodeId(namespace, name);
         };
         field_names[i] = name;
         field_types[i] = NodeId;
@@ -138,8 +119,10 @@ pub inline fn bindStatic(
     }.handler;
 }
 
-fn stableNodeId(name: []const u8) NodeId {
+fn stableNodeId(comptime namespace: []const u8, comptime name: []const u8) NodeId {
     var hasher = std.hash.Wyhash.init(0xdec1ec1d);
+    hasher.update(namespace);
+    hasher.update(&.{0});
     hasher.update(name);
     return @truncate(hasher.final());
 }
@@ -163,8 +146,20 @@ test {
     _ = @import("ui/tw.zig");
     _ = @import("ui/uix.zig");
     _ = @import("state.zig");
+    _ = @import("managed_app.zig");
+    _ = @import("runtime.zig");
     _ = @import("ui/components/root.zig");
     _ = @import("ui/components/plot.zig");
     _ = @import("animation/easing.zig");
     _ = @import("audio/spectrum.zig");
+}
+
+test "declareIds scopes stable ids by namespace" {
+    const A = declareIds("tests.a", .{ "root", "button" }){};
+    const B = declareIds("tests.b", .{ "root", "button" }){};
+    const A2 = declareIds("tests.a", .{ "root", "button" }){};
+
+    try std.testing.expectEqual(A.root, A2.root);
+    try std.testing.expect(A.root != B.root);
+    try std.testing.expect(A.button != B.button);
 }

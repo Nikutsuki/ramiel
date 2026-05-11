@@ -3,6 +3,7 @@ const Engine = @import("renderer/vulkan/engine.zig").Engine;
 const QuadBatcher = @import("renderer/vulkan/batcher.zig").QuadBatcher;
 const FontSystem = @import("renderer/font/font_system.zig").FontSystem;
 const AudioEngine = @import("audio/audio_engine.zig").AudioEngine;
+const StreamSeekStatus = @import("audio/registry.zig").StreamSeekStatus;
 const UIContext = @import("ui/context.zig").UIContext;
 pub const UpdateAction = @import("ui/context.zig").UpdateAction;
 const Node = @import("ui/node.zig").Node;
@@ -60,6 +61,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         cross_thread_mutex: std.Io.Mutex = .init,
         cross_thread_queue: std.ArrayList(InteractionMessage(MessageType)),
         file_dialog_task: ?std.Io.Future(void) = null,
+        file_dialog_done: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
         video_poll_hz: f64 = 60.0,
 
         update_fn: *const fn (app: *Self, msg: InteractionMessage(MessageType)) UpdateAction,
@@ -224,8 +226,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
                 const detached = detachCanvasPayloads(self.ui.root, canvas);
                 if (detached) {
-                    self.ui.layout_dirty = true;
-                    self.ui.paint_dirty = true;
+                    self.ui.requestLayout();
                 }
 
                 _ = self.engine.core.vkd.deviceWaitIdle(self.engine.core.logical_device) catch |err| {
@@ -239,11 +240,14 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         }
 
         pub fn openFileDialog(self: *Self, filter_list: ?[:0]const u8, callback: FileDialogCallback) void {
+            // Reap a finished prior task if one is sitting around.
+            self.reapFileDialogIfDone();
             if (self.file_dialog_task != null) {
                 std.log.warn("File dialog task already in progress.", .{});
                 return;
             }
 
+            self.file_dialog_done.store(false, .release);
             self.file_dialog_task = self.io.concurrent(fileDialogWorker, .{.{
                 .self = self,
                 .filter_list = filter_list,
@@ -255,12 +259,40 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             };
         }
 
+        pub fn openFolderDialog(self: *Self, callback: FileDialogCallback) void {
+            self.reapFileDialogIfDone();
+            if (self.file_dialog_task != null) {
+                std.log.warn("File dialog task already in progress.", .{});
+                return;
+            }
+            self.file_dialog_done.store(false, .release);
+            self.file_dialog_task = self.io.concurrent(folderDialogWorker, .{.{
+                .self = self,
+                .filter_list = null,
+                .callback = callback,
+            }}) catch |err| {
+                std.log.err("Failed to spawn concurrent folder dialog task: {s}", .{@errorName(err)});
+                self.postMessageId(callback(null));
+                return;
+            };
+        }
+
+        fn reapFileDialogIfDone(self: *Self) void {
+            if (self.file_dialog_task == null) return;
+            if (!self.file_dialog_done.load(.acquire)) return;
+            if (self.file_dialog_task) |*task| {
+                _ = task.await(self.io);
+                self.file_dialog_task = null;
+            }
+        }
+
         fn fileDialogWorker(args: FileDialogTaskArgs) void {
             const self = args.self;
 
             const maybe_raw_path = nfd.openFileDialog(args.filter_list, null) catch |err| {
                 std.log.err("NFD openFileDialog failed: {s}", .{@errorName(err)});
                 self.postMessageId(args.callback(null));
+                self.file_dialog_done.store(true, .release);
                 return;
             };
 
@@ -274,6 +306,27 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             }
 
             self.postMessageId(args.callback(final_path));
+            self.file_dialog_done.store(true, .release);
+        }
+
+        fn folderDialogWorker(args: FileDialogTaskArgs) void {
+            const self = args.self;
+            const maybe_raw_path = nfd.openFolderDialog(null) catch |err| {
+                std.log.err("NFD openFolderDialog failed: {s}", .{@errorName(err)});
+                self.postMessageId(args.callback(null));
+                self.file_dialog_done.store(true, .release);
+                return;
+            };
+            var final_path: ?[]const u8 = null;
+            if (maybe_raw_path) |raw_path| {
+                defer nfd.freePath(raw_path);
+                final_path = self.allocator.dupe(u8, raw_path) catch |err| blk: {
+                    std.log.err("Failed to duplicate selected folder path: {s}", .{@errorName(err)});
+                    break :blk null;
+                };
+            }
+            self.postMessageId(args.callback(final_path));
+            self.file_dialog_done.store(true, .release);
         }
 
         pub fn finalizeFileDialog(self: *Self) void {
@@ -285,6 +338,16 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
         pub fn loadFont(self: *Self, name: []const u8, source: FontSource, base_resolution: u32) !*FontData {
             return self.font_system.loadFont(&self.engine.core, &self.engine.resources.texture_registry, name, source, base_resolution);
+        }
+
+        pub fn setDefaultFont(self: *Self, font: *FontData) void {
+            self.ui.setDefaultFont(font);
+        }
+
+        pub fn loadDefaultFont(self: *Self, name: []const u8, source: FontSource, base_resolution: u32) !*FontData {
+            const font = try self.loadFont(name, source, base_resolution);
+            self.setDefaultFont(font);
+            return font;
         }
 
         pub fn setDefaultFallbackChain(self: *Self, names: []const []const u8) !void {
@@ -329,6 +392,22 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             self.audio_engine.registry.seekStreamSeconds(playback_id, seconds);
         }
 
+        pub fn seekStreamImmediate(self: *Self, playback_id: u64, seconds: f32) void {
+            self.audio_engine.registry.seekStreamSecondsImmediate(playback_id, seconds);
+        }
+
+        pub fn getStreamSeekStatus(self: *Self) StreamSeekStatus {
+            return self.audio_engine.registry.getStreamSeekStatus();
+        }
+
+        pub fn isStreamSeeking(self: *Self, playback_id: u64) bool {
+            return self.audio_engine.registry.isStreamSeeking(playback_id);
+        }
+
+        pub fn isStreamSeekActive(self: *Self, playback_id: u64) bool {
+            return self.audio_engine.registry.isStreamSeekActive(playback_id);
+        }
+
         pub fn pauseStream(self: *Self, playback_id: u64) void {
             self.audio_engine.registry.pauseStream(playback_id);
         }
@@ -351,6 +430,30 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
         pub fn unloadSound(self: *Self, name: []const u8) void {
             self.audio_engine.registry.unload(name);
+        }
+
+        pub fn enqueueAfter(self: *Self, current_id: u64, next_path: [:0]const u8) !void {
+            try self.audio_engine.registry.enqueueAfter(current_id, next_path);
+        }
+
+        pub fn clearQueuedAfter(self: *Self, current_id: u64) void {
+            self.audio_engine.registry.clearQueuedAfter(current_id);
+        }
+
+        pub fn startCrossfade(self: *Self, out_id: u64, in_path: [:0]const u8, fade_ms: u32) !u64 {
+            return self.audio_engine.registry.startCrossfade(out_id, in_path, fade_ms);
+        }
+
+        pub fn takeAdvanceEvents(self: *Self, allocator: std.mem.Allocator) ![]@import("audio/registry.zig").AdvanceEvent {
+            return self.audio_engine.registry.takeAdvanceEvents(allocator);
+        }
+
+        pub fn setEQ(self: *Self, cfg: @import("audio/audio_engine.zig").EQConfig) !void {
+            try self.audio_engine.setEQ(cfg);
+        }
+
+        pub fn getEQ(self: *Self) @import("audio/audio_engine.zig").EQConfig {
+            return self.audio_engine.getEQ();
         }
 
         pub fn getTextureIndex(self: *const Self, id: TextureId) u32 {
@@ -718,8 +821,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         pub fn setVisibility(self: *Self, visible: bool) void {
             if (visible) {
                 self.window.show();
-                self.ui.layout_dirty = true;
-                self.ui.paint_dirty = true;
+                self.ui.requestLayout();
             } else {
                 self.window.hide();
                 self.ui.interaction_registry.resetForNewTree();
@@ -740,7 +842,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             var last_fb = initial_fb;
             self.last_frame_time = glfw.getTime();
             // Wayland: waitEvents() blocks until the first surface commit.
-            self.ui.paint_dirty = true;
+            self.ui.requestPaint();
             var first_iteration = true;
 
             while (!self.window.shouldClose()) {
@@ -765,10 +867,10 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 );
 
                 if (video_frame_ready) {
-                    self.ui.paint_dirty = true;
+                    self.ui.requestPaint();
                 }
 
-                if (self.ui.has_animated_images) self.ui.paint_dirty = true;
+                if (self.ui.has_animated_images) self.ui.requestPaint();
 
                 const current_time = glfw.getTime();
                 const delta_time = current_time - self.last_frame_time;
@@ -780,8 +882,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 const current_fb = self.window.getFramebufferSize();
                 if (current_fb.width != last_fb.width or current_fb.height != last_fb.height) {
                     self.ui.root.markDirty();
-                    self.ui.layout_dirty = true;
-                    self.ui.paint_dirty = true;
+                    self.ui.requestLayout();
                     last_fb = current_fb;
                 }
 
@@ -805,37 +906,18 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 var needs_rebuild = false;
                 const uploaded_count = try self.engine.processPendingTextureUploads();
                 if (uploaded_count > 0) {
-                    self.ui.paint_dirty = true;
+                    self.ui.requestPaint();
                     if (self.build_fn != null) {
                         needs_rebuild = true;
                     }
                 }
 
                 if (self.tick_fn) |tick| {
-                    const tick_action = tick(self);
-                    switch (tick_action) {
-                        .rebuild => needs_rebuild = true,
-                        .relayout => {
-                            self.ui.layout_dirty = true;
-                            self.ui.paint_dirty = true;
-                        },
-                        .repaint => self.ui.paint_dirty = true,
-                        .none => {},
-                    }
+                    self.applyUpdateAction(tick(self), &needs_rebuild);
                 }
 
                 for (self.ui.interaction_registry.message_queue.items) |msg| {
-                    const action = self.update_fn(self, msg);
-
-                    switch (action) {
-                        .rebuild => needs_rebuild = true,
-                        .relayout => {
-                            self.ui.layout_dirty = true;
-                            self.ui.paint_dirty = true;
-                        },
-                        .repaint => self.ui.paint_dirty = true,
-                        .none => {},
-                    }
+                    self.applyUpdateAction(self.update_fn(self, msg), &needs_rebuild);
                 }
                 self.ui.interaction_registry.message_queue.clearRetainingCapacity();
 
@@ -850,7 +932,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 if (!self.ui.paint_dirty) {
                     for (self.canvases.items) |canvas| {
                         if (canvas.is_dirty) {
-                            self.ui.paint_dirty = true;
+                            self.ui.requestPaint();
                             break;
                         }
                     }
@@ -871,27 +953,27 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 }
 
                 if (self.ui.interaction_registry.layout_requested) {
-                    self.ui.layout_dirty = true;
-                    self.ui.paint_dirty = true;
+                    self.ui.requestLayout();
                     self.ui.interaction_registry.layout_requested = false;
                 }
 
                 if (self.ui.interaction_registry.paint_requested) {
-                    self.ui.paint_dirty = true;
+                    self.ui.requestPaint();
                     self.ui.interaction_registry.paint_requested = false;
                 }
 
                 if (self.ui.animation_registry.tick(current_time)) {
-                    self.ui.paint_dirty = true;
                     if (self.ui.animation_registry.hasLayoutAnimations()) {
-                        self.ui.layout_dirty = true;
+                        self.ui.requestLayout();
+                    } else {
+                        self.ui.requestPaint();
                     }
                 }
 
                 if (self.ui.interaction_registry.hover_anim_active) {
                     const still_running = self.ui.root.tickHoverAnims(current_time);
                     self.ui.interaction_registry.hover_anim_active = still_running;
-                    self.ui.paint_dirty = true;
+                    self.ui.requestPaint();
                 }
 
                 if (self.ui.layout_dirty) {
@@ -949,6 +1031,15 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             return detached_any;
         }
 
+        fn applyUpdateAction(self: *Self, action: UpdateAction, needs_rebuild: *bool) void {
+            switch (action) {
+                .rebuild => needs_rebuild.* = true,
+                .relayout => self.ui.requestLayout(),
+                .repaint => self.ui.requestPaint(),
+                .none => {},
+            }
+        }
+
         fn onKey(ptr: *anyopaque, key: i32, action: i32) void {
             const app: *Self = @ptrCast(@alignCast(ptr));
             if (key == glfw.KeyF12 and action == glfw.Press) {
@@ -965,8 +1056,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         fn onResize(ptr: *anyopaque) void {
             const app: *Self = @ptrCast(@alignCast(ptr));
             app.ui.root.markDirty();
-            app.ui.layout_dirty = true;
-            app.ui.paint_dirty = true;
+            app.ui.requestLayout();
         }
     };
 }
