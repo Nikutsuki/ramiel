@@ -7,6 +7,19 @@ pub const WakeUpCallback = *const fn () void;
 pub const AssetDecodeState = enum { missing, decoding, ready };
 pub const PlaybackState = enum { pending, playing };
 
+pub const StreamSeekStatus = struct {
+    active: bool = false,
+    seeking: bool = false,
+    playback_id: ?u64 = null,
+};
+
+pub const AdvanceEvent = struct {
+    /// The id that just finished and was replaced.
+    finished_id: u64,
+    /// The id of the freshly-started follow-up stream.
+    new_id: u64,
+};
+
 pub const SoundPayload = union(enum) {
     path: [:0]const u8,
     memory: []const u8,
@@ -37,6 +50,15 @@ pub const StreamInstance = struct {
     path: [:0]const u8,
     registry: *SoundRegistry,
     is_finished: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    /// Set by enqueueAfter; processed in cleanup so the next track starts as soon
+    /// as the previous one signals end-of-stream (gapless within group).
+    next_path: ?[:0]const u8 = null,
+    /// Owned by registry; on advance the new stream id is published here so the app
+    /// can pick it up via takeAdvancedTo().
+    advanced_to: ?u64 = null,
+    /// Wall-clock deadline (ms since epoch) at which crossfade-out completes
+    /// and the stream should be torn down. null = no scheduled fade-out.
+    fade_out_deadline_ms: ?i64 = null,
 };
 
 pub const PlaybackPool = struct {
@@ -182,6 +204,12 @@ pub const SoundRegistry = struct {
     wake_up_cb: ?WakeUpCallback = null,
 
     state_mutex: std.Io.Mutex = .init,
+    stream_op_mutex: std.Io.Mutex = .init,
+    stream_seek_worker: *StreamSeekWorker,
+
+    /// Posted by processAudioCleanup when a queued track has been started in place
+    /// of a finished one. App polls via takeAdvancedTo() to learn the new id.
+    advance_events: std.ArrayList(AdvanceEvent) = .empty,
 
     pub fn setWakeUpCallback(self: *SoundRegistry, cb: WakeUpCallback) void {
         self.wake_up_cb = cb;
@@ -193,6 +221,11 @@ pub const SoundRegistry = struct {
         engine: *c.ma_engine,
         sound_parent_node: ?*c.ma_node,
     ) !SoundRegistry {
+        const seek_worker = try allocator.create(StreamSeekWorker);
+        errdefer allocator.destroy(seek_worker);
+        seek_worker.* = StreamSeekWorker.init(io);
+        seek_worker.thread = try std.Thread.spawn(.{}, StreamSeekWorker.run, .{seek_worker});
+
         return .{
             .allocator = allocator,
             .io = io,
@@ -204,6 +237,7 @@ pub const SoundRegistry = struct {
             .active_playbacks = std.AutoHashMap(u64, *PlaybackInstance).init(allocator),
             .active_streams = std.AutoHashMap(u64, *StreamInstance).init(allocator),
             .lru = AssetLru.init(allocator),
+            .stream_seek_worker = seek_worker,
         };
     }
 
@@ -214,6 +248,9 @@ pub const SoundRegistry = struct {
     }
 
     pub fn deinit(self: *SoundRegistry) void {
+        self.stream_seek_worker.deinit(self.allocator);
+        self.advance_events.deinit(self.allocator);
+
         var pb_it = self.active_playbacks.valueIterator();
         while (pb_it.next()) |playback_ptr| {
             const playback = playback_ptr.*;
@@ -226,11 +263,7 @@ pub const SoundRegistry = struct {
 
         var stream_it = self.active_streams.valueIterator();
         while (stream_it.next()) |stream_ptr| {
-            const stream = stream_ptr.*;
-            _ = c.ma_sound_stop(&stream.sound);
-            c.ma_sound_uninit(&stream.sound);
-            self.allocator.free(stream.path);
-            self.allocator.destroy(stream);
+            self.destroyStreamLocked(stream_ptr.*);
         }
         self.active_streams.deinit();
 
@@ -421,12 +454,7 @@ pub const SoundRegistry = struct {
         defer self.state_mutex.unlock(std.Options.debug_io);
 
         if (self.active_streams.fetchRemove(playback_id)) |removed| {
-            const stream = removed.value;
-            _ = c.ma_sound_set_end_callback(&stream.sound, null, null);
-            _ = c.ma_sound_stop(&stream.sound);
-            c.ma_sound_uninit(&stream.sound);
-            self.allocator.free(stream.path);
-            self.allocator.destroy(stream);
+            self.destroyStreamLocked(removed.value);
             return;
         }
 
@@ -435,49 +463,73 @@ pub const SoundRegistry = struct {
         }
     }
 
-    // Drops state_mutex before return. ma_sound_seek_to_second on mp3 blocks 100+ ms;
-    // holding state_mutex across that stalls all readers. miniaudio locks the sound itself.
-    fn lookupStreamSound(self: *SoundRegistry, playback_id: u64) ?*c.ma_sound {
+    fn acquireStreamSound(self: *SoundRegistry, playback_id: u64) ?*c.ma_sound {
         self.state_mutex.lockUncancelable(std.Options.debug_io);
-        defer self.state_mutex.unlock(std.Options.debug_io);
         if (self.active_streams.get(playback_id)) |stream| {
+            self.stream_op_mutex.lockUncancelable(std.Options.debug_io);
+            self.state_mutex.unlock(std.Options.debug_io);
             return &stream.sound;
         }
+        self.state_mutex.unlock(std.Options.debug_io);
         return null;
     }
 
     pub fn seekStreamSeconds(self: *SoundRegistry, playback_id: u64, seconds: f32) void {
-        const sound = self.lookupStreamSound(playback_id) orelse return;
+        self.stream_seek_worker.submit(self, playback_id, seconds);
+    }
+
+    pub fn seekStreamSecondsImmediate(self: *SoundRegistry, playback_id: u64, seconds: f32) void {
+        const sound = self.acquireStreamSound(playback_id) orelse return;
+        defer self.stream_op_mutex.unlock(std.Options.debug_io);
         _ = c.ma_sound_seek_to_second(sound, @max(0.0, seconds));
     }
 
     pub fn pauseStream(self: *SoundRegistry, playback_id: u64) void {
-        const sound = self.lookupStreamSound(playback_id) orelse return;
+        const sound = self.acquireStreamSound(playback_id) orelse return;
+        defer self.stream_op_mutex.unlock(std.Options.debug_io);
         _ = c.ma_sound_stop(sound);
     }
 
     pub fn resumeStream(self: *SoundRegistry, playback_id: u64) void {
-        const sound = self.lookupStreamSound(playback_id) orelse return;
+        const sound = self.acquireStreamSound(playback_id) orelse return;
+        defer self.stream_op_mutex.unlock(std.Options.debug_io);
         _ = c.ma_sound_start(sound);
     }
 
     pub fn isStreamPlaying(self: *SoundRegistry, playback_id: u64) bool {
-        const sound = self.lookupStreamSound(playback_id) orelse return false;
+        const sound = self.acquireStreamSound(playback_id) orelse return false;
+        defer self.stream_op_mutex.unlock(std.Options.debug_io);
         return c.ma_sound_is_playing(sound) != 0;
     }
 
     pub fn getStreamCursorSeconds(self: *SoundRegistry, playback_id: u64) f32 {
-        const sound = self.lookupStreamSound(playback_id) orelse return 0.0;
+        const sound = self.acquireStreamSound(playback_id) orelse return 0.0;
+        defer self.stream_op_mutex.unlock(std.Options.debug_io);
         var cursor: f32 = 0.0;
         if (c.ma_sound_get_cursor_in_seconds(sound, &cursor) == c.MA_SUCCESS) return cursor;
         return 0.0;
     }
 
     pub fn getStreamDurationSeconds(self: *SoundRegistry, playback_id: u64) f32 {
-        const sound = self.lookupStreamSound(playback_id) orelse return 0.0;
+        const sound = self.acquireStreamSound(playback_id) orelse return 0.0;
+        defer self.stream_op_mutex.unlock(std.Options.debug_io);
         var length: f32 = 0.0;
         if (c.ma_sound_get_length_in_seconds(sound, &length) == c.MA_SUCCESS) return length;
         return 0.0;
+    }
+
+    pub fn getStreamSeekStatus(self: *SoundRegistry) StreamSeekStatus {
+        return self.stream_seek_worker.status();
+    }
+
+    pub fn isStreamSeeking(self: *SoundRegistry, playback_id: u64) bool {
+        const s = self.stream_seek_worker.status();
+        return s.seeking and s.playback_id == playback_id;
+    }
+
+    pub fn isStreamSeekActive(self: *SoundRegistry, playback_id: u64) bool {
+        const s = self.stream_seek_worker.status();
+        return s.active and s.playback_id == playback_id;
     }
 
     pub fn setVolumeById(self: *SoundRegistry, playback_id: u64, volume: f32) void {
@@ -485,6 +537,8 @@ pub const SoundRegistry = struct {
         defer self.state_mutex.unlock(std.Options.debug_io);
 
         if (self.active_streams.get(playback_id)) |stream| {
+            self.stream_op_mutex.lockUncancelable(std.Options.debug_io);
+            defer self.stream_op_mutex.unlock(std.Options.debug_io);
             c.ma_sound_set_volume(&stream.sound, volume);
             return;
         }
@@ -520,6 +574,27 @@ pub const SoundRegistry = struct {
         self.state_mutex.lockUncancelable(std.Options.debug_io);
         defer self.state_mutex.unlock(std.Options.debug_io);
 
+        const now_ms: i64 = std.Io.Timestamp.now(self.io, .awake).toMilliseconds();
+
+        // Stop streams whose crossfade-out deadline has passed.
+        var found_fade = true;
+        while (found_fade) {
+            found_fade = false;
+            var fade_it = self.active_streams.iterator();
+            while (fade_it.next()) |entry| {
+                const stream = entry.value_ptr.*;
+                if (stream.fade_out_deadline_ms) |dl| {
+                    if (now_ms >= dl) {
+                        const id = entry.key_ptr.*;
+                        const removed = self.active_streams.fetchRemove(id).?;
+                        self.destroyStreamLocked(removed.value);
+                        found_fade = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         var found_stream = true;
         while (found_stream) {
             found_stream = false;
@@ -528,14 +603,28 @@ pub const SoundRegistry = struct {
                 const stream = entry.value_ptr.*;
                 if (stream.is_finished.load(.acquire)) {
                     const id = entry.key_ptr.*;
+                    // Pull next_path off the dying stream before we destroy it.
+                    const queued = stream.next_path;
+                    stream.next_path = null;
                     const removed = self.active_streams.fetchRemove(id).?;
-                    const finished = removed.value;
-                    _ = c.ma_sound_set_end_callback(&finished.sound, null, null);
-                    _ = c.ma_sound_stop(&finished.sound);
-                    c.ma_sound_uninit(&finished.sound);
-                    self.allocator.free(finished.path);
-                    self.allocator.destroy(finished);
+                    self.destroyStreamLocked(removed.value);
                     found_stream = true;
+
+                    if (queued) |path| {
+                        defer self.allocator.free(path);
+                        // Re-acquire by dropping our state_mutex during the inner playStream
+                        // (it locks state_mutex itself). Since we already released the entry,
+                        // it's safe to unlock briefly.
+                        self.state_mutex.unlock(std.Options.debug_io);
+                        const new_id_opt = self.playStream(path);
+                        self.state_mutex.lockUncancelable(std.Options.debug_io);
+                        if (new_id_opt) |new_id| {
+                            self.advance_events.append(self.allocator, .{
+                                .finished_id = id,
+                                .new_id = new_id,
+                            }) catch {};
+                        }
+                    }
                     break;
                 }
             }
@@ -575,6 +664,88 @@ pub const SoundRegistry = struct {
             c.ma_sound_uninit(&playback.sound);
         }
         self.voice_pool.release(playback);
+    }
+
+    fn destroyStreamLocked(self: *SoundRegistry, stream: *StreamInstance) void {
+        self.stream_op_mutex.lockUncancelable(std.Options.debug_io);
+        defer self.stream_op_mutex.unlock(std.Options.debug_io);
+
+        _ = c.ma_sound_set_end_callback(&stream.sound, null, null);
+        _ = c.ma_sound_stop(&stream.sound);
+        c.ma_sound_uninit(&stream.sound);
+        self.allocator.free(stream.path);
+        if (stream.next_path) |np| self.allocator.free(np);
+        self.allocator.destroy(stream);
+    }
+
+    /// Queue a follow-up stream. When `current_id` ends naturally, processAudioCleanup
+    /// will start `next_path` and publish a new playback id via takeAdvancedEvents().
+    /// Replaces any previously-queued path. Caller retains ownership of `next_path`;
+    /// it is duped internally.
+    pub fn enqueueAfter(self: *SoundRegistry, current_id: u64, next_path: [:0]const u8) !void {
+        self.state_mutex.lockUncancelable(std.Options.debug_io);
+        defer self.state_mutex.unlock(std.Options.debug_io);
+
+        const stream = self.active_streams.get(current_id) orelse return error.NoSuchStream;
+        const dupe = try self.allocator.dupeZ(u8, next_path);
+        if (stream.next_path) |old| self.allocator.free(old);
+        stream.next_path = dupe;
+    }
+
+    pub fn clearQueuedAfter(self: *SoundRegistry, current_id: u64) void {
+        self.state_mutex.lockUncancelable(std.Options.debug_io);
+        defer self.state_mutex.unlock(std.Options.debug_io);
+        const stream = self.active_streams.get(current_id) orelse return;
+        if (stream.next_path) |old| {
+            self.allocator.free(old);
+            stream.next_path = null;
+        }
+    }
+
+    /// Crossfade between an existing stream and a new file path. Returns the new
+    /// stream's playback id. The old stream fades to zero over `fade_ms` and is
+    /// torn down by processAudioCleanup once the deadline passes.
+    pub fn startCrossfade(
+        self: *SoundRegistry,
+        out_id: u64,
+        in_path: [:0]const u8,
+        fade_ms: u32,
+    ) !u64 {
+        const new_id = self.playStream(in_path) orelse return error.PlayStreamFailed;
+
+        self.state_mutex.lockUncancelable(std.Options.debug_io);
+        defer self.state_mutex.unlock(std.Options.debug_io);
+
+        if (self.active_streams.get(new_id)) |new_stream| {
+            self.stream_op_mutex.lockUncancelable(std.Options.debug_io);
+            defer self.stream_op_mutex.unlock(std.Options.debug_io);
+            // miniaudio applies fade on top of the base volume (final = volume * fade),
+            // so DON'T setVolume(0) here - that pins the result at 0 forever. Leave
+            // base volume at 1.0 and let the fade-in ramp the multiplier 0 → 1.
+            _ = c.ma_sound_set_fade_in_milliseconds(&new_stream.sound, 0.0, 1.0, fade_ms);
+        }
+
+        if (self.active_streams.get(out_id)) |out_stream| {
+            self.stream_op_mutex.lockUncancelable(std.Options.debug_io);
+            defer self.stream_op_mutex.unlock(std.Options.debug_io);
+            _ = c.ma_sound_set_fade_in_milliseconds(&out_stream.sound, -1.0, 0.0, fade_ms);
+            const now_ms: i64 = std.Io.Timestamp.now(self.io, .awake).toMilliseconds();
+            out_stream.fade_out_deadline_ms = now_ms + @as(i64, @intCast(fade_ms));
+        }
+
+        return new_id;
+    }
+
+    /// Drain pending advance events (queued-track-started notifications).
+    /// Caller takes ownership of the returned slice and must free with `allocator`.
+    pub fn takeAdvanceEvents(self: *SoundRegistry, allocator: std.mem.Allocator) ![]AdvanceEvent {
+        self.state_mutex.lockUncancelable(std.Options.debug_io);
+        defer self.state_mutex.unlock(std.Options.debug_io);
+
+        if (self.advance_events.items.len == 0) return &.{};
+        const out = try allocator.dupe(AdvanceEvent, self.advance_events.items);
+        self.advance_events.clearRetainingCapacity();
+        return out;
     }
 
     fn initializeAndStartPlaybackLocked(self: *SoundRegistry, playback: *PlaybackInstance, asset: *SoundAsset) void {
@@ -771,6 +942,114 @@ pub const SoundRegistry = struct {
             .memory => |m| self.allocator.free(m),
         }
         self.allocator.destroy(asset);
+    }
+};
+
+const StreamSeekWorker = struct {
+    io: std.Io,
+    mutex: std.Io.Mutex = .init,
+    cond: std.Io.Condition = .init,
+    thread: ?std.Thread = null,
+    registry: ?*SoundRegistry = null,
+    shutdown: bool = false,
+    has_target: bool = false,
+    is_seeking: bool = false,
+    target_playback_id: u64 = 0,
+    active_playback_id: u64 = 0,
+    target_seconds: f32 = 0.0,
+    settle_ms: i64 = 120,
+
+    fn init(io: std.Io) StreamSeekWorker {
+        return .{ .io = io };
+    }
+
+    fn deinit(self: *StreamSeekWorker, allocator: std.mem.Allocator) void {
+        self.mutex.lockUncancelable(self.io);
+        self.shutdown = true;
+        self.mutex.unlock(self.io);
+        self.cond.signal(self.io);
+
+        if (self.thread) |thread| {
+            thread.join();
+            self.thread = null;
+        }
+        allocator.destroy(self);
+    }
+
+    fn submit(self: *StreamSeekWorker, registry: *SoundRegistry, playback_id: u64, seconds: f32) void {
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
+
+        self.registry = registry;
+        self.target_playback_id = playback_id;
+        self.target_seconds = @max(0.0, seconds);
+        self.has_target = true;
+        self.cond.signal(self.io);
+    }
+
+    fn status(self: *StreamSeekWorker) StreamSeekStatus {
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
+
+        if (self.is_seeking) {
+            return .{
+                .active = true,
+                .seeking = true,
+                .playback_id = self.active_playback_id,
+            };
+        }
+
+        return .{
+            .active = self.has_target,
+            .seeking = false,
+            .playback_id = if (self.has_target) self.target_playback_id else null,
+        };
+    }
+
+    fn run(self: *StreamSeekWorker) void {
+        while (true) {
+            self.mutex.lockUncancelable(self.io);
+            while (!self.has_target and !self.shutdown) {
+                self.cond.waitUncancelable(self.io, &self.mutex);
+            }
+            if (self.shutdown) {
+                self.mutex.unlock(self.io);
+                return;
+            }
+
+            const pid = self.target_playback_id;
+            const seconds = self.target_seconds;
+            const settle_ms = self.settle_ms;
+            self.mutex.unlock(self.io);
+
+            std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(settle_ms), .awake) catch {};
+
+            self.mutex.lockUncancelable(self.io);
+            if (self.shutdown) {
+                self.mutex.unlock(self.io);
+                return;
+            }
+            if (!self.has_target or self.target_playback_id != pid or self.target_seconds != seconds) {
+                self.mutex.unlock(self.io);
+                continue;
+            }
+
+            const registry = self.registry;
+            self.has_target = false;
+            self.is_seeking = true;
+            self.active_playback_id = pid;
+            self.mutex.unlock(self.io);
+
+            if (registry) |r| {
+                r.seekStreamSecondsImmediate(pid, seconds);
+            }
+
+            self.mutex.lockUncancelable(self.io);
+            self.is_seeking = false;
+            self.active_playback_id = 0;
+            if (!self.has_target) self.registry = null;
+            self.mutex.unlock(self.io);
+        }
     }
 };
 
