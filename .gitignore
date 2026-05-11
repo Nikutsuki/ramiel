@@ -19,6 +19,7 @@ src/thirdparty/ffmpeg_linux_x64/
 # Editor / AI tooling
 .claude/
 .gemini/
+.codex/
 .vscode/
 .idea/
 
@@ -27,3 +28,4 @@ todo.md
 AGENTS.md
 CLAUDE.md
 zig.md
+BEST_PRACTICES.md
