@@ -2,8 +2,8 @@ const core = @import("../core.zig");
 const tw = core.tw;
 
 pub fn buildLeftCanvas(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode {
-    const ux = core.uix.builder(core.AppMessage, ui);
-    return if (state.base_canvas) |canvas|
+    const ux = ui.ux();
+    return if (state.runtime.base_canvas) |canvas|
         ux.canvas(.{
             .class = .{ tw.w_pct(50), tw.h_full, tw.grow_1 },
             .target = canvas,
@@ -18,8 +18,8 @@ pub fn buildLeftCanvas(ui: *core.AppUIContext, state: *const core.AppState) !*co
 }
 
 pub fn buildRightCanvas(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode {
-    const ux = core.uix.builder(core.AppMessage, ui);
-    return if (state.preview_canvas) |canvas|
+    const ux = ui.ux();
+    return if (state.runtime.preview_canvas) |canvas|
         ux.canvas(.{
             .class = .{ tw.w_pct(50), tw.h_full, tw.grow_1 },
             .target = canvas,

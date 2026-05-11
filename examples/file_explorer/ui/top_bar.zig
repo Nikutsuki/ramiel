@@ -23,7 +23,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
     else
         try buildBreadcrumbs(ui, font, state, arena);
 
-    const status_node = try ui.text(.{
+    const status_node = try ui.ux().text(.{
         .id = null,
         .content = state.status,
         .font = font,
@@ -34,7 +34,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
         },
     });
 
-    return try ui.div(.{
+    return try ui.ux().div(.{
         .style = .{
             .width = .Full,
             .height = .{ .exact = 44.0 },
@@ -63,7 +63,7 @@ fn buildBreadcrumbs(
         if (i + 1 < segments.len) try breadcrumbs.append(arena, try separator(ui, font));
     }
 
-    return ui.div(.{
+    return ui.ux().div(.{
         .style = .{
             .direction = .Row,
             .align_items = .Center,
@@ -73,8 +73,8 @@ fn buildBreadcrumbs(
             .margin = .{ .left = 6.0, .right = 6.0 },
             .overflow_x = .scroll,
             .background_color = tokens.bg_base,
-            .corner_radius = .all(6.0),
-            .border = .all(1.0, tokens.border_subtle),
+            .corner_radius = core.layout.CornerRadius.all(6.0),
+            .border = core.layout.Border.all(1.0, tokens.border_subtle),
             .cursor = .text,
         },
         .children = try breadcrumbs.toOwnedSlice(arena),
@@ -89,7 +89,7 @@ fn buildPathInput(
 ) !*core.AppNode {
     const tokens = ui.active_theme.tokens;
 
-    return ui.textInput(.{
+    return ui.ux().textInput(.{
         .id = core.NodeIds.path_input,
         .font = font,
         .initial_text = state.current_path,
@@ -100,8 +100,8 @@ fn buildPathInput(
             .margin = .{ .left = 6.0, .right = 6.0 },
             .background_color = tokens.bg_base,
             .text_color = tokens.text_main,
-            .corner_radius = .all(6.0),
-            .border = .all(1.0, tokens.border_focus),
+            .corner_radius = core.layout.CornerRadius.all(6.0),
+            .border = core.layout.Border.all(1.0, tokens.border_focus),
             .font_size = 14.0,
         },
         .events = &.{
@@ -119,7 +119,7 @@ fn navButton(
 ) !*core.AppNode {
     const tokens = ui.active_theme.tokens;
 
-    const text_node = try ui.text(.{
+    const text_node = try ui.ux().text(.{
         .id = null,
         .content = label,
         .font = font,
@@ -131,12 +131,12 @@ fn navButton(
     });
 
     if (disabled) {
-        return ui.div(.{
+        return ui.ux().div(.{
             .style = .{
                 .height = .Full,
                 .padding = .{ .left = 10.0, .right = 10.0 },
                 .margin = .{ .right = 4.0 },
-                .corner_radius = .all(4.0),
+                .corner_radius = core.layout.CornerRadius.all(4.0),
                 .background_color = tokens.action_disabled,
                 .direction = .Row,
                 .align_items = .Center,
@@ -147,12 +147,12 @@ fn navButton(
         });
     }
 
-    return ui.div(.{
+    return ui.ux().div(.{
         .style = .{
             .height = .Full,
             .padding = .{ .left = 10.0, .right = 10.0 },
             .margin = .{ .right = 4.0 },
-            .corner_radius = .all(4.0),
+            .corner_radius = core.layout.CornerRadius.all(4.0),
             .background_color = tokens.action_default,
             .hover_color = tokens.action_hover,
             .direction = .Row,
@@ -203,16 +203,16 @@ fn crumb(
     const tokens = ui.active_theme.tokens;
     const is_current = std.mem.eql(u8, target_path, state.current_path);
 
-    return ui.div(.{
+    return ui.ux().div(.{
         .style = .{
             .padding = .{ .left = 6.0, .right = 6.0, .top = 2.0, .bottom = 2.0 },
-            .corner_radius = .all(3.0),
+            .corner_radius = core.layout.CornerRadius.all(3.0),
             .hover_color = tokens.action_hover,
             .cursor = .pointer,
             .direction = .Row,
             .align_items = .Center,
         },
-        .children = &.{try ui.text(.{
+        .children = &.{try ui.ux().text(.{
             .id = null,
             .content = label,
             .font = font,
@@ -228,7 +228,7 @@ fn crumb(
 
 fn separator(ui: *core.AppUIContext, font: *core.FontData) !*core.AppNode {
     const tokens = ui.active_theme.tokens;
-    return ui.text(.{
+    return ui.ux().text(.{
         .id = null,
         .content = ">",
         .font = font,

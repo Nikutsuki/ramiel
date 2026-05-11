@@ -44,9 +44,8 @@ pub const AppUIContext = T.UIContext;
 pub const AppNode = T.Node;
 pub const AppInteractionMessage = T.InteractionMessage;
 pub const Uix = T.Uix;
-pub const App = lib.Application(AppState, AppMessage);
 
-pub const NodeIds = lib.declareIds(.{
+pub const NodeIds = lib.declareIds("examples.canvas_app", .{
     "palette_input",
     "root_children",
     "palette_suggestions",
@@ -114,12 +113,22 @@ pub const Dispatch = struct {
         return radio_funcs[@min(index, MAX_DYNAMIC_PARAMS - 1)];
     }
 
-    pub const pickerHue = lib.bindTag(AppMessage, f32, .picker_hue);
-    pub const pickerSv = lib.bindTag(AppMessage, [2]f32, .picker_sv);
+    pub const pickerHue = lib.state.onTag(AppMessage, .picker_hue, f32);
+    pub const pickerSv = lib.state.onTag(AppMessage, .picker_sv, [2]f32);
 };
 
 pub const AppState = struct {
     pub const snapshot_version: lib.state.SnapshotVersion = 1;
+
+    pub const RuntimeState = struct {
+        pub const serializable = false;
+
+        font_data: *FontData = undefined,
+        base_canvas: ?*Canvas = null,
+        preview_canvas: ?*Canvas = null,
+        color_picker_canvas: ?*Canvas = null,
+        worker: ?*anyopaque = null,
+    };
 
     pub const ViewSnapshot = struct {
         pan_x: f32 = 0.0,
@@ -138,11 +147,7 @@ pub const AppState = struct {
         editor: EditorState.Snapshot,
     };
 
-    font_data: *FontData = undefined,
-    base_canvas: ?*Canvas = null,
-    preview_canvas: ?*Canvas = null,
-    color_picker_canvas: ?*Canvas = null,
-    worker: ?*anyopaque = null,
+    runtime: RuntimeState = .{},
     pan_x: f32 = 0.0,
     pan_y: f32 = 0.0,
     zoom: f32 = 1.0,
@@ -195,6 +200,28 @@ pub const AppState = struct {
         try self.restoreSnapshot(&parsed.value.data);
     }
 };
+
+pub const CanvasPage = struct {
+    pub const State = AppState;
+    pub const Msg = AppMessage;
+
+    pub fn build(ctx: anytype, state: *const State) anyerror!*AppNode {
+        return @import("ui/root.zig").build(ctx.ui, state);
+    }
+
+    pub fn update(ctx: anytype, state: *State, msg: Msg) UpdateAction {
+        return @import("update.zig").update(ctx, state, msg);
+    }
+};
+
+pub const Managed = lib.ManagedApp(struct {
+    pub const Route = enum { canvas };
+    pub const Pages = .{ .canvas = CanvasPage };
+    pub const initial_route = Route.canvas;
+    pub const flat_single_page_message = true;
+});
+
+pub const App = Managed.App;
 
 pub fn isMaskFilter(kind: ?filters.FilterKind) bool {
     const k = kind orelse return false;

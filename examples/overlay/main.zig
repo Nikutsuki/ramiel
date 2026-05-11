@@ -34,7 +34,7 @@ const AppUIContext = T.UIContext;
 const AppNode = T.Node;
 const AppInteractionMessage = T.InteractionMessage;
 
-const NodeIds = lib.declareIds(.{ "search_input", "results_scroller" }){};
+const NodeIds = lib.declareIds("examples.overlay", .{ "search_input", "results_scroller" }){};
 
 const AppState = struct {
     allocator: std.mem.Allocator,
@@ -67,7 +67,7 @@ fn buildResultRow(ui: *AppUIContext, ctx: ResultListContext, index: usize) !?*Ap
     const has_image = !item.is_folder and isImagePath(item.full_path);
 
     const preview = if (has_image)
-        try ui.asyncImage(.{
+        try ui.ux().asyncImage(.{
             .source = item.full_path,
             .alt_text = item.filename,
             .alt_font = ctx.font,
@@ -83,19 +83,19 @@ fn buildResultRow(ui: *AppUIContext, ctx: ResultListContext, index: usize) !?*Ap
     else
         null;
 
-    const text_col = try ui.div(.{
+    const text_col = try ui.ux().div(.{
         .style = .{
             .flex_grow = 1,
             .direction = .Column,
             .gap = 2,
         },
         .children = &.{
-            try ui.text(.{
+            try ui.ux().text(.{
                 .content = item.filename,
                 .font = ctx.font,
                 .style = .{ .text_color = TEXT, .pointer_events = .none },
             }),
-            try ui.text(.{
+            try ui.ux().text(.{
                 .content = item.full_path,
                 .font = ctx.font,
                 .style = .{ .text_color = DIM, .pointer_events = .none },
@@ -103,7 +103,7 @@ fn buildResultRow(ui: *AppUIContext, ctx: ResultListContext, index: usize) !?*Ap
         },
     });
 
-    return ui.div(.{
+    return ui.ux().div(.{
         .style = .{
             .width = .Full,
             .direction = .Row,
@@ -336,7 +336,7 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
     const DIM: [4]f32 = comptime Color.parse("oklch(70% 0.1 270 / 0.95)");
     const EDGE: [4]f32 = comptime Color.parse("oklch(60% 0.1 270 / 0.95)");
 
-    const header = try ui.div(.{
+    const header = try ui.ux().div(.{
         .style = .{
             .width = .Full,
             .direction = .Row,
@@ -347,12 +347,12 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
             .border = .{ .bottom = .{ .width = 2, .color = EDGE } },
         },
         .children = &.{
-            try ui.text(.{
+            try ui.ux().text(.{
                 .content = "Everything Search Overlay",
                 .font = font,
                 .style = .{ .text_color = TEXT, .pointer_events = .none },
             }),
-            try ui.text(.{
+            try ui.ux().text(.{
                 .content = "Ctrl + Shift + Space",
                 .font = font,
                 .style = .{ .text_color = DIM, .pointer_events = .none },
@@ -360,7 +360,7 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
         },
     });
 
-    const search_input = try ui.textInput(.{
+    const search_input = try ui.ux().textInput(.{
         .id = NodeIds.search_input,
         .style = .{
             .width = .Full,
@@ -378,7 +378,7 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
         },
     });
 
-    const search_row = try ui.div(.{
+    const search_row = try ui.ux().div(.{
         .style = .{
             .width = .Full,
             .direction = .Row,
@@ -391,7 +391,7 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
     });
 
     const results_area: *AppNode = if (state.results.len == 0)
-        try ui.div(.{
+        try ui.ux().div(.{
             .id = NodeIds.results_scroller,
             .style = .{
                 .width = .Full,
@@ -400,7 +400,7 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
                 .background_color = BG,
             },
             .children = &.{
-                try ui.text(.{
+                try ui.ux().text(.{
                     .content = "No results yet. Start typing to search.",
                     .font = font,
                     .style = .{
@@ -425,7 +425,7 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
             try rows.append(arena, try buildResultRow(ui, row_ctx, index));
         }
 
-        break :blk try ui.div(.{
+        break :blk try ui.ux().div(.{
             .id = NodeIds.results_scroller,
             .style = .{
                 .width = .Full,
@@ -438,7 +438,7 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
         });
     };
 
-    return ui.div(.{
+    return ui.ux().div(.{
         .style = .{
             .width = .Full,
             .height = .Full,
@@ -532,7 +532,7 @@ pub fn main(init: std.process.Init) !void {
         onOverlayHotkey,
     );
 
-    app.state.font = try app.loadFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    app.state.font = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
 
     app.state.search = everything.SearchSubsystem.init(allocator, .{
         .max_results = @intCast(MAX_UI_RESULTS),

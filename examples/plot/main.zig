@@ -6,6 +6,7 @@ const lib = @import("ramiel");
 
 const FontData = lib.FontData;
 const layout = lib.layout;
+const tw = lib.tw;
 const Style = layout.Style;
 const Spacing = layout.Spacing;
 const UpdateAction = lib.UpdateAction;
@@ -28,7 +29,7 @@ const AppUIContext = T.UIContext;
 const AppNode = T.Node;
 const AppInteractionMessage = T.InteractionMessage;
 
-const NodeIds = lib.declareIds(.{
+const NodeIds = lib.declareIds("examples.plot", .{
     "line_plot",
     "scatter_plot",
     "bar_plot",
@@ -221,12 +222,12 @@ fn plotPanel(
     plot_node: *AppNode,
     state: *const AppState,
 ) !*AppNode {
-    const plot_wrap = try ui.div(.{
+    const plot_wrap = try ui.ux().div(.{
         .style = .{ .width = .Full, .flex_grow = 1.0 },
         .children = &.{plot_node},
     });
 
-    return ui.div(.{
+    return ui.ux().div(.{
         .style = .{
             .direction = .Column,
             .gap = 4,
@@ -234,23 +235,19 @@ fn plotPanel(
             .height = .{ .exact = PANEL_HEIGHT },
         },
         .children = &.{
-            try ui.text(.{ .content = title, .font = state.font_data, .style = .{ .text_color = .{ 1, 1, 1, 1 }, .font_size = 14 } }),
-            try ui.text(.{ .content = subtitle, .font = state.font_data, .style = .{ .text_color = .{ 0.6, 0.65, 0.75, 1 }, .font_size = 11 } }),
+            try ui.ux().text(.{ .content = title, .font = state.font_data, .style = .{ .text_color = .{ 1, 1, 1, 1 }, .font_size = 14 } }),
+            try ui.ux().text(.{ .content = subtitle, .font = state.font_data, .style = .{ .text_color = .{ 0.6, 0.65, 0.75, 1 }, .font_size = 11 } }),
             plot_wrap,
         },
     });
 }
 
 fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
-    const Builder = comp.Builder(AppMessage);
-    const b = Builder{ .ui = ui };
+    const components = ui.components();
 
     const ms: *AppState = @constCast(state);
 
-    const plot_style: layout.Style = .{
-        .background_color = .{ 0.10, 0.11, 0.14, 1.0 },
-        .corner_radius = layout.CornerRadius.all(6),
-    };
+    const plot_style = tw.style(.{ tw.bg("#1a1c24ff"), tw.rounded(6) });
     const axis_label_style: layout.Style = .{ .font_size = 11, .text_color = .{ 0.7, 0.75, 0.85, 1.0 } };
     const desc_base: comp.PlotDescriptor = .{
         .style = plot_style,
@@ -259,41 +256,23 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .zoom_modifier = .ctrl,
     };
 
-    const line_plot = try b.plot(
-        .{ .base_id = NodeIds.line_plot, .state = &ms.line_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .line_plot) },
-        desc_base,
-    );
-    const scatter_plot = try b.plot(
-        .{ .base_id = NodeIds.scatter_plot, .state = &ms.scatter_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .scatter_plot) },
-        desc_base,
-    );
-    const bar_plot = try b.plot(
-        .{ .base_id = NodeIds.bar_plot, .state = &ms.bar_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .bar_plot) },
-        desc_base,
-    );
-    const mixed_plot = try b.plot(
-        .{ .base_id = NodeIds.mixed_plot, .state = &ms.mixed_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .mixed_plot) },
-        desc_base,
-    );
-    const stress_plot = try b.plot(
-        .{ .base_id = NodeIds.stress_plot, .state = &ms.stress_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .stress_plot) },
-        desc_base,
-    );
-    const stream_plot = try b.plot(
-        .{ .base_id = NodeIds.stream_plot, .state = &ms.stream_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .stream_plot) },
-        desc_base,
-    );
+    const line_plot = try components.plot(.{ .logic = .{ .base_id = NodeIds.line_plot, .state = &ms.line_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .line_plot) }, .visuals = desc_base });
+    const scatter_plot = try components.plot(.{ .logic = .{ .base_id = NodeIds.scatter_plot, .state = &ms.scatter_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .scatter_plot) }, .visuals = desc_base });
+    const bar_plot = try components.plot(.{ .logic = .{ .base_id = NodeIds.bar_plot, .state = &ms.bar_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .bar_plot) }, .visuals = desc_base });
+    const mixed_plot = try components.plot(.{ .logic = .{ .base_id = NodeIds.mixed_plot, .state = &ms.mixed_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .mixed_plot) }, .visuals = desc_base });
+    const stress_plot = try components.plot(.{ .logic = .{ .base_id = NodeIds.stress_plot, .state = &ms.stress_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .stress_plot) }, .visuals = desc_base });
+    const stream_plot = try components.plot(.{ .logic = .{ .base_id = NodeIds.stream_plot, .state = &ms.stream_state, .on_change = lib.bindTag(AppMessage, PlotMsg, .stream_plot) }, .visuals = desc_base });
 
     const panels = try ui.build_arena.allocator().dupe(?*AppNode, &.{
-        try plotPanel(ui, "1. Line", "kind = .line — connected polyline. 1024 samples.", line_plot, state),
-        try plotPanel(ui, "2. Scatter", "kind = .scatter — point cloud. 256 noisy samples.", scatter_plot, state),
-        try plotPanel(ui, "3. Bar", "kind = .bar — filled rect per sample, anchored at bar_baseline = 0.", bar_plot, state),
+        try plotPanel(ui, "1. Line", "kind = .line - connected polyline. 1024 samples.", line_plot, state),
+        try plotPanel(ui, "2. Scatter", "kind = .scatter - point cloud. 256 noisy samples.", scatter_plot, state),
+        try plotPanel(ui, "3. Bar", "kind = .bar - filled rect per sample, anchored at bar_baseline = 0.", bar_plot, state),
         try plotPanel(ui, "4. Mixed", "Multiple kinds on one axis. sin(x) line + cos(x) scatter.", mixed_plot, state),
-        try plotPanel(ui, "5. Stress", "4M samples. LOD pyramid kicks in — vertex output bounded by pixel width.", stress_plot, state),
+        try plotPanel(ui, "5. Stress", "4M samples. LOD pyramid kicks in - vertex output bounded by pixel width.", stress_plot, state),
         try plotPanel(ui, "6. Streaming bar", "Rolling 10-second window, fed every frame. Press R to reattach follow-mode.", stream_plot, state),
     });
 
-    return try ui.div(.{
+    return try ui.ux().div(.{
         .style = .{
             .width = .screen,
             .height = .screen,
@@ -396,7 +375,7 @@ pub fn main(init: std.process.Init) !void {
     );
     defer app.deinit();
 
-    app.state.font_data = try app.loadFont(
+    app.state.font_data = try app.loadDefaultFont(
         "JetBrains Mono",
         .{ .memory = lib.assets.getFontData(.jetbrains_mono) },
         32,

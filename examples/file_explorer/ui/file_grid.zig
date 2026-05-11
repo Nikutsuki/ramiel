@@ -11,7 +11,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
     var cells = std.ArrayList(?*core.AppNode).empty;
 
     if (state.current_entries.items.len == 0) {
-        const empty = try ui.text(.{
+        const empty = try ui.ux().text(.{
             .id = null,
             .content = if (state.status.len > 0) state.status else "(empty)",
             .font = font,
@@ -21,12 +21,12 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
                 .pointer_events = .none,
             },
         });
-        return ui.div(.{
+        return ui.ux().div(.{
             .style = .{
                 .width = .Full,
                 .height = .Full,
                 .background_color = tokens.bg_base,
-                .padding = .all(20.0),
+                .padding = core.layout.Spacing.all(20.0),
                 .flex_grow = 1.0,
                 .align_items = .Center,
                 .justify_content = .Center,
@@ -41,13 +41,13 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
 
     const columns = layout.GridTemplate.fromSlice(&([_]layout.GridTrack{.{ .fr = 1.0 }} ** 10));
 
-    return try ui.div(.{
+    return try ui.ux().div(.{
         .id = core.NodeIds.grid_root,
         .style = .{
             .width = .Full,
             .height = .Full,
             .background_color = tokens.bg_base,
-            .padding = .all(12.0),
+            .padding = core.layout.Spacing.all(12.0),
             .border = .{ .left = .{ .width = 1.0, .color = tokens.border_subtle } },
             .flex_grow = 1.0,
             .display = .grid,
@@ -86,7 +86,7 @@ fn cell(
         .tint = if (entry.is_dir) tokens.action_default else tokens.text_muted,
     });
 
-    const label_node = try ui.text(.{
+    const label_node = try ui.ux().text(.{
         .id = null,
         .content = entry.name,
         .font = font,
@@ -97,8 +97,8 @@ fn cell(
         },
     });
 
-    return ui.div(.{
-        .id = core.components.deriveChildId(200, entry.path),
+    return ui.ux().div(.{
+        .id = core.components.deriveChildId(core.NodeIds.grid_entry, entry.path),
         .style = .{
             .display = .flex,
             .direction = .Column,
@@ -107,7 +107,7 @@ fn cell(
             .padding = .{ .top = 6.0, .bottom = 6.0, .left = 4.0, .right = 4.0 },
             .background_color = if (is_selected) tokens.action_pressed else .{ 0.0, 0.0, 0.0, 0.0 },
             .hover_color = tokens.action_hover,
-            .corner_radius = .all(6.0),
+            .corner_radius = core.layout.CornerRadius.all(6.0),
             .cursor = .pointer,
         },
         .children = &.{ icon_node, label_node },

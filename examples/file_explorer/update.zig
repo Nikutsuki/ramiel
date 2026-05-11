@@ -79,7 +79,7 @@ pub fn tick(app: *core.App) lib.UpdateAction {
     const state = &app.state;
     const comp = lib.components;
     if (ui.scrollChangedThisFrame()) {
-        const tree_root_id = comp.deriveChildId(100, "root");
+        const tree_root_id = comp.deriveChildId(core.NodeIds.sidebar_tree, "root");
         if (ui.getById(tree_root_id)) |node| {
             state.sidebar_scroll_x = node.scroll_x;
             state.sidebar_scroll_y = node.scroll_y;

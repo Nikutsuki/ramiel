@@ -35,7 +35,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .{state.slider_value},
     );
 
-    const handle = try ui.div(.{
+    const handle = try ui.ux().div(.{
         .style = .{
             .position = .absolute,
             .left = handle_x,
@@ -51,7 +51,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         },
     });
 
-    const track = try ui.div(.{
+    const track = try ui.ux().div(.{
         .style = .{
             .position = .relative,
             .width = .{ .exact = track_width },
@@ -62,7 +62,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .children = &.{handle},
     });
 
-    return ui.div(.{
+    return ui.ux().div(.{
         .style = .{
             .width = .screen,
             .height = .screen,
@@ -73,12 +73,12 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             .background_color = .{ 0.08, 0.09, 0.12, 1.0 },
         },
         .children = &.{
-            try ui.text(.{
+            try ui.ux().text(.{
                 .content = "pointer capture demo",
                 .font = font,
                 .style = .{ .text_color = .{ 0.92, 0.95, 1.0, 1.0 } },
             }),
-            try ui.text(.{
+            try ui.ux().text(.{
                 .content = value_text,
                 .font = font,
                 .style = .{ .text_color = .{ 0.70, 0.76, 0.88, 1.0 } },
@@ -123,7 +123,7 @@ pub fn main(init: std.process.Init) !void {
     );
     defer app.deinit();
 
-    app.state.font_data = try app.loadFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    app.state.font_data = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
 
     try app.setRootBuilder(build);
     try app.run();

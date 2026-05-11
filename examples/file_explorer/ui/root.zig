@@ -12,7 +12,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
     const top_bar_node = try top_bar.build(ui, state);
     const file_grid_node = try file_grid.build(ui, state);
 
-    const content = try ui.div(.{
+    const content = try ui.ux().div(.{
         .style = .{
             .width = .Full,
             .height = .Full,
@@ -23,7 +23,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
         .children = &.{ sidebar_node, file_grid_node },
     });
 
-    return try ui.div(.{
+    return try ui.ux().div(.{
         .style = .{
             .width = .Full,
             .height = .Full,

@@ -16,6 +16,7 @@ pub const Color = lib.Color;
 pub const components = lib.components;
 pub const Style = lib.Style;
 pub const tw = lib.tw;
+pub const uix = lib.uix;
 
 pub const AppMsg = union(enum) {
     input_key: void,
@@ -94,9 +95,8 @@ const T = lib.For(AppMsg);
 pub const AppUIContext = T.UIContext;
 pub const AppNode = T.Node;
 pub const AppInteractionMessage = T.InteractionMessage;
-pub const App = lib.Application(AppState, AppMsg);
 
-pub const NodeIds = lib.declareIds(.{
+pub const NodeIds = lib.declareIds("examples.discord_client", .{
     "input",
     "send_button",
     "tooltip",
@@ -294,7 +294,26 @@ pub const AppState = struct {
     video_playbacks: std.StringHashMap(VideoState) = undefined,
 
     preview_media: ?PreviewMedia = null,
+
+    pub fn init(allocator: std.mem.Allocator) !AppState {
+        return initAppState(allocator, null);
+    }
+
+    pub fn deinit(self: *AppState) void {
+        deinitAppState(self);
+    }
 };
+
+fn buildRoot(ctx: anytype, state: *const AppState) anyerror!*AppNode {
+    return @import("ui/root.zig").build(ctx.ui, state);
+}
+
+fn updateRoot(ctx: anytype, state: *AppState, msg: AppMsg) UpdateAction {
+    return @import("update.zig").update(ctx, state, msg);
+}
+
+pub const Single = lib.SinglePageApp(AppState, AppMsg, buildRoot, updateRoot);
+pub const App = Single.App;
 
 pub fn initAppState(allocator: std.mem.Allocator, discord: ?*Discord) AppState {
     return .{

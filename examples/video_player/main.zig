@@ -3,11 +3,8 @@ const lib = @import("ramiel");
 const nfd = @import("nfd");
 pub const tracy_impl = @import("tracy_impl");
 
-const FontData = lib.FontData;
 const layout = lib.layout;
 const UpdateAction = lib.UpdateAction;
-const Builder = lib.components.Builder(AppMessage);
-const deriveChildId = lib.components.deriveChildId;
 
 const AppMessage = union(enum) {
     open_file,
@@ -22,9 +19,12 @@ const AppUIContext = T.UIContext;
 const AppNode = T.Node;
 const AppInteractionMessage = T.InteractionMessage;
 
-const AppState = struct {
-    font_data: *FontData = undefined,
+const NodeIds = lib.declareIds("examples.video_player", .{
+    "open_button",
+    "video_player",
+}){};
 
+const AppState = struct {
     video_instance: ?*lib.VideoPlayback = null,
     volume: f32 = 1.0,
     controls_hovered: bool = false,
@@ -35,33 +35,32 @@ const AppState = struct {
 const App = lib.Application(AppState, AppMessage);
 
 fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
-    const font = state.font_data;
-    const b = Builder{ .ui = ui };
+    const ux = ui.ux();
+    const components = ui.components();
 
     const btn_style = layout.Style{
-        .padding = .all(4),
+        .padding = layout.Spacing.all(4),
         .background_color = .{ 0.20, 0.22, 0.30, 1.0 },
         .hover_color = .{ 0.25, 0.28, 0.38, 1.0 },
         .corner_radius = layout.CornerRadius.all(6.0),
         .cursor = .pointer,
     };
 
-    const open_btn = try ui.button(.{
-        .id = 0x1100_0001,
+    const open_btn = try ux.button(.{
+        .id = NodeIds.open_button,
         .style = btn_style,
         .label = "Open Video",
-        .font = font,
-        .events = &.{.{ .event = .click, .msg = .open_file }},
+        .on_click = .open_file,
     });
 
-    const controls_bar = try ui.div(.{
+    const controls_bar = try ux.div(.{
         .style = .{
             .width = .Full,
             .height = .{ .exact = 64.0 },
             .direction = .Row,
             .align_items = .Center,
             .justify_content = .Start,
-            .padding = .all(16.0),
+            .padding = layout.Spacing.all(16.0),
             .gap = 12.0,
             .background_color = .{ 0.12, 0.13, 0.18, 1.0 },
         },
@@ -78,47 +77,48 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         else
             0.0;
 
-        const player_node = try b.videoPlayer(.{
-            .base_id = deriveChildId(0x2400_0001, "video_player"),
-            .font = font,
-            .style = .{
-                .width = .Full,
-                .height = .Full,
-                .object_fit = .contain,
+        const player_node = try components.videoPlayer(.{
+            .desc = .{
+                .base_id = NodeIds.video_player,
+                .style = .{
+                    .width = .Full,
+                    .height = .Full,
+                    .object_fit = .contain,
+                },
             },
-        }, .{
-            .playback = vid,
-            .progress = progress,
-            .volume = state.volume,
-            .is_hovered = state.controls_hovered,
-            .on_play_toggle = .toggle_playback,
-            .on_seek = lib.bindTag(AppMessage, f32, .seek),
-            .on_volume = lib.bindTag(AppMessage, f32, .set_volume),
-            .on_hover_enter = .{ .set_hover = true },
-            .on_hover_leave = .{ .set_hover = false },
+            .logic = .{
+                .playback = vid,
+                .progress = progress,
+                .volume = state.volume,
+                .is_hovered = state.controls_hovered,
+                .on_play_toggle = .toggle_playback,
+                .on_seek = lib.bindTag(AppMessage, f32, .seek),
+                .on_volume = lib.bindTag(AppMessage, f32, .set_volume),
+                .on_hover_enter = .{ .set_hover = true },
+                .on_hover_leave = .{ .set_hover = false },
+            },
         });
         try video_children.append(ui.build_arena.allocator(), player_node);
     } else {
-        const empty_text = try ui.text(.{
+        const empty_text = try ux.text(.{
             .content = "No video loaded. Click 'Open Video' to select a file.",
-            .font = font,
             .style = .{ .text_color = .{ 0.5, 0.5, 0.5, 1.0 } },
         });
         try video_children.append(ui.build_arena.allocator(), empty_text);
     }
 
-    const video_area = try ui.div(.{
+    const video_area = try ux.div(.{
         .style = .{
             .width = .Full,
             .flex_grow = 1.0,
             .align_items = .Center,
             .justify_content = .Center,
-            .padding = .all(24.0),
+            .padding = layout.Spacing.all(24.0),
         },
         .children = video_children.items,
     });
 
-    return ui.div(.{
+    return ux.div(.{
         .style = .{
             .width = .screen,
             .height = .screen,
@@ -238,7 +238,7 @@ pub fn main(init: std.process.Init) !void {
 
     app.tick_fn = tick;
 
-    app.state.font_data = try app.loadFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    _ = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
 
     try app.setRootBuilder(build);
     try app.run();

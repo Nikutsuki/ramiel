@@ -37,19 +37,19 @@ fn onFileDialogResult(path: ?[]const u8) core.AppMessage {
 }
 
 fn asWorker(state: *core.AppState) ?*worker_pool.FilterWorkerPool {
-    const ptr = state.worker orelse return null;
+    const ptr = state.runtime.worker orelse return null;
     return @ptrCast(@alignCast(ptr));
 }
 
 fn syncPreviewEditorFromCanvas(state: *core.AppState) !void {
-    const canvas = state.preview_canvas orelse return;
+    const canvas = state.runtime.preview_canvas orelse return;
     const copy = try core.PixelBuffer.initBlank(state.editor.allocator, canvas.width, canvas.height);
     @memcpy(copy.pixels, canvas.getRawPixels());
     state.editor.setPreviewBuffer(copy);
 }
 
 fn applyBaseBufferToCanvas(state: *core.AppState) bool {
-    const canvas = state.base_canvas orelse return false;
+    const canvas = state.runtime.base_canvas orelse return false;
     const buffer = state.editor.base_buffer orelse return false;
     if (canvas.getRawPixels().len != buffer.pixels.len) return false;
     @memcpy(canvas.getRawPixels(), buffer.pixels);
@@ -58,7 +58,7 @@ fn applyBaseBufferToCanvas(state: *core.AppState) bool {
 }
 
 fn applyPreviewBufferToCanvas(state: *core.AppState) bool {
-    const canvas = state.preview_canvas orelse return false;
+    const canvas = state.runtime.preview_canvas orelse return false;
     const buffer = state.editor.preview_buffer orelse return false;
     if (canvas.getRawPixels().len != buffer.pixels.len) return false;
     @memcpy(canvas.getRawPixels(), buffer.pixels);
@@ -67,7 +67,7 @@ fn applyPreviewBufferToCanvas(state: *core.AppState) bool {
 }
 
 fn extractActiveMask(state: *core.AppState) void {
-    const canvas = state.preview_canvas orelse return;
+    const canvas = state.runtime.preview_canvas orelse return;
     const pixels = canvas.getRawPixels();
     const pixel_count = pixels.len / 4;
 
@@ -141,11 +141,12 @@ pub fn appShortcutHandler(
     return false;
 }
 
-pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction {
+pub fn update(ctx: anytype, state: *core.AppState, msg: core.AppMessage) core.UpdateAction {
+    const app = ctx.app;
     const allocator = app.allocator;
-    const state = &app.state;
-    var action: core.UpdateAction = .none;
-    switch (msg.id) {
+    const event_data = ctx.event_data;
+    var action = lib.state.ActionAccumulator{};
+    switch (msg) {
         .rebuild_requested => return .rebuild,
         .palette_query_changed => {
             {
@@ -156,12 +157,12 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
             return .rebuild;
         },
         .palette_key_down => {
-            if (msg.data == .key and msg.data.key.action == glfw.Press) {
-                if (msg.data.key.key == glfw.KeyEnter) {
+            if (event_data == .key and event_data.key.action == glfw.Press) {
+                if (event_data.key.key == glfw.KeyEnter) {
                     app.postMessageId(.{ .execute_palette_command = {} });
-                } else if (msg.data.key.key == glfw.KeyTab) {
+                } else if (event_data.key.key == glfw.KeyTab) {
                     app.postMessageId(.{ .autocomplete_palette = {} });
-                } else if (msg.data.key.key == glfw.KeyEscape) {
+                } else if (event_data.key.key == glfw.KeyEscape) {
                     app.postMessageId(.{ .close_palette = {} });
                 }
             }
@@ -221,7 +222,7 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
             if (state.editor.dither_palette_hsv.items.len < max_colors) {
                 state.editor.dither_palette_hsv.append(state.editor.allocator, .{ 0.0, 1.0, 1.0 }) catch {};
                 state.editor.dither_selected_color = state.editor.dither_palette_hsv.items.len - 1;
-                if (state.color_picker_canvas) |picker_canvas| lib.components.updateColorPickerPlaneTexture(picker_canvas, 0.0);
+                if (state.runtime.color_picker_canvas) |picker_canvas| lib.components.updateColorPickerPlaneTexture(picker_canvas, 0.0);
                 app.postMessageId(.{ .execute_active_filter = {} });
             }
             return .rebuild;
@@ -230,7 +231,7 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
             if (state.editor.dither_palette_hsv.items.len > 1) {
                 _ = state.editor.dither_palette_hsv.orderedRemove(state.editor.dither_selected_color);
                 state.editor.dither_selected_color = @min(state.editor.dither_selected_color, state.editor.dither_palette_hsv.items.len - 1);
-                if (state.color_picker_canvas) |picker_canvas| {
+                if (state.runtime.color_picker_canvas) |picker_canvas| {
                     const new_hue = state.editor.dither_palette_hsv.items[state.editor.dither_selected_color][0];
                     lib.components.updateColorPickerPlaneTexture(picker_canvas, new_hue);
                 }
@@ -241,7 +242,7 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
         .palette_select => |idx| {
             if (idx >= state.editor.dither_palette_hsv.items.len) return .none;
             state.editor.dither_selected_color = idx;
-            if (state.color_picker_canvas) |picker_canvas| {
+            if (state.runtime.color_picker_canvas) |picker_canvas| {
                 const new_hue = state.editor.dither_palette_hsv.items[idx][0];
                 lib.components.updateColorPickerPlaneTexture(picker_canvas, new_hue);
             }
@@ -251,7 +252,7 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
             if (state.editor.dither_selected_color >= state.editor.dither_palette_hsv.items.len) return .none;
             const hue = std.math.clamp(v, 0.0, 1.0) * 360.0;
             state.editor.dither_palette_hsv.items[state.editor.dither_selected_color][0] = hue;
-            if (state.color_picker_canvas) |picker_canvas| lib.components.updateColorPickerPlaneTexture(picker_canvas, hue);
+            if (state.runtime.color_picker_canvas) |picker_canvas| lib.components.updateColorPickerPlaneTexture(picker_canvas, hue);
             app.postMessageId(.{ .execute_active_filter = {} });
             return .rebuild;
         },
@@ -364,7 +365,7 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
                     state.editor.filter_params[1] = @max(0.0, @round(p2));
                 }
                 if (k == .dither_bayer) {
-                    if (state.color_picker_canvas) |picker_canvas| {
+                    if (state.runtime.color_picker_canvas) |picker_canvas| {
                         const selected = @min(state.editor.dither_selected_color, state.editor.dither_palette_hsv.items.len - 1);
                         state.editor.dither_selected_color = selected;
                         const hue = state.editor.dither_palette_hsv.items[selected][0];
@@ -378,9 +379,9 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
             return .rebuild;
         },
         .canvas_pointer_move => {
-            if (msg.data != .mouse) return action;
-            if (state.preview_canvas == null) return action;
-            const canvas = state.preview_canvas.?;
+            if (event_data != .mouse) return action.finish();
+            if (state.runtime.preview_canvas == null) return action.finish();
+            const canvas = state.runtime.preview_canvas.?;
             const fb = app.window.getFramebufferSize();
             const inner_w = @max(1.0, @as(f32, @floatFromInt(fb.width)) - core.ROOT_PADDING * 2.0);
             const workspace_w = @max(1.0, inner_w - 250.0 - core.ROOT_GAP * 2.0);
@@ -390,8 +391,8 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
             state.canvas_screen_y = core.ROOT_PADDING;
             state.canvas_screen_w = per_canvas_w;
             state.canvas_screen_h = workspace_h;
-            const cx = msg.data.mouse.x;
-            const cy = msg.data.mouse.y;
+            const cx = event_data.mouse.x;
+            const cy = event_data.mouse.y;
             const local_sx = cx - state.canvas_screen_x;
             const local_sy = cy - state.canvas_screen_y;
             const cursor_on_canvas = local_sx >= 0 and local_sx < state.canvas_screen_w and local_sy >= 0 and local_sy < state.canvas_screen_h;
@@ -406,7 +407,7 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
                     if (dx != 0.0 or dy != 0.0) {
                         state.pan_x += dx;
                         state.pan_y += dy;
-                        action = .rebuild;
+                        action.add(.rebuild);
                     }
                     state.last_mouse_x = cx;
                     state.last_mouse_y = cy;
@@ -434,8 +435,8 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
             }
         },
         .canvas_scrolled => {
-            if (msg.data == .scroll) {
-                const dy = msg.data.scroll.dy;
+            if (event_data == .scroll) {
+                const dy = event_data.scroll.dy;
                 if (dy != 0.0) {
                     var cx: f32 = 0.0;
                     var cy: f32 = 0.0;
@@ -456,7 +457,7 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
                         state.zoom = next_zoom;
                         state.pan_x = local_sx - half_w - inv_ix * next_zoom;
                         state.pan_y = local_sy - half_h - inv_iy * next_zoom;
-                        action = .rebuild;
+                        action.add(.rebuild);
                     }
                 }
             }
@@ -486,11 +487,11 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
                     return .none;
                 };
                 {
-                    if (state.base_canvas) |old_canvas| app.destroyCanvas(old_canvas);
-                    if (state.preview_canvas) |old_preview| app.destroyCanvas(old_preview);
-                    state.base_canvas = app.createCanvasFromBuffer(buffer) catch return .none;
+                    if (state.runtime.base_canvas) |old_canvas| app.destroyCanvas(old_canvas);
+                    if (state.runtime.preview_canvas) |old_preview| app.destroyCanvas(old_preview);
+                    state.runtime.base_canvas = app.createCanvasFromBuffer(buffer) catch return .none;
                     const preview_canvas_buf = preview_copy.clone() catch return .none;
-                    state.preview_canvas = app.createCanvasFromBuffer(preview_canvas_buf) catch return .none;
+                    state.runtime.preview_canvas = app.createCanvasFromBuffer(preview_canvas_buf) catch return .none;
                     state.editor.clearHistory();
                     state.editor.setBaseBuffer(base_copy);
                     state.editor.setPreviewBuffer(preview_copy);
@@ -506,7 +507,7 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
             }
         },
         .filter_done => {
-            if (state.preview_canvas) |canvas| {
+            if (state.runtime.preview_canvas) |canvas| {
                 if (asWorker(state)) |worker| {
                     var completed_kind: ?filters.FilterKind = null;
                     if (worker.copyCompletedInto(canvas.getRawPixels(), &completed_kind)) {
@@ -533,5 +534,5 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
         },
         else => {},
     }
-    return action;
+    return action.finish();
 }

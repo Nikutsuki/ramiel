@@ -1,7 +1,7 @@
 const std = @import("std");
 const lib = @import("ramiel");
 
-const layout = lib.layout;
+const tw = lib.tw;
 const comp = lib.components;
 
 const AppMessage = union(enum) {
@@ -13,6 +13,10 @@ const T = lib.For(AppMessage);
 const AppUIContext = T.UIContext;
 const AppNode = T.Node;
 const App = lib.Application(AppState, AppMessage);
+
+const NodeIds = lib.declareIds("examples.tree", .{
+    "tree",
+}){};
 
 const TreeItemData = struct {
     id: []const u8,
@@ -68,34 +72,27 @@ const AppState = struct {
 };
 
 fn build(ctx: *AppUIContext, state: *const AppState) anyerror!*AppNode {
-    const builder = comp.Builder(AppMessage){ .ui = ctx };
+    const components = ctx.components();
 
-    const tree_node = try builder.treeFromSource(TreeItemData, &state.tree_state, state.root_items.items, .{
-        .base_id = 100,
-        .build_row_content = buildRowContent,
-        .wrap_message = struct {
-            fn wrap(msg: comp.TreeMessage([]const u8)) AppMessage {
-                return .{ .tree_msg = msg };
-            }
-        }.wrap,
-        .userdata = @as(?*const anyopaque, @ptrCast(@constCast(state))),
-    }, .{
-        .style = .{
-            .width = .Full,
-            .height = .Full,
-            .padding = .all(8.0),
+    const tree_node = try components.treeFromSource(.{
+        .state = &state.tree_state,
+        .root_items = state.root_items.items,
+        .logic = comp.TreeSourceLogic(AppMessage){
+            .base_id = NodeIds.tree,
+            .build_row_content = buildRowContent,
+            .wrap_message = struct {
+                fn wrap(msg: comp.TreeMessage([]const u8)) AppMessage {
+                    return .{ .tree_msg = msg };
+                }
+            }.wrap,
+            .userdata = @as(?*const anyopaque, @ptrCast(@constCast(state))),
         },
-        .row_style = .{
-            .padding = .{
-                .left = 6.0,
-                .right = 8.0,
-                .top = 4.0,
-                .bottom = 4.0,
-            },
-            .corner_radius = .all(4.0),
+        .visuals = comp.TreeDescriptor{
+            .style = tw.style(.{ tw.w_full, tw.h_full, tw.p(2) }),
+            .row_style = tw.style(.{ tw.px(2), tw.py(1), tw.pl(1.5), tw.rounded(4.0) }),
+            .active_row_color = .{ 0.17, 0.45, 0.95, 0.22 },
+            .hover_row_color = .{ 0.3, 0.4, 0.55, 0.14 },
         },
-        .active_row_color = .{ 0.17, 0.45, 0.95, 0.22 },
-        .hover_row_color = .{ 0.3, 0.4, 0.55, 0.14 },
     });
 
     return tree_node;
@@ -106,13 +103,16 @@ fn buildRowContent(ctx: *AppUIContext, item: comp.TreeItem, userdata: ?*const an
 
     const label = findLabel(state.root_items.items, item.id) orelse "Unknown";
 
-    return ctx.text(.{
+    return ctx.ux().text(.{
         .id = null,
         .content = label,
         .font = state.font_data,
         .style = .{
             .pointer_events = .none,
-            .text_color = if (item.is_selected) .{ 1.0, 1.0, 1.0, 1.0 } else .{ 0.92, 0.95, 0.98, 1.0 },
+            .text_color = if (item.is_selected)
+                @as([4]f32, .{ 1.0, 1.0, 1.0, 1.0 })
+            else
+                @as([4]f32, .{ 0.92, 0.95, 0.98, 1.0 }),
         },
     });
 }
@@ -178,7 +178,7 @@ pub fn main(init: std.process.Init) !void {
     defer app.state.deinit();
     defer app.deinit();
 
-    app.state.font_data = try app.loadFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 14);
+    app.state.font_data = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 14);
 
     try app.setRootBuilder(build);
 

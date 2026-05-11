@@ -10,9 +10,9 @@ pub fn build(
     state: *const core.AppState,
     font: *lib.FontData,
 ) !*core.AppNode {
-    const comp = lib.components.Builder(core.AppMessage){ .ui = ui };
+    const components = ui.components();
     const tokens = ui.active_theme.tokens;
-    const ux = core.uix.builder(core.AppMessage, ui);
+    const ux = ui.ux();
     var param_children = std.ArrayList(*core.AppNode).empty;
     defer param_children.deinit(allocator);
 
@@ -21,7 +21,7 @@ pub fn build(
         try param_children.append(allocator, try ux.text(.{
             .content = meta.name,
             .font = font,
-            .class = .{ tw.text_color(tokens.text_main), tw.mb(2) },
+            .class = .{ tw.text_main, tw.mb(2) },
         }));
 
         for (meta.params, 0..) |param_def, param_idx| {
@@ -31,7 +31,7 @@ pub fn build(
                 .slider => {
                     const current_val = state.editor.filter_params[param_idx];
                     const label_text = try std.fmt.allocPrint(ui.build_arena.allocator(), "{s}: {d:.1}", .{ param_def.name, current_val });
-                    try param_children.append(allocator, try ux.text(.{ .content = label_text, .font = font, .class = tw.text_color(tokens.text_main) }));
+                    try param_children.append(allocator, try ux.text(.{ .content = label_text, .font = font, .class = tw.text_main }));
 
                     var normalized = if (@abs(param_def.max - param_def.min) > 0.0001)
                         (current_val - param_def.min) / (param_def.max - param_def.min)
@@ -44,46 +44,50 @@ pub fn build(
                             0.0;
                         normalized = if (max_hist > 0.0) current_val / max_hist else 0.0;
                     }
-                    try param_children.append(allocator, try comp.slider(.{
+                    try param_children.append(allocator, try components.slider(.{
                         .base_id = node_id,
                         .value = std.math.clamp(normalized, 0.0, 1.0),
                         .on_change = core.Dispatch.pickParamOnChange(param_idx),
                     }));
                 },
                 .radio => {
-                    try param_children.append(allocator, try ux.text(.{ .content = param_def.name, .font = font, .class = tw.text_color(tokens.text_main) }));
+                    try param_children.append(allocator, try ux.text(.{ .content = param_def.name, .font = font, .class = tw.text_main }));
                     const options = param_def.options orelse &.{};
                     var active_index: usize = @as(usize, @intFromFloat(@max(0.0, state.editor.filter_params[param_idx])));
                     if (core.isMaskFilter(filter) and param_idx == 0) {
                         active_index = core.maskFilterToIndex(filter);
                     }
                     if (options.len > 0) active_index = @min(active_index, options.len - 1);
-                    try param_children.append(allocator, try comp.radioGroup(.{
-                        .base_id = node_id,
-                        .active_index = active_index,
-                        .on_change = core.Dispatch.pickRadioOnChange(param_idx),
-                    }, .{
-                        .options = options,
-                        .font = font,
+                    try param_children.append(allocator, try components.radioGroup(.{
+                        .logic = .{
+                            .base_id = node_id,
+                            .active_index = active_index,
+                            .on_change = core.Dispatch.pickRadioOnChange(param_idx),
+                        },
+                        .visuals = .{
+                            .options = options,
+                            .font = font,
+                        },
                     }));
                 },
                 .palette_editor => {
-                    try param_children.append(allocator, try ux.text(.{ .content = param_def.name, .font = font, .class = tw.text_color(tokens.text_main) }));
+                    try param_children.append(allocator, try ux.text(.{ .content = param_def.name, .font = font, .class = tw.text_main }));
 
-                    var swatches = try ux.keyedList(state.editor.dither_palette_hsv.items.len);
+                    var swatches = try ux.keyed(core.NodeIds.palette_swatches, state.editor.dither_palette_hsv.items.len);
                     for (state.editor.dither_palette_hsv.items, 0..) |hsv, i| {
                         const rgb = lib.Color.hsvToRgb(hsv[0], hsv[1], hsv[2]);
                         const is_selected = i == state.editor.dither_selected_color;
+                        const swatch_color: [4]f32 = .{ rgb[0], rgb[1], rgb[2], 1.0 };
                         var swatch_style = tw.style(.{
                             tw.square(24.0),
-                            tw.bg(.{ rgb[0], rgb[1], rgb[2], 1.0 }),
+                            tw.bg_value(swatch_color),
                             tw.rounded(4.0),
                             tw.cursor_pointer,
                         });
                         if (is_selected) {
-                            swatch_style = tw.apply(swatch_style, tw.border(2.0, tokens.action_default));
+                            swatch_style = tw.apply(swatch_style, tw.border_value(2.0, tokens.action_default));
                         }
-                        try swatches.append(swatches.keyAt(i, core.NodeIds.palette_swatches, i), try ux.div(.{
+                        try swatches.append(i, try ux.div(.{
                             .style = swatch_style,
                             .on_click = .{ .palette_select = i },
                         }));
@@ -102,10 +106,10 @@ pub fn build(
                                 .class = .{
                                     tw.px(2),
                                     tw.py(1),
-                                    tw.bg(tokens.action_default),
+                                    tw.bg_action,
                                     tw.rounded(6.0),
                                 },
-                                .label_class = tw.text_color(tokens.text_inverse),
+                                .label_class = tw.text_inverse,
                                 .on_click = .{ .palette_add = {} },
                             }),
                             try ux.button(.{
@@ -114,28 +118,31 @@ pub fn build(
                                 .class = .{
                                     tw.px(2),
                                     tw.py(1),
-                                    tw.bg(tokens.bg_base),
+                                    tw.bg_base,
                                     tw.rounded(6.0),
-                                    tw.border(1.0, tokens.border_subtle),
+                                    tw.border_subtle,
                                 },
-                                .label_class = tw.text_color(tokens.text_main),
+                                .label_class = tw.text_main,
                                 .on_click = .{ .palette_remove = {} },
                             }),
                         },
                     }));
 
-                    if (state.color_picker_canvas) |picker_canvas| {
+                    if (state.runtime.color_picker_canvas) |picker_canvas| {
                         const selected = @min(state.editor.dither_selected_color, state.editor.dither_palette_hsv.items.len - 1);
                         const active_hsv = state.editor.dither_palette_hsv.items[selected];
-                        try param_children.append(allocator, try comp.colorPicker(.{
-                            .base_id = core.makeParamNodeId(filter, param_idx, 1),
-                            .plane_canvas = picker_canvas,
-                            .hsv = active_hsv,
-                            .on_hue_change = core.Dispatch.pickerHue,
-                            .on_sv_change = core.Dispatch.pickerSv,
-                        }, .{
-                            .plane_size = 200.0,
-                            .hex_font = font,
+                        try param_children.append(allocator, try components.colorPicker(.{
+                            .logic = .{
+                                .base_id = core.makeParamNodeId(filter, param_idx, 1),
+                                .plane_canvas = picker_canvas,
+                                .hsv = active_hsv,
+                                .on_hue_change = core.Dispatch.pickerHue,
+                                .on_sv_change = core.Dispatch.pickerSv,
+                            },
+                            .visuals = .{
+                                .plane_size = 200.0,
+                                .hex_font = font,
+                            },
                         }));
                     }
                 },
@@ -146,7 +153,7 @@ pub fn build(
         try param_children.append(allocator, try ux.text(.{
             .content = "No active filter",
             .font = font,
-            .class = tw.text_color(tokens.text_muted),
+            .class = tw.text_muted,
         }));
     }
 
@@ -155,7 +162,7 @@ pub fn build(
             tw.flex_col,
             tw.w(250),
             tw.h_full,
-            tw.bg(tokens.bg_surface),
+            tw.bg_surface,
             tw.p(3),
             tw.gap(2),
         },

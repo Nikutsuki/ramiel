@@ -4,7 +4,6 @@ const lib = @import("ramiel");
 const core = @import("core.zig");
 const env = @import("env.zig");
 const updater = @import("update.zig");
-const ui_root = @import("ui/root.zig");
 const add_icon_svg = @embedFile("ui/icons/add.svg");
 const theme = lib.theme;
 const Theme = lib.Theme;
@@ -12,6 +11,10 @@ const Palette = lib.Palette;
 const SemanticTokens = lib.SemanticTokens;
 
 pub const tracy_impl = @import("tracy_impl");
+
+pub const std_options: std.Options = .{
+    .unexpected_error_tracing = false,
+};
 
 pub fn main(init: std.process.Init) !void {
     var rt = lib.Runtime.init();
@@ -45,17 +48,18 @@ pub fn main(init: std.process.Init) !void {
         allocator,
         io,
         .{ .title = "Discord Client (Ramiel)" },
-        core.initAppState(allocator, &discord_client),
-        updater.update,
+        try core.Single.initState(allocator),
+        core.Single.update,
     );
+    app.state.discord = &discord_client;
 
     app.ui.setTheme(discord_theme);
     defer app.deinit();
-    defer core.deinitAppState(&app.state);
+    defer core.Single.deinitState(&app.state);
 
     app.tick_fn = updater.tick;
 
-    app.state.font_data = try app.loadFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    app.state.font_data = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
     try app.loadIconSvgFromMemory(
         @intFromEnum(core.IconIds.add),
         add_icon_svg,
@@ -68,7 +72,7 @@ pub fn main(init: std.process.Init) !void {
 
     updater.startBootstrap(&app.state);
     try updater.startWebsocket(&app.state);
-    try app.setRootBuilder(ui_root.build);
+    try app.setRootBuilder(core.Single.build);
     try app.run();
 
     app.state.shutdown_flag.store(true, .release);

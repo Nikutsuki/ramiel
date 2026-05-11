@@ -40,7 +40,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .{ bb_outer_w, PADDING, bb_content_w },
     );
 
-    const border_box_panel = try ui.div(.{
+    const border_box_panel = try ui.ux().div(.{
         .style = .{
             .box_sizing = .border_box,
             .width = .{ .exact = PANEL_WIDTH },
@@ -51,7 +51,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             .gap = 12,
         },
         .children = &.{
-            try ui.div(.{
+            try ui.ux().div(.{
                 .style = .{
                     .width = .Full,
                     .height = .{ .exact = 6 },
@@ -59,8 +59,8 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
                     .corner_radius = layout.CornerRadius.all(3),
                 },
             }),
-            try ui.text(.{ .content = bb_label, .font = font, .style = .{ .text_color = LABEL_COLOR } }),
-            try ui.text(.{
+            try ui.ux().text(.{ .content = bb_label, .font = font, .style = .{ .text_color = LABEL_COLOR } }),
+            try ui.ux().text(.{
                 .content = "The blue bar fills\nthe content area\n(outer − padding).",
                 .font = font,
                 .style = .{ .text_color = DIM_COLOR },
@@ -77,7 +77,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .{ cb_outer_w, PADDING, cb_content_w },
     );
 
-    const content_box_panel = try ui.div(.{
+    const content_box_panel = try ui.ux().div(.{
         .style = .{
             .box_sizing = .content_box,
             .width = .{ .exact = PANEL_WIDTH },
@@ -88,7 +88,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             .gap = 12,
         },
         .children = &.{
-            try ui.div(.{
+            try ui.ux().div(.{
                 .style = .{
                     .width = .Full,
                     .height = .{ .exact = 6 },
@@ -96,8 +96,8 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
                     .corner_radius = layout.CornerRadius.all(3),
                 },
             }),
-            try ui.text(.{ .content = cb_label, .font = font, .style = .{ .text_color = LABEL_COLOR } }),
-            try ui.text(.{
+            try ui.ux().text(.{ .content = cb_label, .font = font, .style = .{ .text_color = LABEL_COLOR } }),
+            try ui.ux().text(.{
                 .content = "The stated 300 px is\nthe content, not the\nouter box.",
                 .font = font,
                 .style = .{ .text_color = DIM_COLOR },
@@ -105,7 +105,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         },
     });
 
-    const title = try ui.text(.{
+    const title = try ui.ux().text(.{
         .content = "box-sizing demo",
         .font = font,
         .style = .{
@@ -113,7 +113,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         },
     });
 
-    const subtitle = try ui.text(.{
+    const subtitle = try ui.ux().text(.{
         .content = "Both panels use width = 300 px and padding = 20 px.\nborder_box: outer stays at 300 px.  content_box: outer grows to 340 px.",
         .font = font,
         .style = .{
@@ -121,7 +121,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         },
     });
 
-    const panels_row = try ui.div(.{
+    const panels_row = try ui.ux().div(.{
         .style = .{
             .direction = .Row,
             .gap = 32,
@@ -130,7 +130,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .children = &.{ border_box_panel, content_box_panel },
     });
 
-    return try ui.div(.{
+    return try ui.ux().div(.{
         .style = .{
             .width = .screen,
             .height = .screen,
@@ -157,7 +157,7 @@ pub fn main(init: std.process.Init) !void {
     var app = try App.init(rt.allocator(), io, .{ .title = "box-sizing demo" }, AppState{}, update);
     defer app.deinit();
 
-    app.state.font_data = try app.loadFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    app.state.font_data = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
 
     try app.setRootBuilder(build);
     try app.run();

@@ -4,14 +4,13 @@ const lib = @import("ramiel");
 const tw = core.tw;
 
 pub fn build(_: std.mem.Allocator, ui: *core.AppUIContext, state: *const core.AppState, font: *lib.FontData) !*core.AppNode {
-    const ux = core.uix.builder(core.AppMessage, ui);
-    const tokens = ui.active_theme.tokens;
+    const ux = ui.ux();
     return ux.div(.{
         .class = .{
             tw.flex_row,
             tw.w_full,
             tw.h(50),
-            tw.bg(tokens.bg_surface),
+            tw.bg_surface,
             tw.items_center,
             tw.px(4),
             tw.py(2),
@@ -21,7 +20,7 @@ pub fn build(_: std.mem.Allocator, ui: *core.AppUIContext, state: *const core.Ap
             try ux.text(.{
                 .content = state.editor.status_text.items,
                 .font = font,
-                .class = tw.text_color(tokens.text_main),
+                .class = tw.text_main,
             }),
             try ux.div(.{ .class = tw.grow_1 }),
             try ux.button(.{
@@ -30,13 +29,13 @@ pub fn build(_: std.mem.Allocator, ui: *core.AppUIContext, state: *const core.Ap
                 .class = .{
                     tw.px(2.5),
                     tw.py(1.5),
-                    tw.bg(tokens.action_default),
+                    tw.bg_action,
                     tw.rounded(6),
                     tw.shrink_0,
                     tw.justify_center,
                     tw.items_center,
                 },
-                .label_class = tw.text_color(tokens.text_inverse),
+                .label_class = tw.text_inverse,
                 .on_click = .{ .toggle_help = {} },
             }),
         },

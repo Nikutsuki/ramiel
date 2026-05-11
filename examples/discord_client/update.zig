@@ -344,11 +344,12 @@ pub fn tick(app: *core.App) core.UpdateAction {
     return .none;
 }
 
-pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction {
+pub fn update(ctx: anytype, state: *core.AppState, msg: core.AppMsg) core.UpdateAction {
+    const app = ctx.app;
     const allocator = app.allocator;
     const ui = &app.ui;
-    const state = &app.state;
-    switch (msg.id) {
+    const event_data = ctx.event_data;
+    switch (msg) {
         .open_dms => {
             if (state.dms.items.len == 0) {
                 core.setOptionalOwned(state.allocator, &state.selected_guild_id, null) catch return .none;
@@ -451,8 +452,8 @@ pub fn update(app: *core.App, msg: core.AppInteractionMessage) core.UpdateAction
         },
         .send => return sendComposerMessage(allocator, ui, state),
         .input_key => {
-            if (msg.data == .key) {
-                const key = msg.data.key;
+            if (event_data == .key) {
+                const key = event_data.key;
                 if ((key.key == glfw.KeyEnter or key.key == glfw.KeyKpEnter) and key.action == glfw.Press) {
                     return sendComposerMessage(allocator, ui, state);
                 }

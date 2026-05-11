@@ -11,6 +11,7 @@ pub const UpdateAction = lib.UpdateAction;
 pub const Color = lib.Color;
 pub const components = lib.components;
 pub const Style = lib.Style;
+pub const layout = lib.layout;
 pub const tw = lib.tw;
 
 const comp = lib.components;
@@ -43,7 +44,12 @@ pub const AppMessage = union(enum) {
     search_letter: u21,
 };
 
-pub const NodeIds = lib.declareIds(.{ "path_input", "grid_root" }){};
+pub const NodeIds = lib.declareIds("examples.file_explorer", .{
+    "path_input",
+    "grid_root",
+    "grid_entry",
+    "sidebar_tree",
+}){};
 
 const T = lib.For(AppMessage);
 pub const AppUIContext = T.UIContext;

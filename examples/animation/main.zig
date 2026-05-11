@@ -21,7 +21,7 @@ const AppNode = T.Node;
 const AppInteractionMessage = T.InteractionMessage;
 const EventBinding = T.EventBinding;
 
-const Id = lib.declareIds(.{
+const Id = lib.declareIds("examples.animation", .{
     "hover_color",
     "hover_scale",
     "hover_both",
@@ -71,7 +71,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
 
     const sectionLabel = struct {
         fn make(u: *AppUIContext, f: *FontData, text: []const u8) !*AppNode {
-            return u.text(.{
+            return u.ux().text(.{
                 .style = .{ .text_color = DIM },
                 .content = text,
                 .font = f,
@@ -94,7 +94,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             hover_exit: ?u32,
             click: ?u32,
         ) !*AppNode {
-            return u.div(.{
+            return u.ux().div(.{
                 .id = id,
                 .style = .{
                     .width = .{ .exact = CARD_W },
@@ -109,7 +109,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
                     .transition = transition,
                 },
                 .children = &.{
-                    try u.text(.{
+                    try u.ux().text(.{
                         .style = .{ .text_color = TEXT, .pointer_events = .none },
                         .content = label,
                         .font = f,
@@ -190,7 +190,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         null,
     );
 
-    const hover_row = try ui.div(.{
+    const hover_row = try ui.ux().div(.{
         .style = .{
             .direction = .Row,
             .gap = 16,
@@ -248,7 +248,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         Msg.toggle_radius_click,
     );
 
-    const toggle_row = try ui.div(.{
+    const toggle_row = try ui.ux().div(.{
         .style = .{
             .direction = .Row,
             .gap = 16,
@@ -257,7 +257,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .children = &.{ card_toggle_color, card_toggle_opacity, card_toggle_radius },
     });
 
-    const spinner = try ui.div(.{
+    const spinner = try ui.ux().div(.{
         .id = Id.spinner,
         .style = .{
             .width = .{ .exact = 48 },
@@ -268,13 +268,13 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         },
     });
 
-    const spinner_label = try ui.text(.{
+    const spinner_label = try ui.ux().text(.{
         .style = .{ .text_color = DIM },
         .content = "looping rotate",
         .font = font,
     });
 
-    const continuous_row = try ui.div(.{
+    const continuous_row = try ui.ux().div(.{
         .style = .{
             .direction = .Row,
             .gap = 16,
@@ -283,15 +283,15 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .children = &.{ spinner, spinner_label },
     });
 
-    const title = try ui.text(.{
+    const title = try ui.ux().text(.{
         .style = .{ .text_color = TEXT },
         .content = "animation demo",
         .font = font,
     });
 
-    const subtitle = try ui.text(.{
+    const subtitle = try ui.ux().text(.{
         .style = .{ .text_color = DIM },
-        .content = "Transitions are driven by reconciliation — no per-frame rebuilds needed.",
+        .content = "Transitions are driven by reconciliation - no per-frame rebuilds needed.",
         .font = font,
     });
 
@@ -299,7 +299,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     const toggle_label = try sectionLabel(ui, font, "Click Toggles");
     const continuous_label = try sectionLabel(ui, font, "Continuous Animation");
 
-    return ui.div(.{
+    return ui.ux().div(.{
         .style = .{
             .width = .screen,
             .height = .screen,
@@ -313,13 +313,13 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .children = &.{
             title,
             subtitle,
-            try ui.div(.{ .style = .{ .height = .{ .exact = 8 } } }), // spacer
+            try ui.ux().div(.{ .style = .{ .height = .{ .exact = 8 } } }), // spacer
             hover_label,
             hover_row,
-            try ui.div(.{ .style = .{ .height = .{ .exact = 4 } } }), // spacer
+            try ui.ux().div(.{ .style = .{ .height = .{ .exact = 4 } } }), // spacer
             toggle_label,
             toggle_row,
-            try ui.div(.{ .style = .{ .height = .{ .exact = 4 } } }), // spacer
+            try ui.ux().div(.{ .style = .{ .height = .{ .exact = 4 } } }), // spacer
             continuous_label,
             continuous_row,
         },
@@ -384,7 +384,7 @@ pub fn main(init: std.process.Init) !void {
     );
     defer app.deinit();
 
-    app.state.font_data = try app.loadFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    app.state.font_data = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
 
     try app.setRootBuilder(build);
     try app.mountRoot();
