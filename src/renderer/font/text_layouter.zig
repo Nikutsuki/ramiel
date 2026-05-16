@@ -11,6 +11,14 @@ const c = font_module.c;
 const assets = @import("../../assets.zig");
 const EFFECT_MSDF_TEXT = assets.EFFECT_MSDF_TEXT;
 
+fn snapPixel(value: f32) f32 {
+    return @round(value);
+}
+
+fn snapSize(origin: f32, size: f32) f32 {
+    return @max(1.0, @round(origin + size) - @round(origin));
+}
+
 const TextSegment = struct {
     font_name: []const u8,
     start_byte: usize,
@@ -272,12 +280,16 @@ pub const TextLayouter = struct {
                     const ph = glyph.size[1] * scale;
 
                     const base_idx: u32 = @intCast(self.vertices.items.len);
+                    const sx = snapPixel(px);
+                    const sy = snapPixel(py);
+                    const sw = snapSize(px, pw);
+                    const sh = snapSize(py, ph);
 
                     const quads = [_]Vertex{
-                        .{ .pos = .{ px, py }, .uv = .{ glyph.uv_min[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                        .{ .pos = .{ px + pw, py }, .uv = .{ glyph.uv_max[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                        .{ .pos = .{ px + pw, py + ph }, .uv = .{ glyph.uv_max[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                        .{ .pos = .{ px, py + ph }, .uv = .{ glyph.uv_min[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
+                        .{ .pos = .{ sx, sy }, .uv = .{ glyph.uv_min[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
+                        .{ .pos = .{ sx + sw, sy }, .uv = .{ glyph.uv_max[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
+                        .{ .pos = .{ sx + sw, sy + sh }, .uv = .{ glyph.uv_max[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
+                        .{ .pos = .{ sx, sy + sh }, .uv = .{ glyph.uv_min[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
                     };
 
                     try self.vertices.appendSlice(self.allocator, &quads);
@@ -304,12 +316,16 @@ pub const TextLayouter = struct {
                         const ph = glyph.size[1] * scale;
 
                         const base_idx: u32 = @intCast(self.vertices.items.len);
+                        const sx = snapPixel(px);
+                        const sy = snapPixel(py);
+                        const sw = snapSize(px, pw);
+                        const sh = snapSize(py, ph);
 
                         const quads = [_]Vertex{
-                            .{ .pos = .{ px, py }, .uv = .{ glyph.uv_min[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                            .{ .pos = .{ px + pw, py }, .uv = .{ glyph.uv_max[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                            .{ .pos = .{ px + pw, py + ph }, .uv = .{ glyph.uv_max[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                            .{ .pos = .{ px, py + ph }, .uv = .{ glyph.uv_min[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
+                            .{ .pos = .{ sx, sy }, .uv = .{ glyph.uv_min[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
+                            .{ .pos = .{ sx + sw, sy }, .uv = .{ glyph.uv_max[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
+                            .{ .pos = .{ sx + sw, sy + sh }, .uv = .{ glyph.uv_max[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
+                            .{ .pos = .{ sx, sy + sh }, .uv = .{ glyph.uv_min[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
                         };
 
                         try self.vertices.appendSlice(self.allocator, &quads);

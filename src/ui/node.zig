@@ -375,6 +375,14 @@ pub fn Node(comptime MessageT: type) type {
             return .{ color[0], color[1], color[2], color[3] * 0.45 };
         }
 
+        fn snapPixel(value: f32) f32 {
+            return @round(value);
+        }
+
+        fn snapSize(origin: f32, size: f32) f32 {
+            return @max(1.0, @round(origin + size) - @round(origin));
+        }
+
         pub fn render(
             self: *const @This(),
             batcher: *QuadBatcher,
@@ -575,11 +583,13 @@ pub fn Node(comptime MessageT: type) type {
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
+                            const glyph_x = abs_x + m.render_x;
+                            const glyph_y = abs_y + m.render_y;
                             try batcher.addGlyphQuad(
-                                abs_x + m.render_x,
-                                abs_y + m.render_y,
-                                m.render_w,
-                                m.render_h,
+                                snapPixel(glyph_x),
+                                snapPixel(glyph_y),
+                                snapSize(glyph_x, m.render_w),
+                                snapSize(glyph_y, m.render_h),
                                 m.uv_min,
                                 m.uv_max,
                                 text_color,
@@ -636,11 +646,13 @@ pub fn Node(comptime MessageT: type) type {
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
+                            const glyph_x = text_x + m.render_x;
+                            const glyph_y = text_y + m.render_y;
                             try batcher.addGlyphQuad(
-                                text_x + m.render_x,
-                                text_y + m.render_y,
-                                m.render_w,
-                                m.render_h,
+                                snapPixel(glyph_x),
+                                snapPixel(glyph_y),
+                                snapSize(glyph_x, m.render_w),
+                                snapSize(glyph_y, m.render_h),
                                 m.uv_min,
                                 m.uv_max,
                                 text_color,
@@ -812,11 +824,13 @@ pub fn Node(comptime MessageT: type) type {
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
+                            const glyph_x = text_x + m.render_x;
+                            const glyph_y = text_y + m.render_y;
                             try batcher.addGlyphQuad(
-                                text_x + m.render_x,
-                                text_y + m.render_y,
-                                m.render_w,
-                                m.render_h,
+                                snapPixel(glyph_x),
+                                snapPixel(glyph_y),
+                                snapSize(glyph_x, m.render_w),
+                                snapSize(glyph_y, m.render_h),
                                 m.uv_min,
                                 m.uv_max,
                                 text_color,
@@ -888,11 +902,13 @@ pub fn Node(comptime MessageT: type) type {
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
+                            const glyph_x = abs_x + m.render_x;
+                            const glyph_y = abs_y + m.render_y;
                             try batcher.addGlyphQuad(
-                                abs_x + m.render_x,
-                                abs_y + m.render_y,
-                                m.render_w,
-                                m.render_h,
+                                snapPixel(glyph_x),
+                                snapPixel(glyph_y),
+                                snapSize(glyph_x, m.render_w),
+                                snapSize(glyph_y, m.render_h),
                                 m.uv_min,
                                 m.uv_max,
                                 text_color,

@@ -125,7 +125,7 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
         try text_column_children.append(build_alloc, try ctx.ux().text(.{
             .content = title,
             .font = payload.font,
-            .max_width = 340, // Constrain text so it wraps cleanly inside the 480px bound
+            .max_width = 340,
             .style = .{ .text_color = if (is_link) tokens.action_default else tokens.text_main },
         }));
     }
@@ -134,7 +134,7 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
         try text_column_children.append(build_alloc, try ctx.ux().text(.{
             .content = description,
             .font = payload.font,
-            .max_width = 340, // Constrain text so it wraps cleanly
+            .max_width = 340,
             .style = .{ .text_color = tokens.text_muted },
         }));
     }
@@ -147,7 +147,7 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
             .style = .{
                 .direction = .Column,
                 .gap = 6,
-                .flex_grow = 1, // Pushes thumbnail to the right safely
+                .flex_grow = 1,
             },
             .children = try text_column_children.toOwnedSlice(build_alloc),
         }));
@@ -214,7 +214,7 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
 
     return ctx.ux().div(.{
         .style = .{
-            .width = .{ .exact = 480 }, // STRUCTURAL FIX: Explicitly blocks parent from stretching it
+            .width = .{ .exact = 480 },
             .direction = .Row,
             .align_items = .Stretch,
             .background_color = tokens.bg_base,
@@ -878,7 +878,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
                     tw.gap(2),
                     tw.px(4),
                     tw.bg("#2e3038ff"),
-                    tw.border_b(1.0,  "#1a1c21ff"),
+                    tw.border_b(1.0, "#1a1c21ff"),
                 },
                 .children = .{
                     try ux.text(.{
@@ -933,7 +933,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
                                     tw.items_center,
                                     tw.gap(2),
                                     tw.px(4),
-                                    tw.border_b(1.0,  "#24262bff"),
+                                    tw.border_b(1.0, "#24262bff"),
                                 },
                                 .children = .{
                                     add_icon,

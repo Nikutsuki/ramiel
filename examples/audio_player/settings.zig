@@ -1,4 +1,4 @@
-//! Settings page — theme generator (oklch + randomize), visualizer, EQ, library.
+//! Settings page - theme generator (oklch + randomize), visualizer, EQ, library.
 
 const std = @import("std");
 const lib = @import("ramiel");
@@ -75,10 +75,9 @@ pub const SettingsPage = struct {
 };
 
 const Ids = lib.declareIds("examples.music.settings", .{
-    "back", "dark", "light", "accent_h", "accent_c", "accent_l", "randomize",
-    "viz_en", "viz_sm", "viz_bd", "viz_sn", "viz_g",
-    "eq_on", "eq_lo", "eq_mi", "eq_hi",
-    "xf", "gp", "vol", "rs", "cl",
+    "back",   "dark",   "light",  "accent_h", "accent_c", "accent_l", "randomize",
+    "viz_en", "viz_sm", "viz_bd", "viz_sn",   "viz_g",    "eq_on",    "eq_lo",
+    "eq_mi",  "eq_hi",  "xf",     "gp",       "vol",      "rs",       "cl",
 }){};
 
 fn pad(h: f32, v: f32) layout.Spacing {
@@ -96,7 +95,6 @@ fn build_(ctx: anytype, state: *const SettingsState) anyerror!*lib.Node(@TypeOf(
 
     var children: std.ArrayList(*lib.Node(M)) = .empty;
 
-    // Header — back arrow + title
     try children.append(arena, try ux.div(.{
         .style = blk: {
             var s: layout.Style = .{};
@@ -406,7 +404,7 @@ fn toggleRow(ctx: anytype, id: lib.NodeId, label: []const u8, on: bool, msg: Set
             }),
             try ux.div(.{
                 .style = pill,
-                .children = .{ try ux.div(.{ .style = dot }) },
+                .children = .{try ux.div(.{ .style = dot })},
             }),
         },
     });

@@ -360,7 +360,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
         pub fn requireFont(self: *Self, name: []const u8) *FontData {
             return self.font_system.getFont(name) orelse {
-                std.debug.panic("requireFont: '{s}' not loaded — call app.loadFont(\"{s}\", ...) first", .{ name, name });
+                std.debug.panic("requireFont: '{s}' not loaded - call app.loadFont(\"{s}\", ...) first", .{ name, name });
             };
         }
 
