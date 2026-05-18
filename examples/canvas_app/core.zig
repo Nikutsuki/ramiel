@@ -8,7 +8,6 @@ pub const Canvas = lib.Canvas;
 pub const FontData = lib.FontData;
 pub const PixelBuffer = lib.renderer.PixelBuffer;
 pub const UpdateAction = lib.UpdateAction;
-pub const WindowContext = lib.WindowContext;
 pub const Color = lib.Color;
 pub const tw = lib.tw;
 pub const uix = lib.uix;

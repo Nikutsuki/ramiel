@@ -270,7 +270,7 @@ fn onOverlayHotkey(user_ptr: ?*anyopaque) void {
     const currently_visible = app.isVisible();
 
     if (!currently_visible) {
-        app.window.centerOnPrimaryMonitor(@intCast(WIN_W), @intCast(WIN_H));
+        app.backend.centerOnPrimaryMonitor(@intCast(WIN_W), @intCast(WIN_H));
     }
 
     app.setVisibility(!currently_visible);
@@ -515,7 +515,7 @@ pub fn main(init: std.process.Init) !void {
 
     app.state.preview_requested = std.StringHashMap(void).init(allocator);
 
-    app.window.configureAsOverlay();
+    app.backend.configureAsOverlay();
     try app.registerGlobalHotkey(
         win32.MOD_CONTROL | win32.MOD_SHIFT | win32.MOD_NOREPEAT,
         VK_SPACE,

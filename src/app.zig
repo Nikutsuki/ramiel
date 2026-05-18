@@ -14,7 +14,6 @@ const buildDevToolsPanel = @import("devtools/ui.zig").buildDevToolsPanel;
 const win_mod = @import("window/window.zig");
 const platform = @import("platform/backend.zig");
 const app_backend = @import("platform/app_backend.zig");
-pub const WindowConfig = win_mod.WindowConfig;
 pub const HotkeyFn = win_mod.HotkeyFn;
 const tracy = @import("tracy");
 const VideoManager = @import("video/manager.zig").VideoManager;
@@ -46,7 +45,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         allocator: std.mem.Allocator,
         io: std.Io,
         tracy_allocator: ?*tracy.Allocator,
-        window: app_backend.Backend,
+        backend: app_backend.Backend,
         engine: *Engine,
         font_system: FontSystem,
         audio_engine: AudioEngine,
@@ -86,26 +85,10 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             callback: FileDialogCallback,
         };
 
-        pub fn initWithBackendConfig(
-            allocator: std.mem.Allocator,
-            io: std.Io,
-            config: platform.AppBackendConfig,
-            initial_state: StateType,
-            update_fn: *const fn (*Self, InteractionMessage(MessageType)) UpdateAction,
-        ) !Self {
-            return init(
-                allocator,
-                io,
-                WindowConfig.fromBackendConfig(config),
-                initial_state,
-                update_fn,
-            );
-        }
-
         pub fn init(
             allocator: std.mem.Allocator,
             io: std.Io,
-            config: WindowConfig,
+            config: platform.AppBackendConfig,
             initial_state: StateType,
             update_fn: *const fn (*Self, InteractionMessage(MessageType)) UpdateAction,
         ) !Self {
@@ -125,7 +108,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             }
             errdefer if (tracy_allocator) |wrapped| allocator.destroy(wrapped);
 
-            var win = try app_backend.Backend.initWindowConfig(effective_allocator, config);
+            var win = try app_backend.Backend.init(effective_allocator, config);
             errdefer win.deinit();
             const engine = try effective_allocator.create(Engine);
             errdefer effective_allocator.destroy(engine);
@@ -188,7 +171,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 .allocator = effective_allocator,
                 .io = io,
                 .tracy_allocator = tracy_allocator,
-                .window = win,
+                .backend = win,
                 .engine = engine,
                 .font_system = font_system,
                 .audio_engine = audio_engine,
@@ -586,7 +569,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
         /// Call after setRootBuilder so stable-ID nodes exist.
         pub fn registerAnimation(self: *Self, entry: @import("animation/registry.zig").AnimationEntry) !void {
-            try self.ui.animation_registry.register(entry, self.window.timeSeconds());
+            try self.ui.animation_registry.register(entry, self.backend.timeSeconds());
         }
 
         pub fn loadStaticAssets(
@@ -787,7 +770,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             self.cross_thread_queue.append(self.allocator, msg) catch |err| {
                 std.log.err("postMessage: failed to append to cross_thread_queue: {s}", .{@errorName(err)});
             };
-            self.window.postEmptyEvent();
+            self.backend.postEmptyEvent();
         }
 
         pub fn postMessageId(self: *Self, msg_id: MessageType) void {
@@ -834,7 +817,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             self.font_system.deinit(&self.engine.core);
             self.engine.deinit();
             self.allocator.destroy(self.engine);
-            self.window.deinit();
+            self.backend.deinit();
 
             if (self.tracy_allocator) |wrapped| {
                 self.parent_allocator.destroy(wrapped);
@@ -852,16 +835,36 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         }
 
         pub fn isVisible(self: *const Self) bool {
-            return self.window.isVisible();
+            return self.backend.isVisible();
+        }
+
+        pub fn getFramebufferSize(self: *const Self) platform.FramebufferSize {
+            return self.backend.getFramebufferSize();
+        }
+
+        pub fn getCursorPos(self: *const Self) platform.CursorPosition {
+            return self.backend.getCursorPos();
+        }
+
+        pub fn isMouseButtonDown(self: *const Self, button: i32) bool {
+            return self.backend.isMouseButtonDown(button);
+        }
+
+        pub fn isKeyDown(self: *const Self, key: i32) bool {
+            return self.backend.isKeyDown(key);
+        }
+
+        pub fn postEmptyEvent(self: *Self) void {
+            self.backend.postEmptyEvent();
         }
 
         pub fn setVisibility(self: *Self, visible: bool) void {
             if (visible == self.isVisible()) return;
-            const needs_surface_cycle = self.window.kind() == .wayland;
+            const needs_surface_cycle = self.backend.kind() == .wayland;
             if (visible) {
-                self.window.show();
+                self.backend.show();
                 if (needs_surface_cycle) {
-                    self.engine.resumeSurface(self.window.renderSurface()) catch |err| {
+                    self.engine.resumeSurface(self.backend.renderSurface()) catch |err| {
                         std.log.err("setVisibility: resumeSurface failed: {s}", .{@errorName(err)});
                     };
                 }
@@ -873,37 +876,37 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                         std.log.err("setVisibility: suspendSurface failed: {s}", .{@errorName(err)});
                     };
                 }
-                self.window.hide();
+                self.backend.hide();
                 self.ui.interaction_registry.resetForNewTree();
             }
         }
 
         /// callback's user_ptr is the Application. modifier: win32.MOD_*; key: VK_* code.
         pub fn registerGlobalHotkey(self: *Self, modifier: u32, key: u32, callback: HotkeyFn) !void {
-            try self.window.registerGlobalHotkey(modifier, key, self, callback);
+            try self.backend.registerGlobalHotkey(modifier, key, self, callback);
         }
 
         pub fn run(self: *Self) !void {
-            self.window.rebindListeners();
-            self.window.registerCallbacks(self, onKey, onChar, onResize);
-            self.ui.interaction_registry.clipboard_ctx = &self.window;
+            self.backend.rebindListeners();
+            self.backend.registerCallbacks(self, onKey, onChar, onResize);
+            self.ui.interaction_registry.clipboard_ctx = &self.backend;
             self.ui.interaction_registry.clipboard_get_fn = clipboardGet;
             self.ui.interaction_registry.clipboard_set_fn = clipboardSet;
             try self.mountRoot();
 
-            const initial_fb = self.window.getFramebufferSize();
+            const initial_fb = self.backend.getFramebufferSize();
             try self.ui.calculateLayout(&self.font_system.text_layouter, @floatFromInt(initial_fb.width), @floatFromInt(initial_fb.height));
             var last_fb = initial_fb;
-            self.last_frame_time = self.window.timeSeconds();
+            self.last_frame_time = self.backend.timeSeconds();
             // Wayland: waitEvents() blocks until the first surface commit.
             self.ui.requestPaint();
             var first_iteration = true;
 
-            while (!self.window.shouldClose()) {
+            while (!self.backend.shouldClose()) {
                 self.audio_engine.registry.processAudioCleanup();
 
-                if (!self.window.isVisible()) {
-                    self.window.waitEvents();
+                if (!self.backend.isVisible()) {
+                    self.backend.waitEvents();
 
                     // Drain cross-thread messages even while hidden so that
                     // IPC activation requests (show/toggle) are processed.
@@ -926,12 +929,12 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 }
 
                 if (first_iteration) {
-                    self.window.pollEvents();
+                    self.backend.pollEvents();
                     first_iteration = false;
                 } else if (self.computeWaitTimeoutSeconds()) |timeout_s| {
-                    self.window.waitEventsTimeout(timeout_s);
+                    self.backend.waitEventsTimeout(timeout_s);
                 } else {
-                    self.window.waitEvents();
+                    self.backend.waitEvents();
                 }
 
                 const video_frame_ready = try self.video_manager.tick(
@@ -944,23 +947,23 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
                 if (self.ui.has_animated_images) self.ui.requestPaint();
 
-                const current_time = self.window.timeSeconds();
+                const current_time = self.backend.timeSeconds();
                 const delta_time = current_time - self.last_frame_time;
                 self.last_frame_time = current_time;
                 self.ui.current_time = current_time;
                 self.ui.delta_time = delta_time;
                 self.devtools_state.pushFrameTime(@as(f32, @floatCast(delta_time * 1000.0)));
 
-                const current_fb = self.window.getFramebufferSize();
+                const current_fb = self.backend.getFramebufferSize();
                 if (current_fb.width != last_fb.width or current_fb.height != last_fb.height) {
                     self.ui.root.markDirty();
                     self.ui.requestLayout();
                     last_fb = current_fb;
                 }
 
-                self.ui.interaction_registry.updateInputSnapshot(self.window.pointerInputSnapshot());
-                self.ui.interaction_registry.processInteractionsWithBackend(self.ui.root, &self.window, current_time);
-                self.window.drainQueuedInputEvents(MessageType, self.ui.root, &self.ui.interaction_registry, self.backend_key_handler);
+                self.ui.interaction_registry.updateInputSnapshot(self.backend.pointerInputSnapshot());
+                self.ui.interaction_registry.processInteractionsWithBackend(self.ui.root, &self.backend, current_time);
+                self.backend.drainQueuedInputEvents(MessageType, self.ui.root, &self.ui.interaction_registry, self.backend_key_handler);
                 self.ui.interaction_registry.drainExternalMessages();
                 self.devtools_state.syncInteractionTargets(
                     self.ui.interaction_registry.hovered_node,
@@ -1118,8 +1121,8 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             if (key == glfw.KeyF12 and action == glfw.Press) {
                 app.toggleDevTools();
             }
-            const is_ctrl = app.window.isKeyDown(glfw.KeyLeftControl) or app.window.isKeyDown(glfw.KeyRightControl);
-            const is_shift = app.window.isKeyDown(glfw.KeyLeftShift) or app.window.isKeyDown(glfw.KeyRightShift);
+            const is_ctrl = app.backend.isKeyDown(glfw.KeyLeftControl) or app.backend.isKeyDown(glfw.KeyRightControl);
+            const is_shift = app.backend.isKeyDown(glfw.KeyLeftShift) or app.backend.isKeyDown(glfw.KeyRightShift);
             app.ui.interaction_registry.pushKey(app.ui.root, key, action, is_ctrl, is_shift);
         }
 

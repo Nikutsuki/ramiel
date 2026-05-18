@@ -13,7 +13,6 @@ pub const glfw = @import("glfw");
 pub const Application = @import("app.zig").Application;
 pub const ManagedApp = @import("managed_app.zig").ManagedApp;
 pub const SinglePageApp = @import("managed_app.zig").SinglePageApp;
-pub const WindowConfig = @import("app.zig").WindowConfig;
 pub const AppBackendConfig = platform.AppBackendConfig;
 pub const platform = @import("platform/backend.zig");
 pub const SurfaceKind = platform.SurfaceKind;

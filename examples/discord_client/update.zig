@@ -183,7 +183,7 @@ fn targetBaseId(state: *core.AppState, target: core.VirtualListTarget) core.Node
 
 fn cursorInsideGuildBarShell(ui: *core.AppUIContext, state: *core.AppState) bool {
     const shell = ui.getById(core.NodeIds.guild_bar_shell) orelse return false;
-    const cursor = state.app.window.getCursorPos();
+    const cursor = state.app.getCursorPos();
     const rect = shell.getTransformedRect();
     const x = @as(f32, @floatCast(cursor.x));
     const y = @as(f32, @floatCast(cursor.y));

@@ -5,7 +5,6 @@ const Style = @import("layout.zig").Style;
 const window_mod = @import("../window/window.zig");
 const platform = @import("../platform/backend.zig");
 const app_backend = @import("../platform/app_backend.zig");
-const WindowContext = window_mod.WindowContext;
 const Cursor = window_mod.Cursor;
 const types = @import("types.zig");
 const NodeId = types.NodeId;
@@ -533,10 +532,6 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                 .scroll_dx = scroll_dx,
                 .scroll_dy = scroll_dy,
             });
-        }
-
-        pub fn updateInput(self: *Self, win: *WindowContext) void {
-            self.updateInputSnapshot(win.pointerInputSnapshot());
         }
 
         pub fn processInteractions(self: *Self, root: *Node(MessageT), current_time: f64) void {

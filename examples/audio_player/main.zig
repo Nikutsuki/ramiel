@@ -29,7 +29,7 @@ pub const App = Managed.App;
 pub const T = lib.For(AppMessage);
 
 const RunSpec = struct {
-    pub const window: lib.WindowConfig = .{ .title = "Ramiel Music" };
+    pub const window: lib.AppBackendConfig = .{ .title = "Ramiel Music" };
     pub const default_font: lib.FontSpec = .{
         .name = "JetBrains Mono",
         .source = .{ .memory = lib.assets.getFontData(.jetbrains_mono) },

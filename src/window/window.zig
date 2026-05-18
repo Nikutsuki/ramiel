@@ -40,47 +40,6 @@ pub const ResizeFn = *const fn (ptr: *anyopaque) void;
 
 pub const HotkeyFn = *const fn (user_ptr: ?*anyopaque) void;
 
-pub const WindowConfig = struct {
-    width: i32 = 800,
-    height: i32 = 600,
-    title: [:0]const u8 = "Ramiel",
-    transparent: bool = false,
-    borderless: bool = false,
-    topmost: bool = false,
-    visible_on_start: bool = true,
-
-    /// Surface role Ramiel should request. The current implementation maps
-    /// `.normal`, `.overlay`, and `.popup_launcher` onto the GLFW backend;
-    /// `.layer_shell` is validated but requires the future native Wayland
-    /// backend from `src/platform/backend.zig`.
-    surface_kind: platform.SurfaceKind = .normal,
-
-    /// Backend preference. Only `.glfw` is implemented today; this field is the
-    /// compatibility seam for adding native Wayland without changing app code.
-    backend: platform.BackendKind = .glfw,
-
-    pub fn fromBackendConfig(config: platform.AppBackendConfig) WindowConfig {
-        return .{
-            .width = @intCast(config.width),
-            .height = @intCast(config.height),
-            .title = config.title,
-            .transparent = config.transparent,
-            .borderless = config.borderless,
-            .topmost = config.topmost,
-            .visible_on_start = config.visible_on_start,
-            .surface_kind = config.surface_kind,
-            .backend = config.backend,
-        };
-    }
-
-    pub fn waylandLayerShell(options: platform.LayerShellOptions) WindowConfig {
-        return fromBackendConfig(platform.waylandLayerShell(options));
-    }
-
-    pub fn popupLauncher(options: platform.PopupLauncherOptions) WindowConfig {
-        return fromBackendConfig(platform.popupLauncher(options));
-    }
-};
 
 const PROP_NAME = std.unicode.utf8ToUtf16LeStringLiteral("ZigWindowContext");
 
@@ -529,7 +488,7 @@ fn x11HotkeyLoop(self: *WindowContext) void {
     }
 }
 
-pub fn initWindow(allocator: std.mem.Allocator, config: WindowConfig) !WindowContext {
+pub fn initWindow(allocator: std.mem.Allocator, config: platform.AppBackendConfig) !WindowContext {
     if (config.backend != .glfw) return error.UnsupportedBackend;
     try glfw_backend.validateSurfaceKind(config.surface_kind);
 
@@ -552,7 +511,7 @@ pub fn initWindow(allocator: std.mem.Allocator, config: WindowConfig) !WindowCon
         glfw.windowHint(@as(c_int, 0x0002200D), 0);
     }
 
-    const win = try glfw.createWindow(config.width, config.height, config.title, null, null);
+    const win = try glfw.createWindow(@intCast(config.width), @intCast(config.height), config.title, null, null);
     std.log.info(
         "window transparency request={} glfw_transparent_framebuffer_attrib={d}",
         .{ config.transparent, glfw.getWindowAttrib(win, glfw.TransparentFramebuffer) },

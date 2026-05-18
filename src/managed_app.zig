@@ -9,7 +9,7 @@ const uix = @import("ui/uix.zig");
 const components = @import("ui/components/root.zig");
 const runtime_mod = @import("runtime.zig");
 const FontSource = @import("renderer/font/font_registry.zig").FontSource;
-const WindowConfig = app_mod.WindowConfig;
+const AppBackendConfig = @import("platform/backend.zig").AppBackendConfig;
 
 pub const FontSpec = struct {
     name: []const u8 = "JetBrains Mono",
@@ -53,7 +53,7 @@ fn deinitValue(value: anytype) void {
     if (@hasDecl(T, "deinit")) value.deinit();
 }
 
-fn windowConfig(comptime RunSpec: type) WindowConfig {
+fn windowConfig(comptime RunSpec: type) AppBackendConfig {
     return if (@hasDecl(RunSpec, "window")) RunSpec.window else .{ .title = "Ramiel" };
 }
 

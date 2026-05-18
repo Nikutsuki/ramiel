@@ -10,8 +10,8 @@ const build_options = @import("build_options");
 const platform = @import("backend.zig");
 const glfw = @import("glfw");
 const RenderSurface = @import("../renderer/vulkan/surface.zig").RenderSurface;
-const WindowContext = @import("../window/window.zig").WindowContext;
-const WindowConfig = @import("../window/window.zig").WindowConfig;
+const window_mod = @import("../window/window.zig");
+const WindowContext = window_mod.WindowContext;
 const wayland_backend = if (build_options.native_wayland) @import("wayland_backend.zig") else struct {};
 
 pub const MonitorWorkarea = struct {
@@ -25,26 +25,9 @@ pub const Backend = union(platform.BackendKind) {
     glfw: WindowContext,
     wayland: if (build_options.native_wayland) wayland_backend.WaylandClient else void,
 
-    pub fn initWindowConfig(allocator: std.mem.Allocator, config: WindowConfig) !Backend {
-        return init(allocator, .{
-            .backend = config.backend,
-            .surface_kind = config.surface_kind,
-            .width = @intCast(config.width),
-            .height = @intCast(config.height),
-            .title = config.title,
-            .transparent = config.transparent,
-            .borderless = config.borderless,
-            .topmost = config.topmost,
-            .visible_on_start = config.visible_on_start,
-        });
-    }
-
     pub fn init(allocator: std.mem.Allocator, config: platform.AppBackendConfig) !Backend {
         switch (config.backend) {
-            .glfw => {
-                const win_config = WindowConfig.fromBackendConfig(config);
-                return .{ .glfw = try @import("../window/window.zig").initWindow(allocator, win_config) };
-            },
+            .glfw => return .{ .glfw = try window_mod.initWindow(allocator, config) },
             .wayland => {
                 if (!build_options.native_wayland) return error.UnsupportedBackend;
                 var client = wayland_backend.WaylandClient.init(wayland_backend.Config.fromBackendConfig(config));

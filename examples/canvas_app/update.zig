@@ -382,7 +382,7 @@ pub fn update(ctx: anytype, state: *core.AppState, msg: core.AppMessage) core.Up
             if (event_data != .mouse) return action.finish();
             if (state.runtime.preview_canvas == null) return action.finish();
             const canvas = state.runtime.preview_canvas.?;
-            const fb = app.window.getFramebufferSize();
+            const fb = app.getFramebufferSize();
             const inner_w = @max(1.0, @as(f32, @floatFromInt(fb.width)) - core.ROOT_PADDING * 2.0);
             const workspace_w = @max(1.0, inner_w - 250.0 - core.ROOT_GAP * 2.0);
             const workspace_h = @max(1.0, @as(f32, @floatFromInt(fb.height)) - core.ROOT_PADDING * 2.0);
@@ -396,7 +396,7 @@ pub fn update(ctx: anytype, state: *core.AppState, msg: core.AppMessage) core.Up
             const local_sx = cx - state.canvas_screen_x;
             const local_sy = cy - state.canvas_screen_y;
             const cursor_on_canvas = local_sx >= 0 and local_sx < state.canvas_screen_w and local_sy >= 0 and local_sy < state.canvas_screen_h;
-            if (app.window.isMouseButtonDown(core.PAN_BUTTON) and cursor_on_canvas) {
+            if (app.isMouseButtonDown(core.PAN_BUTTON) and cursor_on_canvas) {
                 if (!state.is_panning) {
                     state.is_panning = true;
                     state.last_mouse_x = cx;
@@ -414,8 +414,8 @@ pub fn update(ctx: anytype, state: *core.AppState, msg: core.AppMessage) core.Up
                 }
             } else {
                 state.is_panning = false;
-                if (!app.window.isMouseButtonDown(0) and !app.window.isMouseButtonDown(1)) state.brush_stroke_active = false;
-                if ((app.window.isMouseButtonDown(0) or app.window.isMouseButtonDown(1)) and cursor_on_canvas) {
+                if (!app.isMouseButtonDown(0) and !app.isMouseButtonDown(1)) state.brush_stroke_active = false;
+                if ((app.isMouseButtonDown(0) or app.isMouseButtonDown(1)) and cursor_on_canvas) {
                     const half_w = state.canvas_screen_w / 2.0;
                     const half_h = state.canvas_screen_h / 2.0;
                     const img_w = @as(f32, @floatFromInt(canvas.width));
@@ -426,7 +426,7 @@ pub fn update(ctx: anytype, state: *core.AppState, msg: core.AppMessage) core.Up
                     const py = @as(i32, @intFromFloat(iy));
                     const image_radius = state.brush_radius / state.zoom;
                     const masking = core.isMaskFilter(state.editor.active_filter);
-                    const brush_color: [4]u8 = if (masking) if (app.window.isMouseButtonDown(1)) .{ 0, 0, 0, 255 } else .{ 255, 255, 255, 255 } else state.brush_color;
+                    const brush_color: [4]u8 = if (masking) if (app.isMouseButtonDown(1)) .{ 0, 0, 0, 255 } else .{ 255, 255, 255, 255 } else state.brush_color;
                     applyBrush(canvas.getRawPixels(), canvas.width, canvas.height, px, py, image_radius, brush_color);
                     canvas.markDirty();
                     syncPreviewEditorFromCanvas(state) catch {};
@@ -441,7 +441,7 @@ pub fn update(ctx: anytype, state: *core.AppState, msg: core.AppMessage) core.Up
                     var cx: f32 = 0.0;
                     var cy: f32 = 0.0;
                     {
-                        const cursor = app.window.getCursorPos();
+                        const cursor = app.getCursorPos();
                         cx = @floatCast(cursor.x);
                         cy = @floatCast(cursor.y);
                     }
