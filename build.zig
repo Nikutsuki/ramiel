@@ -1,4 +1,5 @@
 const std = @import("std");
+const wayland_build = @import("wayland");
 
 fn applyWindowsCImportWorkarounds(root_module: *std.Build.Module) void {
     root_module.addCMacro("_FORTIFY_SOURCE", "0");
@@ -12,17 +13,22 @@ const ExampleTarget = struct {
     path: []const u8,
     requires_network: bool = false,
     requires_shell32: bool = false,
+    requires_wayland: bool = false,
 };
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const is_windows = target.result.os.tag == .windows;
+    const is_linux = target.result.os.tag == .linux;
 
     const tracy_enabled = b.option(bool, "tracy", "Build with Tracy memory allocation profiling.") orelse false;
     const devtools_enabled = b.option(bool, "devtools", "Enable DevTools overlay on startup.") orelse false;
+    const requested_wayland = b.option(bool, "wayland", "Enable the native Wayland backend and Wayland-only examples (off by default).") orelse false;
+    const native_wayland_enabled = requested_wayland and is_linux;
     const build_options = b.addOptions();
     build_options.addOption(bool, "devtools", devtools_enabled);
+    build_options.addOption(bool, "native_wayland", native_wayland_enabled);
     const build_options_module = build_options.createModule();
     var ffmpeg_bin_install: ?*std.Build.Step.InstallDir = null;
 
@@ -43,6 +49,29 @@ pub fn build(b: *std.Build) void {
     const wss_mod = zig_wss.module("zig_wss");
     const tracy_impl_module = if (tracy_enabled) tracy_dep.module("tracy_impl_enabled") else tracy_dep.module("tracy_impl_disabled");
 
+    // Wayland protocol scanner (Linux-only, for native Wayland examples/backend)
+    const wayland_mod: ?*std.Build.Module = if (native_wayland_enabled) blk: {
+        const scanner = wayland_build.Scanner.create(b, .{
+            .wayland_xml = b.path("protocols/wayland.xml"),
+        });
+
+        scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
+        scanner.addCustomProtocol(b.path("protocols/wlr-layer-shell-unstable-v1.xml"));
+
+        scanner.generate("wl_compositor", 6);
+        scanner.generate("wl_shm", 1);
+        scanner.generate("wl_seat", 9);
+        scanner.generate("wl_output", 4);
+        scanner.generate("xdg_wm_base", 6);
+        scanner.generate("zwlr_layer_shell_v1", 5);
+
+        break :blk b.createModule(.{
+            .root_source_file = scanner.result,
+            .target = target,
+            .optimize = optimize,
+        });
+    } else null;
+
     // Core Library Module
     const ramiel_mod = b.addModule("ramiel", .{
         .root_source_file = b.path("src/root.zig"),
@@ -60,6 +89,12 @@ pub fn build(b: *std.Build) void {
     ramiel_mod.addImport("tracy", tracy_dep.module("tracy"));
     ramiel_mod.addImport("tracy_impl", tracy_impl_module);
     ramiel_mod.addImport("build_options", build_options_module);
+    if (wayland_mod) |wl_mod| {
+        ramiel_mod.addImport("wayland", wl_mod);
+        ramiel_mod.linkSystemLibrary("wayland-client", .{});
+        ramiel_mod.linkSystemLibrary("wayland-cursor", .{});
+        ramiel_mod.linkSystemLibrary("xkbcommon", .{});
+    }
 
     ramiel_mod.linkLibrary(glfw_c_dep.artifact("glfw"));
     ramiel_mod.linkLibrary(harfbuzz_dep.artifact("harfbuzz"));
@@ -113,6 +148,12 @@ pub fn build(b: *std.Build) void {
             ramiel_mod.linkSystemLibrary("pthread", .{});
             ramiel_mod.linkSystemLibrary("m", .{});
             ramiel_mod.linkSystemLibrary("dl", .{});
+            const install_ffmpeg_lib = b.addInstallDirectory(.{
+                .source_dir = b.path(b.fmt("{s}/lib", .{ffmpeg_base_path})),
+                .install_dir = .lib,
+                .install_subdir = "",
+            });
+            b.getInstallStep().dependOn(&install_ffmpeg_lib.step);
         },
         .windows => {
             ramiel_mod.linkSystemLibrary("bcrypt", .{});
@@ -136,17 +177,26 @@ pub fn build(b: *std.Build) void {
             ffmpeg_install: ?*std.Build.Step.InstallDir,
             is_win: bool,
         ) void {
-            if (!is_win) return;
-            const install = ffmpeg_install orelse return;
-            run_cmd.step.dependOn(&install.step);
-
-            const env = run_cmd.getEnvMap();
-            const current_path = env.get("PATH") orelse "";
-            const install_bin = builder.getInstallPath(.bin, "");
-            env.put(
-                "PATH",
-                builder.fmt("{s}{c}{s}", .{ install_bin, std.fs.path.delimiter, current_path }),
-            ) catch @panic("OOM");
+            if (is_win) {
+                const install = ffmpeg_install orelse return;
+                run_cmd.step.dependOn(&install.step);
+                const env = run_cmd.getEnvMap();
+                const current_path = env.get("PATH") orelse "";
+                const install_bin = builder.getInstallPath(.bin, "");
+                env.put(
+                    "PATH",
+                    builder.fmt("{s}{c}{s}", .{ install_bin, std.fs.path.delimiter, current_path }),
+                ) catch @panic("OOM");
+            } else {
+                // Linux: add FFmpeg lib dir to LD_LIBRARY_PATH for runtime
+                const env = run_cmd.getEnvMap();
+                const current_ld = env.get("LD_LIBRARY_PATH") orelse "";
+                const ffmpeg_lib = builder.pathJoin(&.{ "src/thirdparty/ffmpeg_linux_x64/lib" });
+                env.put(
+                    "LD_LIBRARY_PATH",
+                    builder.fmt("{s}{c}{s}", .{ ffmpeg_lib, std.fs.path.delimiter, current_ld }),
+                ) catch @panic("OOM");
+            }
         }
     }.apply;
 
@@ -194,6 +244,7 @@ pub fn build(b: *std.Build) void {
                 tracy_impl: *std.Build.Module,
                 wss: *std.Build.Module,
                 build_options: *std.Build.Module,
+                wayland: ?*std.Build.Module = null,
                 is_win: bool,
                 net: bool,
                 shell: bool,
@@ -206,6 +257,12 @@ pub fn build(b: *std.Build) void {
             m.addImport("tracy", opt.tracy);
             m.addImport("tracy_impl", opt.tracy_impl);
             m.addImport("build_options", opt.build_options);
+
+            if (opt.wayland) |wl_mod| {
+                m.addImport("wayland", wl_mod);
+                m.linkSystemLibrary("wayland-client", .{});
+                m.linkSystemLibrary("wayland-cursor", .{});
+            }
 
             if (opt.is_win) applyWindowsCImportWorkarounds(m);
 
@@ -272,29 +329,35 @@ pub fn build(b: *std.Build) void {
         .{ .name = "file_explorer", .path = "examples/file_explorer/main.zig" },
         .{ .name = "plot", .path = "examples/plot/main.zig" },
         .{ .name = "audio_player", .path = "examples/audio_player/main.zig" },
+        .{ .name = "app_launcher", .path = "examples/app_launcher/main.zig", .requires_wayland = true },
+        .{ .name = "wayland_basic", .path = "examples/wayland_basic/main.zig", .requires_wayland = true },
     };
 
     for (examples) |ex| {
+        if (ex.requires_wayland and !native_wayland_enabled) continue;
+
         // Compile Check Step (ZLS Diagnostics)
         const ex_check = b.addExecutable(.{
             .name = b.fmt("{s}_check", .{ex.name}),
             .root_module = b.createModule(.{ .root_source_file = b.path(ex.path), .target = target, .optimize = optimize }),
         });
         ex_check.step.dependOn(shader_compile_step);
-        bindExecutableConfig(ex_check, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
+        const wl_mod: ?*std.Build.Module = if (ex.requires_wayland) wayland_mod else null;
+        bindExecutableConfig(ex_check, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
         check_step.dependOn(&ex_check.step);
 
         // Standard Artifact Step
         const ex_exe = b.addExecutable(.{
             .name = ex.name,
-            .root_module = b.createModule(.{ .root_source_file = b.path(ex.path), .target = target, .optimize = optimize }),
+            .root_module = b.createModule(.{ .root_source_file = b.path(ex.path), .target = target, .optimize = optimize, .link_libc = ex.requires_wayland }),
         });
         ex_exe.step.dependOn(shader_compile_step);
-        bindExecutableConfig(ex_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
+        bindExecutableConfig(ex_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
         b.installArtifact(ex_exe);
 
         const run_ex_cmd = b.addRunArtifact(ex_exe);
         bindRunEnvironment(b, run_ex_cmd, ffmpeg_bin_install, is_windows);
+        if (b.args) |args| run_ex_cmd.addArgs(args);
         b.step(b.fmt("run-{s}", .{std.mem.replaceOwned(u8, b.allocator, ex.name, "_", "-") catch @panic("OOM")}), b.fmt("Run the {s} example", .{ex.name})).dependOn(&run_ex_cmd.step);
     }
 
