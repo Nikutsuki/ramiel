@@ -8,7 +8,6 @@ const FontData = lib.FontData;
 const layout = lib.layout;
 const tw = lib.tw;
 const Style = layout.Style;
-const Spacing = layout.Spacing;
 const UpdateAction = lib.UpdateAction;
 const comp = lib.components;
 const PlotState = comp.PlotState;
@@ -223,20 +222,28 @@ fn plotPanel(
     state: *const AppState,
 ) !*AppNode {
     const plot_wrap = try ui.ux().div(.{
-        .style = .{ .width = .Full, .flex_grow = 1.0 },
+        .style = tw.style(.{ tw.w_full, tw.grow_1 }),
         .children = &.{plot_node},
     });
 
     return ui.ux().div(.{
-        .style = .{
-            .direction = .Column,
-            .gap = 4,
-            .width = .Full,
-            .height = .{ .exact = PANEL_HEIGHT },
-        },
+        .style = tw.style(.{
+            tw.flex_col,
+            tw.gap_px(4),
+            tw.w_full,
+            tw.h(PANEL_HEIGHT),
+        }),
         .children = &.{
-            try ui.ux().text(.{ .content = title, .font = state.font_data, .style = .{ .text_color = .{ 1, 1, 1, 1 }, .font_size = 14 } }),
-            try ui.ux().text(.{ .content = subtitle, .font = state.font_data, .style = .{ .text_color = .{ 0.6, 0.65, 0.75, 1 }, .font_size = 11 } }),
+            try ui.ux().text(.{
+                .content = title,
+                .font = state.font_data,
+                .style = tw.style(.{ tw.text_color_value(.{ 1, 1, 1, 1 }), tw.text(14) }),
+            }),
+            try ui.ux().text(.{
+                .content = subtitle,
+                .font = state.font_data,
+                .style = tw.style(.{ tw.text_color_value(.{ 0.6, 0.65, 0.75, 1 }), tw.text(11) }),
+            }),
             plot_wrap,
         },
     });
@@ -248,7 +255,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     const ms: *AppState = @constCast(state);
 
     const plot_style = tw.style(.{ tw.bg("#1a1c24ff"), tw.rounded(6) });
-    const axis_label_style: layout.Style = .{ .font_size = 11, .text_color = .{ 0.7, 0.75, 0.85, 1.0 } };
+    const axis_label_style = tw.style(.{ tw.text(11), tw.text_color_value(.{ 0.7, 0.75, 0.85, 1.0 }) });
     const desc_base: comp.PlotDescriptor = .{
         .style = plot_style,
         .axis_font = state.font_data,
@@ -273,19 +280,20 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     });
 
     return try ui.ux().div(.{
-        .style = .{
-            .width = .screen,
-            .height = .screen,
-            .direction = .Column,
-            .gap = 16,
-            .padding = Spacing.all(16),
-            .background_color = .{ 0.05, 0.06, 0.08, 1.0 },
-            .overflow_y = .scroll,
-            .scrollbar_width = 10,
-            .scrollbar_min_height = 32,
-            .scrollbar_color = .{ 0.4, 0.45, 0.55, 0.6 },
-            .scrollbar_radius = 5,
-        },
+        .style = tw.style(.{
+            tw.size_screen,
+            tw.flex_col,
+            tw.gap_px(16),
+            tw.p_px(16),
+            tw.bg_value(.{ 0.05, 0.06, 0.08, 1.0 }),
+            tw.overflow_y_scroll,
+            .{
+                .scrollbar_width = 10,
+                .scrollbar_min_height = 32,
+                .scrollbar_color = .{ 0.4, 0.45, 0.55, 0.6 },
+                .scrollbar_radius = 5,
+            },
+        }),
         .children = panels,
     });
 }

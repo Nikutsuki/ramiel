@@ -3,7 +3,7 @@ const lib = @import("ramiel");
 const nfd = @import("nfd");
 pub const tracy_impl = @import("tracy_impl");
 
-const layout = lib.layout;
+const tw = lib.tw;
 const UpdateAction = lib.UpdateAction;
 
 const AppMessage = union(enum) {
@@ -38,13 +38,13 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     const ux = ui.ux();
     const components = ui.components();
 
-    const btn_style = layout.Style{
-        .padding = layout.Spacing.all(4),
-        .background_color = .{ 0.20, 0.22, 0.30, 1.0 },
-        .hover_color = .{ 0.25, 0.28, 0.38, 1.0 },
-        .corner_radius = layout.CornerRadius.all(6.0),
-        .cursor = .pointer,
-    };
+    const btn_style = tw.style(.{
+        tw.p_px(4),
+        tw.bg_value(.{ 0.20, 0.22, 0.30, 1.0 }),
+        tw.hover_value(.{ 0.25, 0.28, 0.38, 1.0 }),
+        tw.rounded(6.0),
+        tw.cursor_pointer,
+    });
 
     const open_btn = try ux.button(.{
         .id = NodeIds.open_button,
@@ -54,16 +54,16 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     });
 
     const controls_bar = try ux.div(.{
-        .style = .{
-            .width = .Full,
-            .height = .{ .exact = 64.0 },
-            .direction = .Row,
-            .align_items = .Center,
-            .justify_content = .Start,
-            .padding = layout.Spacing.all(16.0),
-            .gap = 12.0,
-            .background_color = .{ 0.12, 0.13, 0.18, 1.0 },
-        },
+        .style = tw.style(.{
+            tw.w_full,
+            tw.h(64.0),
+            tw.flex_row,
+            tw.items_center,
+            tw.justify_start,
+            tw.p_px(16.0),
+            tw.gap_px(12.0),
+            tw.bg_value(.{ 0.12, 0.13, 0.18, 1.0 }),
+        }),
         .children = &.{open_btn},
     });
 
@@ -80,11 +80,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         const player_node = try components.videoPlayer(.{
             .desc = .{
                 .base_id = NodeIds.video_player,
-                .style = .{
-                    .width = .Full,
-                    .height = .Full,
-                    .object_fit = .contain,
-                },
+                .style = tw.style(.{ tw.size_full, tw.object_contain }),
             },
             .logic = .{
                 .playback = vid,
@@ -102,29 +98,28 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     } else {
         const empty_text = try ux.text(.{
             .content = "No video loaded. Click 'Open Video' to select a file.",
-            .style = .{ .text_color = .{ 0.5, 0.5, 0.5, 1.0 } },
+            .style = tw.style(.{tw.text_color_value(.{ 0.5, 0.5, 0.5, 1.0 })}),
         });
         try video_children.append(ui.build_arena.allocator(), empty_text);
     }
 
     const video_area = try ux.div(.{
-        .style = .{
-            .width = .Full,
-            .flex_grow = 1.0,
-            .align_items = .Center,
-            .justify_content = .Center,
-            .padding = layout.Spacing.all(24.0),
-        },
+        .style = tw.style(.{
+            tw.w_full,
+            tw.grow_1,
+            tw.items_center,
+            tw.justify_center,
+            tw.p_px(24.0),
+        }),
         .children = video_children.items,
     });
 
     return ux.div(.{
-        .style = .{
-            .width = .screen,
-            .height = .screen,
-            .direction = .Column,
-            .background_color = .{ 0.08, 0.09, 0.12, 1.0 },
-        },
+        .style = tw.style(.{
+            tw.size_screen,
+            tw.flex_col,
+            tw.bg_value(.{ 0.08, 0.09, 0.12, 1.0 }),
+        }),
         .children = &.{ controls_bar, video_area },
     });
 }

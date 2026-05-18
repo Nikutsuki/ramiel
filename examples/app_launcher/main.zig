@@ -9,6 +9,7 @@ const ipc = @import("runtime/ipc.zig");
 pub const tracy_impl = @import("tracy_impl");
 
 const layout = lib.layout;
+const tw = lib.tw;
 const UpdateAction = lib.UpdateAction;
 
 const usage =
@@ -359,38 +360,38 @@ fn resultRow(ui: *AppUIContext, state: *const AppState, match: Match, rank: usiz
         desktop_app.exec;
 
     return try ux.div(.{
-        .style = .{
-            .width = .Full,
-            .direction = .Column,
-            .padding = .{ .left = 14.0, .right = 14.0, .top = 8.0, .bottom = 8.0 },
-            .gap = 2.0,
-            .background_color = row_bg,
-            .hover_color = hover_bg,
-            .corner_radius = layout.CornerRadius.all(8.0),
-            .cursor = .pointer,
-            .overflow_x = .hidden,
-        },
+        .style = tw.style(.{
+            tw.w_full,
+            tw.flex_col,
+            tw.p_xy_px(14.0, 8.0),
+            tw.gap_px(2.0),
+            tw.bg_value(row_bg),
+            tw.hover_value(hover_bg),
+            tw.rounded(8.0),
+            tw.cursor_pointer,
+            tw.overflow_x_hidden,
+        }),
         .on_click = .{ .select = rank },
         .children = &.{
             try ux.text(.{
                 .content = desktop_app.name,
                 .font = state.font_data,
-                .style = .{
-                    .font_size = 15.0,
-                    .text_color = if (is_selected) colors.accent else colors.text_primary,
-                    .text_overflow = .Ellipsis,
-                    .white_space = .NoWrap,
-                },
+                .style = tw.style(.{
+                    tw.text(15.0),
+                    tw.text_color_value(if (is_selected) colors.accent else colors.text_primary),
+                    tw.text_ellipsis,
+                    tw.whitespace_nowrap,
+                }),
             }),
             try ux.text(.{
                 .content = subtitle,
                 .font = state.font_data,
-                .style = .{
-                    .font_size = 12.0,
-                    .text_color = colors.text_secondary,
-                    .text_overflow = .Ellipsis,
-                    .white_space = .NoWrap,
-                },
+                .style = tw.style(.{
+                    tw.text(12.0),
+                    tw.text_color_value(colors.text_secondary),
+                    tw.text_ellipsis,
+                    tw.whitespace_nowrap,
+                }),
             }),
         },
     });
@@ -423,15 +424,15 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
 
     if (shown == 0 and query.len > 0) {
         try result_children.append(arena, try ux.div(.{
-            .style = .{
-                .width = .Full,
-                .padding = .{ .left = 14.0, .right = 14.0, .top = 16.0, .bottom = 16.0 },
-            },
+            .style = tw.style(.{
+                tw.w_full,
+                tw.p_xy_px(14.0, 16.0),
+            }),
             .children = &.{
                 try ux.text(.{
                     .content = "No matches",
                     .font = state.font_data,
-                    .style = .{ .font_size = 14.0, .text_color = colors.text_dim },
+                    .style = tw.style(.{ tw.text(14.0), tw.text_color_value(colors.text_dim) }),
                 }),
             },
         }));
@@ -441,56 +442,54 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     ui.requestFocus(NodeIds.search_input);
 
     return try ux.div(.{
-        .style = .{
-            .width = .screen,
-            .height = .screen,
-            .align_items = .Center,
-            .justify_content = .Center,
-            .background_color = .{ 0.0, 0.0, 0.0, 0.0 },
-        },
+        .style = tw.style(.{
+            tw.size_screen,
+            tw.items_center,
+            tw.justify_center,
+            tw.bg_value(.{ 0.0, 0.0, 0.0, 0.0 }),
+        }),
         .children = &.{
             // Backdrop: catches clicks outside the panel to dismiss
             try ux.div(.{
-                .style = .{
-                    .position = .absolute,
-                    .left = 0, .top = 0, .right = 0, .bottom = 0,
-                    .width = .screen,
-                    .height = .screen,
-                    .background_color = .{ 0.0, 0.0, 0.0, 0.35 },
-                },
+                .style = tw.style(.{
+                    tw.absolute,
+                    tw.inset(0),
+                    tw.size_screen,
+                    tw.bg_value(.{ 0.0, 0.0, 0.0, 0.35 }),
+                }),
                 .on_click = .{ .activation = .hide },
             }),
             // Central panel (sibling, not child of backdrop)
             try ux.div(.{
-                .style = .{
-                    .width = .{ .exact = 620.0 },
-                    .max_height = .{ .exact = 520.0 },
-                    .direction = .Column,
-                    .background_color = colors.bg,
-                    .corner_radius = layout.CornerRadius.all(12.0),
-                    .overflow_y = .hidden,
-                },
+                .style = tw.style(.{
+                    tw.w(620.0),
+                    tw.max_h(520.0),
+                    tw.flex_col,
+                    tw.bg_value(colors.bg),
+                    tw.rounded(12.0),
+                    tw.overflow_y_hidden,
+                }),
                 .children = &.{
                     // Search bar
                     try ux.div(.{
-                        .style = .{
-                            .width = .Full,
-                            .padding = .{ .left = 16.0, .right = 16.0, .top = 14.0, .bottom = 10.0 },
-                            .direction = .Column,
-                            .gap = 6.0,
-                        },
+                        .style = tw.style(.{
+                            tw.w_full,
+                            tw.p_each_px(14.0, 16.0, 10.0, 16.0),
+                            tw.flex_col,
+                            tw.gap_px(6.0),
+                        }),
                         .children = &.{
                             try ux.textInput(.{
                                 .id = NodeIds.search_input,
-                                .style = .{
-                                    .width = .Full,
-                                    .padding = layout.Spacing.all(10.0),
-                                    .background_color = colors.input_bg,
-                                    .text_color = colors.text_primary,
-                                    .font_size = 16.0,
-                                    .corner_radius = layout.CornerRadius.all(8.0),
-                                    .border = layout.Border.all(1.0, colors.border),
-                                },
+                                .style = tw.style(.{
+                                    tw.w_full,
+                                    tw.p_px(10.0),
+                                    tw.bg_value(colors.input_bg),
+                                    tw.text_color_value(colors.text_primary),
+                                    tw.text(16.0),
+                                    tw.rounded(8.0),
+                                    tw.border_value(1.0, colors.border),
+                                }),
                                 .font = state.font_data,
                                 .placeholder = "Search...",
                                 .placeholder_color = colors.text_dim,
@@ -501,25 +500,25 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
                     }),
                     // Divider
                     try ux.div(.{
-                        .style = .{
-                            .width = .Full,
-                            .height = .{ .exact = 1.0 },
-                            .background_color = colors.border,
-                        },
+                        .style = tw.style(.{
+                            tw.w_full,
+                            tw.h(1.0),
+                            tw.bg_value(colors.border),
+                        }),
                     }),
                     // Results list (scrollable) with scroll-to-selected
                     blk: {
                         const list_node = try ux.div(.{
                             .id = NodeIds.results_list,
-                            .style = .{
-                                .width = .Full,
-                                .flex_grow = 1,
-                                .direction = .Column,
-                                .padding = .{ .left = 8.0, .right = 8.0, .top = 6.0, .bottom = 8.0 },
-                                .gap = 2.0,
-                                .overflow_y = .scroll,
-                                .overflow_x = .hidden,
-                            },
+                            .style = tw.style(.{
+                                tw.w_full,
+                                tw.grow_1,
+                                tw.flex_col,
+                                tw.p_each_px(6.0, 8.0, 8.0, 8.0),
+                                tw.gap_px(2.0),
+                                tw.overflow_y_scroll,
+                                tw.overflow_x_hidden,
+                            }),
                             .children = result_children.items,
                         });
                         // Compute scroll to keep selected item in view.

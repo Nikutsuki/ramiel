@@ -3,11 +3,7 @@ pub const tracy_impl = @import("tracy_impl");
 const lib = @import("ramiel");
 
 const FontData = lib.FontData;
-const layout = lib.layout;
-const Style = layout.Style;
-const Spacing = layout.Spacing;
-const Size = layout.Size;
-const BoxSizing = lib.BoxSizing;
+const tw = lib.tw;
 const UpdateAction = lib.UpdateAction;
 const AppMessage = u32;
 const T = lib.For(AppMessage);
@@ -41,29 +37,29 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     );
 
     const border_box_panel = try ui.ux().div(.{
-        .style = .{
-            .box_sizing = .border_box,
-            .width = .{ .exact = PANEL_WIDTH },
-            .direction = .Column,
-            .padding = Spacing.all(PADDING),
-            .background_color = PANEL_BG,
-            .corner_radius = layout.CornerRadius.all(8),
-            .gap = 12,
-        },
+        .style = tw.style(.{
+            tw.box_border,
+            tw.w(PANEL_WIDTH),
+            tw.flex_col,
+            tw.p_px(PADDING),
+            tw.bg_value(PANEL_BG),
+            tw.rounded(8),
+            tw.gap_px(12),
+        }),
         .children = &.{
             try ui.ux().div(.{
-                .style = .{
-                    .width = .Full,
-                    .height = .{ .exact = 6 },
-                    .background_color = INNER_COLOR,
-                    .corner_radius = layout.CornerRadius.all(3),
-                },
+                .style = tw.style(.{
+                    tw.w_full,
+                    tw.h(6),
+                    tw.bg_value(INNER_COLOR),
+                    tw.rounded(3),
+                }),
             }),
-            try ui.ux().text(.{ .content = bb_label, .font = font, .style = .{ .text_color = LABEL_COLOR } }),
+            try ui.ux().text(.{ .content = bb_label, .font = font, .style = tw.style(.{tw.text_color_value(LABEL_COLOR)}) }),
             try ui.ux().text(.{
                 .content = "The blue bar fills\nthe content area\n(outer − padding).",
                 .font = font,
-                .style = .{ .text_color = DIM_COLOR },
+                .style = tw.style(.{tw.text_color_value(DIM_COLOR)}),
             }),
         },
     });
@@ -78,29 +74,29 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     );
 
     const content_box_panel = try ui.ux().div(.{
-        .style = .{
-            .box_sizing = .content_box,
-            .width = .{ .exact = PANEL_WIDTH },
-            .direction = .Column,
-            .padding = Spacing.all(PADDING),
-            .background_color = PANEL_BG,
-            .corner_radius = layout.CornerRadius.all(8),
-            .gap = 12,
-        },
+        .style = tw.style(.{
+            tw.box_content,
+            tw.w(PANEL_WIDTH),
+            tw.flex_col,
+            tw.p_px(PADDING),
+            tw.bg_value(PANEL_BG),
+            tw.rounded(8),
+            tw.gap_px(12),
+        }),
         .children = &.{
             try ui.ux().div(.{
-                .style = .{
-                    .width = .Full,
-                    .height = .{ .exact = 6 },
-                    .background_color = INNER_COLOR,
-                    .corner_radius = layout.CornerRadius.all(3),
-                },
+                .style = tw.style(.{
+                    tw.w_full,
+                    tw.h(6),
+                    tw.bg_value(INNER_COLOR),
+                    tw.rounded(3),
+                }),
             }),
-            try ui.ux().text(.{ .content = cb_label, .font = font, .style = .{ .text_color = LABEL_COLOR } }),
+            try ui.ux().text(.{ .content = cb_label, .font = font, .style = tw.style(.{tw.text_color_value(LABEL_COLOR)}) }),
             try ui.ux().text(.{
                 .content = "The stated 300 px is\nthe content, not the\nouter box.",
                 .font = font,
-                .style = .{ .text_color = DIM_COLOR },
+                .style = tw.style(.{tw.text_color_value(DIM_COLOR)}),
             }),
         },
     });
@@ -108,38 +104,29 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     const title = try ui.ux().text(.{
         .content = "box-sizing demo",
         .font = font,
-        .style = .{
-            .text_color = .{ 1.0, 1.0, 1.0, 1.0 },
-        },
+        .style = tw.style(.{tw.text_color_value(.{ 1.0, 1.0, 1.0, 1.0 })}),
     });
 
     const subtitle = try ui.ux().text(.{
         .content = "Both panels use width = 300 px and padding = 20 px.\nborder_box: outer stays at 300 px.  content_box: outer grows to 340 px.",
         .font = font,
-        .style = .{
-            .text_color = DIM_COLOR,
-        },
+        .style = tw.style(.{tw.text_color_value(DIM_COLOR)}),
     });
 
     const panels_row = try ui.ux().div(.{
-        .style = .{
-            .direction = .Row,
-            .gap = 32,
-            .align_items = .Start,
-        },
+        .style = tw.style(.{ tw.flex_row, tw.gap_px(32), tw.items_start }),
         .children = &.{ border_box_panel, content_box_panel },
     });
 
     return try ui.ux().div(.{
-        .style = .{
-            .width = .screen,
-            .height = .screen,
-            .direction = .Column,
-            .align_items = .Center,
-            .justify_content = .Center,
-            .gap = 24,
-            .background_color = .{ 0.09, 0.10, 0.14, 1.0 },
-        },
+        .style = tw.style(.{
+            tw.size_screen,
+            tw.flex_col,
+            tw.items_center,
+            tw.justify_center,
+            tw.gap_px(24),
+            tw.bg_value(.{ 0.09, 0.10, 0.14, 1.0 }),
+        }),
         .children = &.{ title, subtitle, panels_row },
     });
 }

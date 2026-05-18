@@ -34,12 +34,11 @@ fn guildButton(
     const content = if (icon_url) |url|
         try ui.ux().asyncImage(.{
             .source = url,
-            .style = .{
-                .width = .Full,
-                .height = .Full,
-                .corner_radius = core.lib.layout.CornerRadius.all(radius),
-                .object_fit = .cover,
-            },
+            .style = tw.style(.{
+                tw.size_full,
+                tw.rounded(radius),
+                tw.object_cover,
+            }),
             .alt_text = label,
             .alt_font = font,
         })

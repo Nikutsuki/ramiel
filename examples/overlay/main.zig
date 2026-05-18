@@ -5,10 +5,7 @@ const lib = @import("ramiel");
 
 const UpdateAction = lib.UpdateAction;
 const FontData = lib.FontData;
-const layout = lib.layout;
-const Spacing = layout.Spacing;
-const Border = layout.Border;
-const CornerRadius = layout.CornerRadius;
+const tw = lib.tw;
 const everything = @import("everything.zig");
 const win32 = lib.win32;
 
@@ -71,55 +68,50 @@ fn buildResultRow(ui: *AppUIContext, ctx: ResultListContext, index: usize) !?*Ap
             .source = item.full_path,
             .alt_text = item.filename,
             .alt_font = ctx.font,
-            .style = .{
-                .width = .{ .exact = PREVIEW_IMAGE_SIZE },
-                .height = .{ .exact = PREVIEW_IMAGE_SIZE },
-                .corner_radius = CornerRadius.all(6),
-                .background_color = .{ EDGE[0], EDGE[1], EDGE[2], 0.20 },
-                .text_color = DIM,
-                .padding = Spacing.all(3),
-            },
+            .style = tw.style(.{
+                tw.square(PREVIEW_IMAGE_SIZE),
+                tw.rounded(6),
+                tw.bg_value(.{ EDGE[0], EDGE[1], EDGE[2], 0.20 }),
+                tw.text_color_value(DIM),
+                tw.p_px(3),
+            }),
         })
     else
         null;
 
     const text_col = try ui.ux().div(.{
-        .style = .{
-            .flex_grow = 1,
-            .direction = .Column,
-            .gap = 2,
-        },
+        .style = tw.style(.{ tw.grow_1, tw.flex_col, tw.gap_px(2) }),
         .children = &.{
             try ui.ux().text(.{
                 .content = item.filename,
                 .font = ctx.font,
-                .style = .{ .text_color = TEXT, .pointer_events = .none },
+                .style = tw.style(.{ tw.text_color_value(TEXT), tw.pointer_events_none }),
             }),
             try ui.ux().text(.{
                 .content = item.full_path,
                 .font = ctx.font,
-                .style = .{ .text_color = DIM, .pointer_events = .none },
+                .style = tw.style(.{ tw.text_color_value(DIM), tw.pointer_events_none }),
             }),
         },
     });
 
     return ui.ux().div(.{
-        .style = .{
-            .width = .Full,
-            .direction = .Row,
-            .align_items = .Center,
-            .justify_content = .SpaceBetween,
-            .gap = 10,
-            .padding = .{ .left = 12, .right = 12, .top = 8, .bottom = 8 },
-            .background_color = .{ PANEL[0], PANEL[1], PANEL[2], 0.0 },
-            .hover_color = PANEL,
-            .transition = .{
+        .style = tw.style(.{
+            tw.w_full,
+            tw.flex_row,
+            tw.items_center,
+            tw.justify_between,
+            tw.gap_px(10),
+            tw.p_xy_px(12, 8),
+            tw.bg_value(.{ PANEL[0], PANEL[1], PANEL[2], 0.0 }),
+            tw.hover_value(PANEL),
+            tw.transition(.{
                 .property = .{ .hover_color = true, .background_color = true },
                 .duration_ms = 200,
                 .timing = .ease_out,
-            },
-            .border = .{ .bottom = .{ .width = 1, .color = .{ EDGE[0], EDGE[1], EDGE[2], 0.45 } } },
-        },
+            }),
+            tw.border_b_value(1, .{ EDGE[0], EDGE[1], EDGE[2], 0.45 }),
+        }),
         .events = &.{
             .{ .event = .click, .msg = .{ .result_click = index } },
             .{ .event = .hover_enter, .msg = .{ .result_hover_enter = index } },
@@ -327,40 +319,40 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
     const EDGE: [4]f32 = comptime Color.parse("oklch(60% 0.1 270 / 0.95)");
 
     const header = try ui.ux().div(.{
-        .style = .{
-            .width = .Full,
-            .direction = .Row,
-            .justify_content = .SpaceBetween,
-            .align_items = .Center,
-            .padding = .{ .left = 16, .right = 16, .top = 12, .bottom = 12 },
-            .background_color = PANEL,
-            .border = .{ .bottom = .{ .width = 2, .color = EDGE } },
-        },
+        .style = tw.style(.{
+            tw.w_full,
+            tw.flex_row,
+            tw.justify_between,
+            tw.items_center,
+            tw.p_xy_px(16, 12),
+            tw.bg_value(PANEL),
+            tw.border_b_value(2, EDGE),
+        }),
         .children = &.{
             try ui.ux().text(.{
                 .content = "Everything Search Overlay",
                 .font = font,
-                .style = .{ .text_color = TEXT, .pointer_events = .none },
+                .style = tw.style(.{ tw.text_color_value(TEXT), tw.pointer_events_none }),
             }),
             try ui.ux().text(.{
                 .content = "Ctrl + Shift + Space",
                 .font = font,
-                .style = .{ .text_color = DIM, .pointer_events = .none },
+                .style = tw.style(.{ tw.text_color_value(DIM), tw.pointer_events_none }),
             }),
         },
     });
 
     const search_input = try ui.ux().textInput(.{
         .id = NodeIds.search_input,
-        .style = .{
-            .width = .Full,
-            .height = .{ .exact = 40 },
-            .padding = Spacing{ .left = 12, .right = 12, .top = 9, .bottom = 9 },
-            .background_color = INPUT_BG,
-            .text_color = TEXT,
-            .corner_radius = CornerRadius.all(8),
-            .border = Border.all(2, EDGE),
-        },
+        .style = tw.style(.{
+            tw.w_full,
+            tw.h(40),
+            tw.p_xy_px(12, 9),
+            tw.bg_value(INPUT_BG),
+            tw.text_color_value(TEXT),
+            tw.rounded(8),
+            tw.border_value(2, EDGE),
+        }),
         .font = font,
         .events = &.{
             .{ .event = .key_down, .msg = .search_changed },
@@ -369,35 +361,35 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
     });
 
     const search_row = try ui.ux().div(.{
-        .style = .{
-            .width = .Full,
-            .direction = .Row,
-            .gap = 8,
-            .padding = .{ .left = 14, .right = 14, .top = 12, .bottom = 8 },
-            .background_color = PANEL_ALT,
-            .border = .{ .bottom = .{ .width = 1, .color = EDGE } },
-        },
+        .style = tw.style(.{
+            tw.w_full,
+            tw.flex_row,
+            tw.gap_px(8),
+            tw.p_each_px(12, 14, 8, 14),
+            tw.bg_value(PANEL_ALT),
+            tw.border_b_value(1, EDGE),
+        }),
         .children = &.{search_input},
     });
 
     const results_area: *AppNode = if (state.results.len == 0)
         try ui.ux().div(.{
             .id = NodeIds.results_scroller,
-            .style = .{
-                .width = .Full,
-                .flex_grow = 1,
-                .direction = .Column,
-                .background_color = BG,
-            },
+            .style = tw.style(.{
+                tw.w_full,
+                tw.grow_1,
+                tw.flex_col,
+                tw.bg_value(BG),
+            }),
             .children = &.{
                 try ui.ux().text(.{
                     .content = "No results yet. Start typing to search.",
                     .font = font,
-                    .style = .{
-                        .text_color = DIM,
-                        .padding = .{ .left = 14, .right = 14, .top = 12, .bottom = 8 },
-                        .pointer_events = .none,
-                    },
+                    .style = tw.style(.{
+                        tw.text_color_value(DIM),
+                        tw.p_each_px(12, 14, 8, 14),
+                        tw.pointer_events_none,
+                    }),
                 }),
             },
         })
@@ -417,28 +409,26 @@ fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
 
         break :blk try ui.ux().div(.{
             .id = NodeIds.results_scroller,
-            .style = .{
-                .width = .Full,
-                .flex_grow = 1,
-                .direction = .Column,
-                .overflow_y = .scroll,
-                .background_color = BG,
-            },
+            .style = tw.style(.{
+                tw.w_full,
+                tw.grow_1,
+                tw.flex_col,
+                tw.overflow_y_scroll,
+                tw.bg_value(BG),
+            }),
             .children = rows.items,
         });
     };
 
     return ui.ux().div(.{
-        .style = .{
-            .width = .Full,
-            .height = .Full,
-            .direction = .Column,
-            .background_color = comptime Color.parse("oklch(0% 0 0 / 0)"),
-            .corner_radius = CornerRadius.all(4),
-            .overflow_x = .hidden,
-            .overflow_y = .hidden,
-            .opacity = 0.95,
-        },
+        .style = tw.style(.{
+            tw.size_full,
+            tw.flex_col,
+            tw.bg_value(comptime Color.parse("oklch(0% 0 0 / 0)")),
+            tw.rounded(4),
+            tw.overflow_hidden,
+            tw.opacity(0.95),
+        }),
         .children = &.{ header, search_row, results_area },
     });
 }

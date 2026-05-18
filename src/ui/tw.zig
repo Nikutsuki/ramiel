@@ -451,6 +451,14 @@ pub fn h_pct(percent: f32) struct { height: Size } {
     return .{ .height = .{ .percent = percent } };
 }
 
+pub fn w_frac(numerator: f32, denominator: f32) struct { width: Size } {
+    return .{ .width = Size.fraction(numerator, denominator) };
+}
+
+pub fn h_frac(numerator: f32, denominator: f32) struct { height: Size } {
+    return .{ .height = Size.fraction(numerator, denominator) };
+}
+
 pub fn min_w(value_px: f32) struct { min_width: Size } {
     return .{ .min_width = .{ .exact = value_px } };
 }
@@ -485,6 +493,20 @@ pub fn py(n: f32) struct { padding: Spacing } {
     return .{ .padding = .{ .top = v, .bottom = v } };
 }
 
+pub fn p_xy(x: f32, y: f32) struct { padding: Spacing } {
+    const xv = unit(x);
+    const yv = unit(y);
+    return .{ .padding = .{ .left = xv, .right = xv, .top = yv, .bottom = yv } };
+}
+
+pub fn p_xy_px(x_px: f32, y_px: f32) struct { padding: Spacing } {
+    return .{ .padding = .{ .left = x_px, .right = x_px, .top = y_px, .bottom = y_px } };
+}
+
+pub fn p_each_px(top_px: f32, right_px: f32, bottom_px: f32, left_px: f32) struct { padding: Spacing } {
+    return .{ .padding = .{ .top = top_px, .right = right_px, .bottom = bottom_px, .left = left_px } };
+}
+
 pub fn pt(n: f32) struct { padding: Spacing } {
     return .{ .padding = .{ .top = unit(n) } };
 }
@@ -515,6 +537,52 @@ pub fn my(n: f32) struct { margin: Spacing } {
     return .{ .margin = .{ .top = v, .bottom = v } };
 }
 
+pub fn m_xy(x: f32, y: f32) struct { margin: Spacing } {
+    const xv = unit(x);
+    const yv = unit(y);
+    return .{ .margin = .{ .left = xv, .right = xv, .top = yv, .bottom = yv } };
+}
+
+pub fn m_xy_px(x_px: f32, y_px: f32) struct { margin: Spacing } {
+    return .{ .margin = .{ .left = x_px, .right = x_px, .top = y_px, .bottom = y_px } };
+}
+
+pub fn m_each_px(top_px: f32, right_px: f32, bottom_px: f32, left_px: f32) struct { margin: Spacing } {
+    return .{ .margin = .{ .top = top_px, .right = right_px, .bottom = bottom_px, .left = left_px } };
+}
+
+pub fn mt_px(value_px: f32) struct { margin: Spacing } {
+    return .{ .margin = .{ .top = value_px } };
+}
+
+pub fn mr_px(value_px: f32) struct { margin: Spacing } {
+    return .{ .margin = .{ .right = value_px } };
+}
+
+pub fn mb_px(value_px: f32) struct { margin: Spacing } {
+    return .{ .margin = .{ .bottom = value_px } };
+}
+
+pub fn ml_px(value_px: f32) struct { margin: Spacing } {
+    return .{ .margin = .{ .left = value_px } };
+}
+
+pub fn pt_px(value_px: f32) struct { padding: Spacing } {
+    return .{ .padding = .{ .top = value_px } };
+}
+
+pub fn pr_px(value_px: f32) struct { padding: Spacing } {
+    return .{ .padding = .{ .right = value_px } };
+}
+
+pub fn pb_px(value_px: f32) struct { padding: Spacing } {
+    return .{ .padding = .{ .bottom = value_px } };
+}
+
+pub fn pl_px(value_px: f32) struct { padding: Spacing } {
+    return .{ .padding = .{ .left = value_px } };
+}
+
 pub fn mt(n: f32) struct { margin: Spacing } {
     return .{ .margin = .{ .top = unit(n) } };
 }
@@ -530,6 +598,15 @@ pub fn mb(n: f32) struct { margin: Spacing } {
 pub fn ml(n: f32) struct { margin: Spacing } {
     return .{ .margin = .{ .left = unit(n) } };
 }
+
+pub const box_border = .{ .box_sizing = layout.BoxSizing.border_box };
+pub const box_content = .{ .box_sizing = layout.BoxSizing.content_box };
+
+pub const object_fill = .{ .object_fit = layout.ObjectFit.fill };
+pub const object_contain = .{ .object_fit = layout.ObjectFit.contain };
+pub const object_cover = .{ .object_fit = layout.ObjectFit.cover };
+pub const object_none = .{ .object_fit = layout.ObjectFit.none };
+pub const object_scale_down = .{ .object_fit = layout.ObjectFit.scale_down };
 
 pub const overflow_visible = .{ .overflow_x = layout.Overflow.visible, .overflow_y = layout.Overflow.visible };
 pub const overflow_hidden = .{ .overflow_x = layout.Overflow.hidden, .overflow_y = layout.Overflow.hidden };

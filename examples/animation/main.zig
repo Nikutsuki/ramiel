@@ -4,9 +4,7 @@ const lib = @import("ramiel");
 
 const FontData = lib.FontData;
 const layout = lib.layout;
-const Style = layout.Style;
-const Spacing = layout.Spacing;
-const Size = layout.Size;
+const tw = lib.tw;
 const NodeId = lib.NodeId;
 const UpdateAction = lib.UpdateAction;
 const TransitionStyle = lib.TransitionStyle;
@@ -72,7 +70,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     const sectionLabel = struct {
         fn make(u: *AppUIContext, f: *FontData, text: []const u8) !*AppNode {
             return u.ux().text(.{
-                .style = .{ .text_color = DIM },
+                .style = tw.style(.{tw.text_color_value(DIM)}),
                 .content = text,
                 .font = f,
             });
@@ -96,21 +94,21 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         ) !*AppNode {
             return u.ux().div(.{
                 .id = id,
-                .style = .{
-                    .width = .{ .exact = CARD_W },
-                    .height = .{ .exact = CARD_H },
-                    .direction = .Column,
-                    .align_items = .Center,
-                    .justify_content = .Center,
-                    .background_color = bg,
-                    .corner_radius = layout.CornerRadius.all(radius),
-                    .opacity = opacity,
-                    .transform = .{ .scale = scale },
-                    .transition = transition,
-                },
+                .style = tw.style(.{
+                    tw.w(CARD_W),
+                    tw.h(CARD_H),
+                    tw.flex_col,
+                    tw.items_center,
+                    tw.justify_center,
+                    tw.bg_value(bg),
+                    tw.rounded(radius),
+                    tw.opacity(opacity),
+                    tw.scale(scale),
+                    tw.transition(transition),
+                }),
                 .children = &.{
                     try u.ux().text(.{
-                        .style = .{ .text_color = TEXT, .pointer_events = .none },
+                        .style = tw.style(.{ tw.text_color_value(TEXT), tw.pointer_events_none }),
                         .content = label,
                         .font = f,
                     }),
@@ -191,11 +189,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     );
 
     const hover_row = try ui.ux().div(.{
-        .style = .{
-            .direction = .Row,
-            .gap = 16,
-            .align_items = .Center,
-        },
+        .style = tw.style(.{ tw.flex_row, tw.gap_px(16), tw.items_center }),
         .children = &.{ card_hover_color, card_hover_scale, card_hover_both },
     });
 
@@ -249,48 +243,39 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     );
 
     const toggle_row = try ui.ux().div(.{
-        .style = .{
-            .direction = .Row,
-            .gap = 16,
-            .align_items = .Center,
-        },
+        .style = tw.style(.{ tw.flex_row, tw.gap_px(16), tw.items_center }),
         .children = &.{ card_toggle_color, card_toggle_opacity, card_toggle_radius },
     });
 
     const spinner = try ui.ux().div(.{
         .id = Id.spinner,
-        .style = .{
-            .width = .{ .exact = 48 },
-            .height = .{ .exact = 48 },
-            .background_color = ACCENT,
-            .corner_radius = layout.CornerRadius{ .top_left = 4, .top_right = 16, .bottom_right = 4, .bottom_left = 16 },
-            .transform = .{ .rotate = 0.0 },
-        },
+        .style = tw.style(.{
+            tw.square(48),
+            tw.bg_value(ACCENT),
+            .{ .corner_radius = layout.CornerRadius{ .top_left = 4, .top_right = 16, .bottom_right = 4, .bottom_left = 16 } },
+            tw.rotate(0.0),
+        }),
     });
 
     const spinner_label = try ui.ux().text(.{
-        .style = .{ .text_color = DIM },
+        .style = tw.style(.{tw.text_color_value(DIM)}),
         .content = "looping rotate",
         .font = font,
     });
 
     const continuous_row = try ui.ux().div(.{
-        .style = .{
-            .direction = .Row,
-            .gap = 16,
-            .align_items = .Center,
-        },
+        .style = tw.style(.{ tw.flex_row, tw.gap_px(16), tw.items_center }),
         .children = &.{ spinner, spinner_label },
     });
 
     const title = try ui.ux().text(.{
-        .style = .{ .text_color = TEXT },
+        .style = tw.style(.{tw.text_color_value(TEXT)}),
         .content = "animation demo",
         .font = font,
     });
 
     const subtitle = try ui.ux().text(.{
-        .style = .{ .text_color = DIM },
+        .style = tw.style(.{tw.text_color_value(DIM)}),
         .content = "Transitions are driven by reconciliation - no per-frame rebuilds needed.",
         .font = font,
     });
@@ -300,26 +285,25 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     const continuous_label = try sectionLabel(ui, font, "Continuous Animation");
 
     return ui.ux().div(.{
-        .style = .{
-            .width = .screen,
-            .height = .screen,
-            .direction = .Column,
-            .align_items = .Start,
-            .justify_content = .Center,
-            .gap = 12,
-            .padding = Spacing{ .left = 60, .right = 60, .top = 0, .bottom = 0 },
-            .background_color = BG,
-        },
+        .style = tw.style(.{
+            tw.size_screen,
+            tw.flex_col,
+            tw.items_start,
+            tw.justify_center,
+            tw.gap_px(12),
+            tw.px(15), // 60px on each side (unit=4)
+            tw.bg_value(BG),
+        }),
         .children = &.{
             title,
             subtitle,
-            try ui.ux().div(.{ .style = .{ .height = .{ .exact = 8 } } }), // spacer
+            try ui.ux().div(.{ .style = tw.style(.{tw.h(8)}) }), // spacer
             hover_label,
             hover_row,
-            try ui.ux().div(.{ .style = .{ .height = .{ .exact = 4 } } }), // spacer
+            try ui.ux().div(.{ .style = tw.style(.{tw.h(4)}) }), // spacer
             toggle_label,
             toggle_row,
-            try ui.ux().div(.{ .style = .{ .height = .{ .exact = 4 } } }), // spacer
+            try ui.ux().div(.{ .style = tw.style(.{tw.h(4)}) }), // spacer
             continuous_label,
             continuous_row,
         },

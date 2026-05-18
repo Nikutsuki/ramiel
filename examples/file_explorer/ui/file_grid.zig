@@ -2,6 +2,7 @@ const std = @import("std");
 const core = @import("../core.zig");
 const lib = @import("ramiel");
 const layout = lib.layout;
+const tw = core.tw;
 
 pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode {
     const arena = ui.build_arena.allocator();
@@ -15,22 +16,21 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
             .id = null,
             .content = if (state.status.len > 0) state.status else "(empty)",
             .font = font,
-            .style = .{
-                .text_color = tokens.text_muted,
-                .font_size = 12.0,
-                .pointer_events = .none,
-            },
+            .style = tw.style(.{
+                tw.text_color_value(tokens.text_muted),
+                tw.text(12.0),
+                tw.pointer_events_none,
+            }),
         });
         return ui.ux().div(.{
-            .style = .{
-                .width = .Full,
-                .height = .Full,
-                .background_color = tokens.bg_base,
-                .padding = core.layout.Spacing.all(20.0),
-                .flex_grow = 1.0,
-                .align_items = .Center,
-                .justify_content = .Center,
-            },
+            .style = tw.style(.{
+                tw.size_full,
+                tw.bg_value(tokens.bg_base),
+                tw.p_px(20.0),
+                tw.grow_1,
+                tw.items_center,
+                tw.justify_center,
+            }),
             .children = &.{empty},
         });
     }
@@ -43,19 +43,17 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
 
     return try ui.ux().div(.{
         .id = core.NodeIds.grid_root,
-        .style = .{
-            .width = .Full,
-            .height = .Full,
-            .background_color = tokens.bg_base,
-            .padding = core.layout.Spacing.all(12.0),
-            .border = .{ .left = .{ .width = 1.0, .color = tokens.border_subtle } },
-            .flex_grow = 1.0,
-            .display = .grid,
-            .grid_template_columns = columns,
-            .grid_auto_rows = .{ .exact = 110.0 },
-            .gap = 6.0,
-            .overflow_y = .scroll,
-        },
+        .style = tw.style(.{
+            tw.size_full,
+            tw.bg_value(tokens.bg_base),
+            tw.p_px(12.0),
+            tw.border_l_value(1.0, tokens.border_subtle),
+            tw.grow_1,
+            tw.grid,
+            .{ .grid_template_columns = columns, .grid_auto_rows = layout.GridTrack{ .exact = 110.0 } },
+            tw.gap_px(6.0),
+            tw.overflow_y_scroll,
+        }),
         .children = try cells.toOwnedSlice(arena),
     });
 }
@@ -76,12 +74,11 @@ fn cell(
 
     const icon_node = try ui.components().icon(.{
         .icon_id = asset_id,
-        .style = .{
-            .width = .{ .exact = 56.0 },
-            .height = .{ .exact = 56.0 },
-            .margin = .{ .bottom = 6.0 },
-            .pointer_events = .none,
-        },
+        .style = tw.style(.{
+            tw.square(56.0),
+            tw.mb(1.5), // 6px (unit=4)
+            tw.pointer_events_none,
+        }),
         .intrinsic_size = .{ 56.0, 56.0 },
         .tint = if (entry.is_dir) tokens.action_default else tokens.text_muted,
     });
@@ -90,26 +87,26 @@ fn cell(
         .id = null,
         .content = entry.name,
         .font = font,
-        .style = .{
-            .text_color = tokens.text_main,
-            .font_size = 13.0,
-            .pointer_events = .none,
-        },
+        .style = tw.style(.{
+            tw.text_color_value(tokens.text_main),
+            tw.text(13.0),
+            tw.pointer_events_none,
+        }),
     });
 
     return ui.ux().div(.{
         .id = core.components.deriveChildId(core.NodeIds.grid_entry, entry.path),
-        .style = .{
-            .display = .flex,
-            .direction = .Column,
-            .align_items = .Center,
-            .justify_content = .Center,
-            .padding = .{ .top = 6.0, .bottom = 6.0, .left = 4.0, .right = 4.0 },
-            .background_color = if (is_selected) tokens.action_pressed else .{ 0.0, 0.0, 0.0, 0.0 },
-            .hover_color = tokens.action_hover,
-            .corner_radius = core.layout.CornerRadius.all(6.0),
-            .cursor = .pointer,
-        },
+        .style = tw.style(.{
+            tw.flex,
+            tw.flex_col,
+            tw.items_center,
+            tw.justify_center,
+            tw.p_xy_px(4.0, 6.0),
+            tw.bg_value(if (is_selected) tokens.action_pressed else .{ 0.0, 0.0, 0.0, 0.0 }),
+            tw.hover_value(tokens.action_hover),
+            tw.rounded(6.0),
+            tw.cursor_pointer,
+        }),
         .children = &.{ icon_node, label_node },
         .events = &.{.{
             .event = .click,

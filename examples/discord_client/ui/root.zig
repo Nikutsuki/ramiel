@@ -85,11 +85,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
                     @as(f32, @floatFromInt(media.width)),
                     @as(f32, @floatFromInt(media.height)),
                 },
-                .style = .{
-                    .width = .Full,
-                    .height = .Full,
-                    .object_fit = .contain,
-                },
+                .style = tw.style(.{ tw.size_full, tw.object_contain }),
                 .alt_text = "Fullscreen Preview",
                 .alt_font = font_data,
             });

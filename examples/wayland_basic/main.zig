@@ -3,6 +3,7 @@ const ramiel = @import("ramiel");
 pub const tracy_impl = @import("tracy_impl");
 
 const layout = ramiel.layout;
+const tw = ramiel.tw;
 const App = ramiel.Application(AppState, AppMessage);
 const T = ramiel.For(AppMessage);
 
@@ -70,17 +71,21 @@ fn build(ui: *T.UIContext, state: *const AppState) anyerror!*T.Node {
             const bg: [4]f32 = if (ws.active) ws_active_bg else transparent;
             const text_color: [4]f32 = if (ws.active) accent else if (ws.windows > 0) fg else dim;
             try left_items.append(arena, try ux.div(.{
-                .style = .{
-                    .padding = .{ .left = 10, .right = 10, .top = 4, .bottom = 4 },
-                    .background_color = bg,
-                    .hover_color = ws_hover,
-                    .corner_radius = layout.CornerRadius.all(10),
-                    .cursor = .pointer,
-                    .transition = hover_transition,
-                },
+                .style = tw.style(.{
+                    tw.p_xy_px(10, 4),
+                    tw.bg_value(bg),
+                    tw.hover_value(ws_hover),
+                    tw.rounded(10),
+                    tw.cursor_pointer,
+                    tw.transition(hover_transition),
+                }),
                 .on_click = .{ .switch_workspace = ws.id },
                 .children = &.{
-                    try ux.text(.{ .content = label, .font = font, .style = .{ .font_size = font_size, .text_color = text_color } }),
+                    try ux.text(.{
+                        .content = label,
+                        .font = font,
+                        .style = tw.style(.{ tw.text(font_size), tw.text_color_value(text_color) }),
+                    }),
                 },
             }));
         }
@@ -88,35 +93,43 @@ fn build(ui: *T.UIContext, state: *const AppState) anyerror!*T.Node {
 
     const title = if (state.hypr.title_len > 0) state.hypr.activeTitle() else "";
     if (title.len > 0) {
-        try left_items.append(arena, try ux.div(.{ .style = .{ .width = .{ .exact = 8 } } }));
-        try left_items.append(arena, try ux.text(.{ .content = "|", .font = font, .style = .{ .font_size = font_size, .text_color = sep_color } }));
-        try left_items.append(arena, try ux.div(.{ .style = .{ .width = .{ .exact = 8 } } }));
+        try left_items.append(arena, try ux.div(.{ .style = tw.style(.{tw.w(8)}) }));
+        try left_items.append(arena, try ux.text(.{
+            .content = "|",
+            .font = font,
+            .style = tw.style(.{ tw.text(font_size), tw.text_color_value(sep_color) }),
+        }));
+        try left_items.append(arena, try ux.div(.{ .style = tw.style(.{tw.w(8)}) }));
         const truncated = if (title.len > 50) title[0..50] else title;
-        try left_items.append(arena, try ux.text(.{ .content = truncated, .font = font, .style = .{ .font_size = font_size - 1, .text_color = dim } }));
+        try left_items.append(arena, try ux.text(.{
+            .content = truncated,
+            .font = font,
+            .style = tw.style(.{ tw.text(font_size - 1), tw.text_color_value(dim) }),
+        }));
     }
 
     const left_pill = try ux.div(.{
-        .style = .{
-            .direction = .Row,
-            .align_items = .Center,
-            .gap = 2,
-            .padding = .{ .left = 6, .right = 12, .top = 4, .bottom = 4 },
-            .background_color = pill_bg,
-            .corner_radius = layout.CornerRadius.all(pill_radius),
-        },
+        .style = tw.style(.{
+            tw.flex_row,
+            tw.items_center,
+            tw.gap_px(2),
+            tw.p_each_px(4, 12, 4, 6),
+            tw.bg_value(pill_bg),
+            tw.rounded(pill_radius),
+        }),
         .children = left_items.items,
     });
 
     // === CENTER PILL: Clock ===
     const center_pill = try ux.div(.{
-        .style = .{
-            .direction = .Row,
-            .align_items = .Center,
-            .gap = 8,
-            .padding = .{ .left = 16, .right = 16, .top = 4, .bottom = 4 },
-            .background_color = pill_bg,
-            .corner_radius = layout.CornerRadius.all(pill_radius),
-        },
+        .style = tw.style(.{
+            tw.flex_row,
+            tw.items_center,
+            tw.gap_px(8),
+            tw.p_xy_px(16, 4),
+            tw.bg_value(pill_bg),
+            tw.rounded(pill_radius),
+        }),
         .children = &.{
             try ux.text(.{
                 .content = try std.fmt.allocPrint(arena, "{s} {d:0>2} {s}  {d:0>2}:{d:0>2}", .{
@@ -124,7 +137,7 @@ fn build(ui: *T.UIContext, state: *const AppState) anyerror!*T.Node {
                     state.time.hour, state.time.minute,
                 }),
                 .font = font,
-                .style = .{ .font_size = font_size, .text_color = fg },
+                .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }),
             }),
         },
     });
@@ -137,20 +150,24 @@ fn build(ui: *T.UIContext, state: *const AppState) anyerror!*T.Node {
     try right_items.append(arena, try ux.image(.{
         .tex_id = vol_tex,
         .tint = fg,
-        .style = .{ .width = .{ .exact = icon_px }, .height = .{ .exact = icon_px } },
+        .style = tw.style(.{tw.square(icon_px)}),
     }));
-    try right_items.append(arena, try ux.div(.{ .style = .{ .width = .{ .exact = 6 } } }));
+    try right_items.append(arena, try ux.div(.{ .style = tw.style(.{tw.w(6)}) }));
     try right_items.append(arena, try ux.text(.{
         .content = if (state.vol.available) try std.fmt.allocPrint(arena, "{d}%", .{state.vol.volume_pct}) else "--",
         .font = font,
-        .style = .{ .font_size = font_size, .text_color = fg },
+        .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }),
     }));
 
     // Battery
     if (state.bat.present) {
-        try right_items.append(arena, try ux.div(.{ .style = .{ .width = .{ .exact = 12 } } }));
-        try right_items.append(arena, try ux.text(.{ .content = "|", .font = font, .style = .{ .font_size = font_size, .text_color = sep_color } }));
-        try right_items.append(arena, try ux.div(.{ .style = .{ .width = .{ .exact = 12 } } }));
+        try right_items.append(arena, try ux.div(.{ .style = tw.style(.{tw.w(12)}) }));
+        try right_items.append(arena, try ux.text(.{
+            .content = "|",
+            .font = font,
+            .style = tw.style(.{ tw.text(font_size), tw.text_color_value(sep_color) }),
+        }));
+        try right_items.append(arena, try ux.div(.{ .style = tw.style(.{tw.w(12)}) }));
 
         const bat_color: [4]f32 = if (state.bat.capacity <= 15 and !state.bat.charging) danger else fg;
         const bat_tex = if (state.bat.charging) state.tex_bat_charge else if (state.bat.capacity <= 15) state.tex_bat_low else state.tex_bat_full;
@@ -158,50 +175,49 @@ fn build(ui: *T.UIContext, state: *const AppState) anyerror!*T.Node {
         try right_items.append(arena, try ux.image(.{
             .tex_id = bat_tex,
             .tint = bat_color,
-            .style = .{ .width = .{ .exact = icon_px }, .height = .{ .exact = icon_px } },
+            .style = tw.style(.{tw.square(icon_px)}),
         }));
-        try right_items.append(arena, try ux.div(.{ .style = .{ .width = .{ .exact = 6 } } }));
+        try right_items.append(arena, try ux.div(.{ .style = tw.style(.{tw.w(6)}) }));
 
         const bat_status = if (state.bat.charging) "+" else "";
         try right_items.append(arena, try ux.text(.{
             .content = try std.fmt.allocPrint(arena, "{d}%{s}", .{ state.bat.capacity, bat_status }),
             .font = font,
-            .style = .{ .font_size = font_size, .text_color = bat_color },
+            .style = tw.style(.{ tw.text(font_size), tw.text_color_value(bat_color) }),
         }));
     }
 
     const right_pill = try ux.div(.{
-        .style = .{
-            .direction = .Row,
-            .align_items = .Center,
-            .padding = .{ .left = 14, .right = 14, .top = 4, .bottom = 4 },
-            .background_color = pill_bg,
-            .corner_radius = layout.CornerRadius.all(pill_radius),
-        },
+        .style = tw.style(.{
+            tw.flex_row,
+            tw.items_center,
+            tw.p_xy_px(14, 4),
+            tw.bg_value(pill_bg),
+            tw.rounded(pill_radius),
+        }),
         .children = right_items.items,
     });
 
     // 3-column layout: left / center / right
     return try ux.div(.{
-        .style = .{
-            .width = .screen,
-            .height = .screen,
-            .direction = .Row,
-            .align_items = .Center,
-            .padding = .{ .left = 8, .right = 8 },
-            .background_color = transparent,
-        },
+        .style = tw.style(.{
+            tw.size_screen,
+            tw.flex_row,
+            tw.items_center,
+            tw.px(2), // 8px each side
+            tw.bg_value(transparent),
+        }),
         .children = &.{
             try ux.div(.{
-                .style = .{ .width = layout.Size.fraction(1, 3), .direction = .Row, .align_items = .Center, .justify_content = .Start },
+                .style = tw.style(.{ tw.w_frac(1, 3), tw.flex_row, tw.items_center, tw.justify_start }),
                 .children = &.{left_pill},
             }),
             try ux.div(.{
-                .style = .{ .width = layout.Size.fraction(1, 3), .direction = .Row, .align_items = .Center, .justify_content = .Center },
+                .style = tw.style(.{ tw.w_frac(1, 3), tw.flex_row, tw.items_center, tw.justify_center }),
                 .children = &.{center_pill},
             }),
             try ux.div(.{
-                .style = .{ .width = layout.Size.fraction(1, 3), .direction = .Row, .align_items = .Center, .justify_content = .End },
+                .style = tw.style(.{ tw.w_frac(1, 3), tw.flex_row, tw.items_center, tw.justify_end }),
                 .children = &.{right_pill},
             }),
         },

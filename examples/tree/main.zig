@@ -107,13 +107,13 @@ fn buildRowContent(ctx: *AppUIContext, item: comp.TreeItem, userdata: ?*const an
         .id = null,
         .content = label,
         .font = state.font_data,
-        .style = .{
-            .pointer_events = .none,
-            .text_color = if (item.is_selected)
+        .style = tw.style(.{
+            tw.pointer_events_none,
+            tw.text_color_value(if (item.is_selected)
                 @as([4]f32, .{ 1.0, 1.0, 1.0, 1.0 })
             else
-                @as([4]f32, .{ 0.92, 0.95, 0.98, 1.0 }),
-        },
+                @as([4]f32, .{ 0.92, 0.95, 0.98, 1.0 })),
+        }),
     });
 }
 

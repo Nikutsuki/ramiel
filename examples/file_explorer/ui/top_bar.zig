@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("../core.zig");
+const tw = core.tw;
 
 pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode {
 
@@ -27,23 +28,23 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
         .id = null,
         .content = state.status,
         .font = font,
-        .style = .{
-            .text_color = tokens.status_warning,
-            .font_size = 12.0,
-            .pointer_events = .none,
-        },
+        .style = tw.style(.{
+            tw.text_color_value(tokens.status_warning),
+            tw.text(12.0),
+            tw.pointer_events_none,
+        }),
     });
 
     return try ui.ux().div(.{
-        .style = .{
-            .width = .Full,
-            .height = .{ .exact = 44.0 },
-            .background_color = tokens.bg_surface,
-            .padding = .{ .left = 8.0, .right = 8.0, .top = 4.0, .bottom = 4.0 },
-            .direction = .Row,
-            .align_items = .Center,
-            .border = .{ .bottom = .{ .width = 1.0, .color = tokens.border_subtle } },
-        },
+        .style = tw.style(.{
+            tw.w_full,
+            tw.h(44.0),
+            tw.bg_value(tokens.bg_surface),
+            tw.p_xy_px(8.0, 4.0),
+            tw.flex_row,
+            tw.items_center,
+            tw.border_b_value(1.0, tokens.border_subtle),
+        }),
         .children = &.{ back_btn, fwd_btn, up_btn, refresh_btn, new_folder_btn, delete_btn, breadcrumb_strip, status_node },
     });
 }
@@ -64,19 +65,19 @@ fn buildBreadcrumbs(
     }
 
     return ui.ux().div(.{
-        .style = .{
-            .direction = .Row,
-            .align_items = .Center,
-            .flex_grow = 1.0,
-            .height = .Full,
-            .padding = .{ .left = 10.0, .right = 10.0, .top = 4.0, .bottom = 4.0 },
-            .margin = .{ .left = 6.0, .right = 6.0 },
-            .overflow_x = .scroll,
-            .background_color = tokens.bg_base,
-            .corner_radius = core.layout.CornerRadius.all(6.0),
-            .border = core.layout.Border.all(1.0, tokens.border_subtle),
-            .cursor = .text,
-        },
+        .style = tw.style(.{
+            tw.flex_row,
+            tw.items_center,
+            tw.grow_1,
+            tw.h_full,
+            tw.p_xy_px(10.0, 4.0),
+            tw.m_xy_px(6.0, 0),
+            tw.overflow_x_scroll,
+            tw.bg_value(tokens.bg_base),
+            tw.rounded(6.0),
+            tw.border_value(1.0, tokens.border_subtle),
+            tw.cursor_text,
+        }),
         .children = try breadcrumbs.toOwnedSlice(arena),
         .events = &.{.{ .event = .click, .msg = .{ .begin_path_edit = {} } }},
     });
@@ -93,17 +94,17 @@ fn buildPathInput(
         .id = core.NodeIds.path_input,
         .font = font,
         .initial_text = state.current_path,
-        .style = .{
-            .flex_grow = 1.0,
-            .height = .Full,
-            .padding = .{ .left = 10.0, .right = 10.0, .top = 6.0, .bottom = 6.0 },
-            .margin = .{ .left = 6.0, .right = 6.0 },
-            .background_color = tokens.bg_base,
-            .text_color = tokens.text_main,
-            .corner_radius = core.layout.CornerRadius.all(6.0),
-            .border = core.layout.Border.all(1.0, tokens.border_focus),
-            .font_size = 14.0,
-        },
+        .style = tw.style(.{
+            tw.grow_1,
+            tw.h_full,
+            tw.p_xy_px(10.0, 6.0),
+            tw.m_xy_px(6.0, 0),
+            tw.bg_value(tokens.bg_base),
+            tw.text_color_value(tokens.text_main),
+            tw.rounded(6.0),
+            tw.border_value(1.0, tokens.border_focus),
+            tw.text(14.0),
+        }),
         .events = &.{
             .{ .event = .key_down, .msg = .{ .path_input_event = {} } },
         },
@@ -123,43 +124,43 @@ fn navButton(
         .id = null,
         .content = label,
         .font = font,
-        .style = .{
-            .text_color = .{ 1.0, 1.0, 1.0, 1.0 },
-            .font_size = 13.0,
-            .pointer_events = .none,
-        },
+        .style = tw.style(.{
+            tw.text_color_value(.{ 1.0, 1.0, 1.0, 1.0 }),
+            tw.text(13.0),
+            tw.pointer_events_none,
+        }),
     });
 
     if (disabled) {
         return ui.ux().div(.{
-            .style = .{
-                .height = .Full,
-                .padding = .{ .left = 10.0, .right = 10.0 },
-                .margin = .{ .right = 4.0 },
-                .corner_radius = core.layout.CornerRadius.all(4.0),
-                .background_color = tokens.action_disabled,
-                .direction = .Row,
-                .align_items = .Center,
-                .justify_content = .Center,
-                .opacity = 0.55,
-            },
+            .style = tw.style(.{
+                tw.h_full,
+                tw.p_xy_px(10.0, 0),
+                tw.mr_px(4.0),
+                tw.rounded(4.0),
+                tw.bg_value(tokens.action_disabled),
+                tw.flex_row,
+                tw.items_center,
+                tw.justify_center,
+                tw.opacity(0.55),
+            }),
             .children = &.{text_node},
         });
     }
 
     return ui.ux().div(.{
-        .style = .{
-            .height = .Full,
-            .padding = .{ .left = 10.0, .right = 10.0 },
-            .margin = .{ .right = 4.0 },
-            .corner_radius = core.layout.CornerRadius.all(4.0),
-            .background_color = tokens.action_default,
-            .hover_color = tokens.action_hover,
-            .direction = .Row,
-            .align_items = .Center,
-            .justify_content = .Center,
-            .cursor = .pointer,
-        },
+        .style = tw.style(.{
+            tw.h_full,
+            tw.p_xy_px(10.0, 0),
+            tw.mr_px(4.0),
+            tw.rounded(4.0),
+            tw.bg_value(tokens.action_default),
+            tw.hover_value(tokens.action_hover),
+            tw.flex_row,
+            tw.items_center,
+            tw.justify_center,
+            tw.cursor_pointer,
+        }),
         .children = &.{text_node},
         .events = &.{.{ .event = .click, .msg = msg }},
     });
@@ -204,23 +205,23 @@ fn crumb(
     const is_current = std.mem.eql(u8, target_path, state.current_path);
 
     return ui.ux().div(.{
-        .style = .{
-            .padding = .{ .left = 6.0, .right = 6.0, .top = 2.0, .bottom = 2.0 },
-            .corner_radius = core.layout.CornerRadius.all(3.0),
-            .hover_color = tokens.action_hover,
-            .cursor = .pointer,
-            .direction = .Row,
-            .align_items = .Center,
-        },
+        .style = tw.style(.{
+            tw.p_xy_px(6.0, 2.0),
+            tw.rounded(3.0),
+            tw.hover_value(tokens.action_hover),
+            tw.cursor_pointer,
+            tw.flex_row,
+            tw.items_center,
+        }),
         .children = &.{try ui.ux().text(.{
             .id = null,
             .content = label,
             .font = font,
-            .style = .{
-                .text_color = if (is_current) tokens.text_main else tokens.text_muted,
-                .font_size = 13.0,
-                .pointer_events = .none,
-            },
+            .style = tw.style(.{
+                tw.text_color_value(if (is_current) tokens.text_main else tokens.text_muted),
+                tw.text(13.0),
+                tw.pointer_events_none,
+            }),
         })},
         .events = &.{.{ .event = .click, .msg = .{ .navigate_to = target_path } }},
     });
@@ -232,11 +233,11 @@ fn separator(ui: *core.AppUIContext, font: *core.FontData) !*core.AppNode {
         .id = null,
         .content = ">",
         .font = font,
-        .style = .{
-            .text_color = tokens.text_disabled,
-            .font_size = 12.0,
-            .pointer_events = .none,
-            .padding = .{ .left = 2.0, .right = 2.0 },
-        },
+        .style = tw.style(.{
+            tw.text_color_value(tokens.text_disabled),
+            tw.text(12.0),
+            tw.pointer_events_none,
+            tw.p_xy_px(2.0, 0),
+        }),
     });
 }

@@ -73,14 +73,12 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             .style = tw.style(.{ tw.mt(2.5) }),
             .item_style = .{},
             .box = .{
-                .style = .{
-                    .border = layout.Border.all(1.0, .{ 0.28, 0.33, 0.44, 1.0 }),
-                    .transition = layout.TransitionStyle.forColors(150),
-                },
+                .style = tw.style(.{
+                    tw.border_value(1.0, .{ 0.28, 0.33, 0.44, 1.0 }),
+                    tw.transition_colors(150),
+                }),
             },
-            .label_style = .{
-                .text_color = .{ 0.86, 0.9, 0.96, 1.0 },
-            },
+            .label_style = tw.style(.{tw.text_color_value(.{ 0.86, 0.9, 0.96, 1.0 })}),
         },
     });
 
@@ -98,9 +96,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             .style = tw.style(.{ tw.mt(3.5) }),
             .item_style = .{},
             .ring = .{
-                .style = .{
-                    .transition = layout.TransitionStyle.forColors(120),
-                },
+                .style = tw.style(.{tw.transition_colors(120)}),
             },
         },
     });
@@ -166,53 +162,52 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     });
 
     return try ui.ux().div(.{
-        .style = .{
-            .width = .screen,
-            .height = .screen,
-            .direction = .Column,
-            .align_items = .Center,
-            .justify_content = .Center,
-            .background_color = .{ 0.07, 0.08, 0.11, 1.0 },
-        },
+        .style = tw.style(.{
+            tw.size_screen,
+            tw.flex_col,
+            tw.items_center,
+            tw.justify_center,
+            tw.bg_value(.{ 0.07, 0.08, 0.11, 1.0 }),
+        }),
         .children = &.{
             try ui.ux().div(.{
-                .style = .{
-                    .width = .{ .exact = 520.0 },
-                    .direction = .Column,
-                    .padding = layout.Spacing.all(18.0),
-                    .background_color = .{ 0.11, 0.13, 0.19, 1.0 },
-                    .corner_radius = layout.CornerRadius.all(10.0),
-                    .gap = 4.0,
-                },
+                .style = tw.style(.{
+                    tw.w(520.0),
+                    tw.flex_col,
+                    tw.p_px(18.0),
+                    tw.bg_value(.{ 0.11, 0.13, 0.19, 1.0 }),
+                    tw.rounded(10.0),
+                    tw.gap_px(4.0),
+                }),
                 .children = &.{
                     try ui.ux().text(.{
                         .content = "components showcase",
                         .font = font,
-                        .style = .{ .text_color = .{ 0.93, 0.96, 1.0, 1.0 } },
+                        .style = tw.style(.{tw.text_color_value(.{ 0.93, 0.96, 1.0, 1.0 })}),
                     }),
                     try ui.ux().text(.{
                         .content = "Checkbox group, radio group, and slider (atomic primitives composed in-library)",
                         .font = font,
-                        .style = .{ .text_color = .{ 0.66, 0.72, 0.84, 1.0 } },
+                        .style = tw.style(.{tw.text_color_value(.{ 0.66, 0.72, 0.84, 1.0 })}),
                     }),
                     checkbox_group_node,
                     radio_group_node,
                     try ui.ux().text(.{
                         .content = slider_value_text,
                         .font = font,
-                        .style = .{
-                            .margin = .{ .top = 12.0 },
-                            .text_color = .{ 0.8, 0.86, 0.96, 1.0 },
-                        },
+                        .style = tw.style(.{
+                            tw.mt_px(12.0),
+                            tw.text_color_value(.{ 0.8, 0.86, 0.96, 1.0 }),
+                        }),
                     }),
                     slider_node,
                     try ui.ux().text(.{
                         .content = "Display mode dropdown (portal + click-away backdrop)",
                         .font = font,
-                        .style = .{
-                            .margin = .{ .top = 14.0 },
-                            .text_color = .{ 0.8, 0.86, 0.96, 1.0 },
-                        },
+                        .style = tw.style(.{
+                            tw.mt_px(14.0),
+                            tw.text_color_value(.{ 0.8, 0.86, 0.96, 1.0 }),
+                        }),
                     }),
                     dropdown_node,
                 },

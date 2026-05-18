@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("../core.zig");
+const tw = core.tw;
 
 const BrowseBuildCtx = struct {
     allocator: std.mem.Allocator,
@@ -72,13 +73,13 @@ fn buildAttachmentCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx,
     try children.append(build_alloc, try ctx.ux().text(.{
         .content = label,
         .font = payload.font,
-        .style = .{ .text_color = tokens.text_main },
+        .style = tw.style(.{tw.text_color_value(tokens.text_main)}),
     }));
     if (attachment.content_type) |content_type| {
         try children.append(build_alloc, try ctx.ux().text(.{
             .content = content_type,
             .font = payload.font,
-            .style = .{ .text_color = tokens.text_muted },
+            .style = tw.style(.{tw.text_color_value(tokens.text_muted)}),
         }));
     }
     if (attachment.url) |url| {
@@ -86,7 +87,7 @@ fn buildAttachmentCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx,
             .content = url,
             .font = payload.font,
             .max_width = 560,
-            .style = .{ .text_color = tokens.action_default },
+            .style = tw.style(.{tw.text_color_value(tokens.action_default)}),
         }));
     }
 
@@ -94,14 +95,14 @@ fn buildAttachmentCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx,
     card_bg[3] = 0.85;
 
     return ctx.ux().div(.{
-        .style = .{
-            .width = .Full,
-            .direction = .Column,
-            .gap = 3,
-            .padding = core.lib.layout.Spacing.all(8),
-            .background_color = card_bg,
-            .corner_radius = core.lib.layout.CornerRadius.all(8),
-        },
+        .style = tw.style(.{
+            tw.w_full,
+            tw.flex_col,
+            tw.gap_px(3),
+            tw.p_px(8),
+            tw.bg_value(card_bg),
+            tw.rounded(8),
+        }),
         .children = try children.toOwnedSlice(build_alloc),
     });
 }
@@ -126,7 +127,7 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
             .content = title,
             .font = payload.font,
             .max_width = 340,
-            .style = .{ .text_color = if (is_link) tokens.action_default else tokens.text_main },
+            .style = tw.style(.{tw.text_color_value(if (is_link) tokens.action_default else tokens.text_main)}),
         }));
     }
 
@@ -135,7 +136,7 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
             .content = description,
             .font = payload.font,
             .max_width = 340,
-            .style = .{ .text_color = tokens.text_muted },
+            .style = tw.style(.{tw.text_color_value(tokens.text_muted)}),
         }));
     }
 
@@ -144,11 +145,7 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
 
     if (text_column_children.items.len > 0) {
         try top_row_children.append(build_alloc, try ctx.ux().div(.{
-            .style = .{
-                .direction = .Column,
-                .gap = 6,
-                .flex_grow = 1,
-            },
+            .style = tw.style(.{ tw.flex_col, tw.gap_px(6), tw.grow_1 }),
             .children = try text_column_children.toOwnedSlice(build_alloc),
         }));
     }
@@ -162,12 +159,12 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
                     @as(f32, @floatFromInt(thumbnail.width orelse 0)),
                     @as(f32, @floatFromInt(thumbnail.height orelse 0)),
                 },
-                .style = .{
-                    .width = .{ .exact = dims[0] },
-                    .height = .{ .exact = dims[1] },
-                    .corner_radius = core.lib.layout.CornerRadius.all(4),
-                    .object_fit = .scale_down,
-                },
+                .style = tw.style(.{
+                    tw.w(dims[0]),
+                    tw.h(dims[1]),
+                    tw.rounded(4),
+                    tw.object_scale_down,
+                }),
                 .alt_text = "embed-thumbnail",
                 .alt_font = payload.font,
             }));
@@ -179,12 +176,7 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
 
     if (top_row_children.items.len > 0) {
         try main_column_children.append(build_alloc, try ctx.ux().div(.{
-            .style = .{
-                .width = .Full,
-                .direction = .Row,
-                .gap = 16,
-                .align_items = .Start,
-            },
+            .style = tw.style(.{ tw.w_full, tw.flex_row, tw.gap_px(16), tw.items_start }),
             .children = try top_row_children.toOwnedSlice(build_alloc),
         }));
     }
@@ -198,12 +190,12 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
                     @as(f32, @floatFromInt(image.width orelse 0)),
                     @as(f32, @floatFromInt(image.height orelse 0)),
                 },
-                .style = .{
-                    .width = .{ .exact = dims[0] },
-                    .height = .{ .exact = dims[1] },
-                    .corner_radius = core.lib.layout.CornerRadius.all(4),
-                    .object_fit = .scale_down,
-                },
+                .style = tw.style(.{
+                    tw.w(dims[0]),
+                    tw.h(dims[1]),
+                    tw.rounded(4),
+                    tw.object_scale_down,
+                }),
                 .alt_text = "embed-image",
                 .alt_font = payload.font,
             }));
@@ -213,26 +205,26 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
     const color_bar_color: [4]f32 = if (embed.color) |hex| hexToRgba(hex) else tokens.border_subtle;
 
     return ctx.ux().div(.{
-        .style = .{
-            .width = .{ .exact = 480 },
-            .direction = .Row,
-            .align_items = .Stretch,
-            .background_color = tokens.bg_base,
-            .corner_radius = core.lib.layout.CornerRadius.all(4),
-        },
+        .style = tw.style(.{
+            tw.w(480),
+            tw.flex_row,
+            tw.items_stretch,
+            tw.bg_value(tokens.bg_base),
+            tw.rounded(4),
+        }),
         .children = &.{ try ctx.ux().div(.{
-            .style = .{
-                .width = .{ .exact = 4 },
-                .background_color = color_bar_color,
-                .corner_radius = .{ .top_left = 4, .bottom_left = 4, .top_right = 0, .bottom_right = 0 },
-            },
+            .style = tw.style(.{
+                tw.w(4),
+                tw.bg_value(color_bar_color),
+                .{ .corner_radius = core.lib.layout.CornerRadius{ .top_left = 4, .bottom_left = 4, .top_right = 0, .bottom_right = 0 } },
+            }),
         }), try ctx.ux().div(.{
-            .style = .{
-                .direction = .Column,
-                .gap = 12,
-                .padding = .{ .top = 12, .bottom = 12, .left = 12, .right = 16 },
-                .flex_grow = 1,
-            },
+            .style = tw.style(.{
+                tw.flex_col,
+                tw.gap_px(12),
+                tw.p_each_px(12, 16, 12, 12),
+                tw.grow_1,
+            }),
             .children = try main_column_children.toOwnedSlice(build_alloc),
         }) },
     });
@@ -257,7 +249,6 @@ fn buildBrowseEntry(
 ) !*core.AppNode {
     const tokens = ui.active_theme.tokens;
     const ux = ui.ux();
-    const tw = core.tw;
     const prefix = if (browsing_dms) "@ " else "# ";
     const label = try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, channel.name });
     defer allocator.free(label);
@@ -346,17 +337,16 @@ fn buildMessageContent(ctx: *core.AppUIContext, payload: *const MessageBuildCtx,
                         try children.append(build_alloc, try ctx.ux().text(.{
                             .content = try build_alloc.dupe(u8, content[last..start_idx]),
                             .font = payload.font,
-                            .style = .{ .text_color = body_color },
+                            .style = tw.style(.{tw.text_color_value(body_color)}),
                         }));
                     }
 
                     try children.append(build_alloc, try ctx.ux().asyncImage(.{
                         .source = url,
-                        .style = .{
-                            .width = .{ .exact = 22 },
-                            .height = .{ .exact = 22 },
-                            .corner_radius = core.lib.layout.CornerRadius.all(4),
-                        },
+                        .style = tw.style(.{
+                            tw.square(22),
+                            tw.rounded(4),
+                        }),
                         .alt_text = try build_alloc.dupe(u8, content[start_idx .. e_idx + 1]),
                         .alt_font = payload.font,
                     }));
@@ -374,7 +364,7 @@ fn buildMessageContent(ctx: *core.AppUIContext, payload: *const MessageBuildCtx,
         return ctx.ux().text(.{
             .content = content,
             .font = payload.font,
-            .style = .{ .text_color = body_color },
+            .style = tw.style(.{tw.text_color_value(body_color)}),
         });
     }
 
@@ -382,18 +372,18 @@ fn buildMessageContent(ctx: *core.AppUIContext, payload: *const MessageBuildCtx,
         try children.append(build_alloc, try ctx.ux().text(.{
             .content = try build_alloc.dupe(u8, content[last..]),
             .font = payload.font,
-            .style = .{ .text_color = body_color },
+            .style = tw.style(.{tw.text_color_value(body_color)}),
         }));
     }
 
     return ctx.ux().div(.{
-        .style = .{
-            .width = .{ .exact = 620 },
-            .direction = .Row,
-            .flex_wrap = .Wrap,
-            .gap = 4,
-            .align_items = .Center,
-        },
+        .style = tw.style(.{
+            tw.w(620),
+            tw.flex_row,
+            tw.flex_wrap,
+            tw.gap_px(4),
+            tw.items_center,
+        }),
         .children = try children.toOwnedSlice(build_alloc),
     });
 }
@@ -429,7 +419,6 @@ fn calculateMediaSize(intrinsic_w: ?u32, intrinsic_h: ?u32, max_w: f32, max_h: f
 
 fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*const anyopaque) anyerror!*core.AppNode {
     const build_alloc = ctx.build_arena.allocator();
-    const tw = core.tw;
     const payload: *const MessageBuildCtx = @ptrCast(@alignCast(userdata.?));
     if (index >= payload.state.messages.items.len) return error.IndexOutOfBounds;
     const message = payload.state.messages.items[index];
@@ -451,7 +440,7 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
     try content_children.append(build_alloc, try ctx.ux().text(.{
         .content = meta,
         .font = payload.font,
-        .style = .{ .text_color = .{ 0.82, 0.86, 0.95, 1.0 } },
+        .style = tw.style(.{tw.text_color_value(.{ 0.82, 0.86, 0.95, 1.0 })}),
     }));
 
     try content_children.append(build_alloc, try buildMessageContent(ctx, payload, body, body_color));
@@ -493,22 +482,22 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
                         @as(f32, @floatFromInt(attachment.width orelse 0)),
                         @as(f32, @floatFromInt(attachment.height orelse 0)),
                     },
-                    .style = .{
-                        .width = .{ .exact = dims[0] },
-                        .height = .{ .exact = dims[1] },
-                        .corner_radius = core.lib.layout.CornerRadius.all(8),
-                        .object_fit = .scale_down,
-                    },
+                    .style = tw.style(.{
+                        tw.w(dims[0]),
+                        tw.h(dims[1]),
+                        tw.rounded(8),
+                        tw.object_scale_down,
+                    }),
                     .alt_text = attachment.filename,
                     .alt_font = payload.font,
                 });
 
                 try content_children.append(build_alloc, try ctx.ux().div(.{
-                    .style = .{
-                        .width = .{ .exact = dims[0] },
-                        .height = .{ .exact = dims[1] },
-                        .corner_radius = core.lib.layout.CornerRadius.all(8),
-                    },
+                    .style = tw.style(.{
+                        tw.w(dims[0]),
+                        tw.h(dims[1]),
+                        tw.rounded(8),
+                    }),
                     .events = &.{
                         .{ .event = .click, .msg = .{ .open_preview = .{
                             .url_or_id = url,
@@ -548,7 +537,7 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
                             tw.w(dims[0]),
                             tw.h(dims[1]),
                             tw.rounded(8),
-                            .{ .object_fit = .contain },
+                            tw.object_contain,
                         }),
                     },
                     .logic = .{
@@ -566,11 +555,11 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
                 });
 
                 try content_children.append(build_alloc, try ctx.ux().div(.{
-                    .style = .{
-                        .width = .{ .exact = dims[0] },
-                        .height = .{ .exact = dims[1] },
-                        .corner_radius = core.lib.layout.CornerRadius.all(8),
-                    },
+                    .style = tw.style(.{
+                        tw.w(dims[0]),
+                        tw.h(dims[1]),
+                        tw.rounded(8),
+                    }),
                     .events = &.{
                         .{ .event = .click, .msg = .{ .open_preview = .{
                             .url_or_id = attachment.id,
@@ -586,25 +575,25 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
                 const video_card_title = try std.fmt.allocPrint(payload.allocator, "Video: {s}", .{attachment.filename});
                 defer payload.allocator.free(video_card_title);
                 try content_children.append(build_alloc, try ctx.ux().div(.{
-                    .style = .{
-                        .width = .Full,
-                        .direction = .Column,
-                        .gap = 4,
-                        .padding = core.lib.layout.Spacing.all(8),
-                        .background_color = comptime core.Color.parse("oklch(0.29 0.03 248 / 0.82)"),
-                        .corner_radius = core.lib.layout.CornerRadius.all(8),
-                    },
+                    .style = tw.style(.{
+                        tw.w_full,
+                        tw.flex_col,
+                        tw.gap_px(4),
+                        tw.p_px(8),
+                        tw.bg_value(comptime core.Color.parse("oklch(0.29 0.03 248 / 0.82)")),
+                        tw.rounded(8),
+                    }),
                     .children = &.{
                         try ctx.ux().text(.{
                             .content = video_card_title,
                             .font = payload.font,
-                            .style = .{ .text_color = .{ 0.91, 0.94, 1.0, 1.0 } },
+                            .style = tw.style(.{tw.text_color_value(.{ 0.91, 0.94, 1.0, 1.0 })}),
                         }),
                         try ctx.ux().text(.{
                             .content = maybeSlice(attachment.url),
                             .font = payload.font,
                             .max_width = 560,
-                            .style = .{ .text_color = .{ 0.56, 0.76, 1.0, 1.0 } },
+                            .style = tw.style(.{tw.text_color_value(.{ 0.56, 0.76, 1.0, 1.0 })}),
                         }),
                     },
                 }));
@@ -683,29 +672,27 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
     const avatar_node = if (message.author_avatar) |avatar_url|
         try ctx.ux().asyncImage(.{
             .source = avatar_url,
-            .style = .{
-                .width = .{ .exact = 36 },
-                .height = .{ .exact = 36 },
-                .corner_radius = core.lib.layout.CornerRadius.all(18),
-            },
+            .style = tw.style(.{
+                tw.square(36),
+                tw.rounded(18),
+            }),
             .alt_text = message.author_name,
             .alt_font = payload.font,
         })
     else
         try ctx.ux().div(.{
-            .style = .{
-                .width = .{ .exact = 36 },
-                .height = .{ .exact = 36 },
-                .corner_radius = core.lib.layout.CornerRadius.all(18),
-                .background_color = comptime core.Color.parse("oklch(0.45 0.08 255 / 1)"),
-                .align_items = .Center,
-                .justify_content = .Center,
-            },
+            .style = tw.style(.{
+                tw.square(36),
+                tw.rounded(18),
+                tw.bg_value(comptime core.Color.parse("oklch(0.45 0.08 255 / 1)")),
+                tw.items_center,
+                tw.justify_center,
+            }),
             .children = &.{
                 try ctx.ux().text(.{
                     .content = message.author_name[0..@min(message.author_name.len, 1)],
                     .font = payload.font,
-                    .style = .{ .text_color = .{ 1.0, 1.0, 1.0, 1.0 } },
+                    .style = tw.style(.{tw.text_color_value(.{ 1.0, 1.0, 1.0, 1.0 })}),
                 }),
             },
         });
@@ -717,23 +704,23 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
     };
 
     return ctx.ux().div(.{
-        .style = .{
-            .width = .Full,
-            .direction = .Row,
-            .align_items = .Start,
-            .gap = 10,
-            .padding = core.lib.layout.Spacing.all(8),
-            .background_color = card_bg,
-            .corner_radius = core.lib.layout.CornerRadius.all(8),
-        },
+        .style = tw.style(.{
+            tw.w_full,
+            tw.flex_row,
+            tw.items_start,
+            tw.gap_px(10),
+            tw.p_px(8),
+            tw.bg_value(card_bg),
+            tw.rounded(8),
+        }),
         .children = &.{
             avatar_node,
             try ctx.ux().div(.{
-                .style = .{
-                    .width = .Full,
-                    .direction = .Column,
-                    .gap = 6,
-                },
+                .style = tw.style(.{
+                    tw.w_full,
+                    tw.flex_col,
+                    tw.gap_px(6),
+                }),
                 .children = try content_children.toOwnedSlice(build_alloc),
             }),
         },
@@ -752,7 +739,6 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
     const message_context_key = if (state.selected_channel_id) |channel_id| channel_id else "none";
     const message_list_id = core.components.deriveChildId(core.NodeIds.message_virtual_list, message_context_key);
     const ux = ui.ux();
-    const tw = core.tw;
 
     const browse_items = if (browsing_dms) state.dms.items else state.channels.items;
     const browser_list_node = if (browse_items.len == 0)
@@ -851,10 +837,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
         .icon_id = @intFromEnum(core.IconIds.add),
         .scale = 1.0,
         .intrinsic_size = .{ 16.0, 16.0 },
-        .style = .{
-            .width = .{ .exact = 16 },
-            .height = .{ .exact = 16 },
-        },
+        .style = tw.style(.{tw.square(16)}),
         .tint = tokens.text_main,
         .alt_text = "Add",
         .alt_font = font,

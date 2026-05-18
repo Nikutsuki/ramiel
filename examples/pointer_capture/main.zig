@@ -3,7 +3,7 @@ pub const tracy_impl = @import("tracy_impl");
 const lib = @import("ramiel");
 
 const FontData = lib.FontData;
-const layout = lib.layout;
+const tw = lib.tw;
 const UpdateAction = lib.UpdateAction;
 
 const AppMessage = enum(u8) {
@@ -36,52 +36,49 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     );
 
     const handle = try ui.ux().div(.{
-        .style = .{
-            .position = .absolute,
-            .left = handle_x,
-            .top = -5.0,
-            .width = .{ .exact = handle_diameter },
-            .height = .{ .exact = handle_diameter },
-            .background_color = .{ 0.30, 0.70, 1.0, 1.0 },
-            .corner_radius = layout.CornerRadius.all(handle_diameter / 2.0),
-            .cursor = .pointer,
-        },
+        .style = tw.style(.{
+            tw.absolute,
+            .{ .left = handle_x, .top = -5.0 },
+            tw.square(handle_diameter),
+            tw.bg_value(.{ 0.30, 0.70, 1.0, 1.0 }),
+            tw.rounded(handle_diameter / 2.0),
+            tw.cursor_pointer,
+        }),
         .events = &.{
             .{ .event = .drag, .msg = .slider_drag },
         },
     });
 
     const track = try ui.ux().div(.{
-        .style = .{
-            .position = .relative,
-            .width = .{ .exact = track_width },
-            .height = .{ .exact = 16.0 },
-            .background_color = .{ 0.20, 0.22, 0.30, 1.0 },
-            .corner_radius = layout.CornerRadius.all(8.0),
-        },
+        .style = tw.style(.{
+            tw.relative,
+            tw.w(track_width),
+            tw.h(16.0),
+            tw.bg_value(.{ 0.20, 0.22, 0.30, 1.0 }),
+            tw.rounded(8.0),
+        }),
         .children = &.{handle},
     });
 
     return ui.ux().div(.{
-        .style = .{
-            .width = .screen,
-            .height = .screen,
-            .direction = .Column,
-            .justify_content = .Center,
-            .align_items = .Center,
-            .gap = 16.0,
-            .background_color = .{ 0.08, 0.09, 0.12, 1.0 },
-        },
+        .style = tw.style(.{
+            tw.size_screen,
+            tw.flex_col,
+            tw.justify_center,
+            tw.items_center,
+            tw.gap_px(16.0),
+            tw.bg_value(.{ 0.08, 0.09, 0.12, 1.0 }),
+        }),
         .children = &.{
             try ui.ux().text(.{
                 .content = "pointer capture demo",
                 .font = font,
-                .style = .{ .text_color = .{ 0.92, 0.95, 1.0, 1.0 } },
+                .style = tw.style(.{tw.text_color_value(.{ 0.92, 0.95, 1.0, 1.0 })}),
             }),
             try ui.ux().text(.{
                 .content = value_text,
                 .font = font,
-                .style = .{ .text_color = .{ 0.70, 0.76, 0.88, 1.0 } },
+                .style = tw.style(.{tw.text_color_value(.{ 0.70, 0.76, 0.88, 1.0 })}),
             }),
             track,
         },

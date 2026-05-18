@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("../core.zig");
+const tw = core.tw;
 const filesystem = @import("../filesystem/root.zig");
 
 pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode {
@@ -20,8 +21,9 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
             .userdata = @as(?*const anyopaque, @ptrCast(@constCast(state))),
         },
         .visuals = core.components.TreeDescriptor{
-            .style = core.tw.style(.{ core.tw.w_full, core.tw.h_full, .{ .overflow_x = .scroll, .overflow_y = .scroll } }),
-            .row_style = core.tw.style(.{ core.tw.px(2.5), core.tw.py(1.5), core.tw.pl(2), core.tw.rounded(5.0) }),
+            .style = tw.style(.{ tw.size_full, tw.overflow_scroll }),
+            // p_each_px to preserve the multi-side intent that tw padding partials clobber.
+            .row_style = tw.style(.{ tw.p_each_px(6.0, 10.0, 6.0, 8.0), tw.rounded(5.0) }),
             .indent_px = 20.0,
             .expander_size = 22.0,
             .active_row_color = tokens.action_pressed,
@@ -33,13 +35,13 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
     tree_node.scroll_y = state.sidebar_scroll_y;
 
     return try ui.ux().div(.{
-        .style = .{
-            .width = .{ .exact = 240.0 },
-            .height = .Full,
-            .background_color = tokens.bg_surface,
-            .border = .{ .right = .{ .width = 1.0, .color = tokens.border_subtle } },
-            .padding = .{ .top = 4.0, .bottom = 4.0 },
-        },
+        .style = tw.style(.{
+            tw.w(240.0),
+            tw.h_full,
+            tw.bg_value(tokens.bg_surface),
+            tw.border_r_value(1.0, tokens.border_subtle),
+            tw.py(1), // 4px top + bottom (unit=4)
+        }),
         .children = &.{tree_node},
     });
 }
@@ -52,7 +54,7 @@ fn buildRowContent(ctx: *core.AppUIContext, item: core.components.TreeItem, user
             .id = null,
             .content = "Unknown",
             .font = state.font_data,
-            .style = .{ .text_color = .{ 1.0, 0.0, 0.0, 1.0 } }, // Visually flag structural desyncs
+            .style = tw.style(.{tw.text_color_value(.{ 1.0, 0.0, 0.0, 1.0 })}), // Visually flag structural desyncs
         });
     };
 
@@ -61,10 +63,10 @@ fn buildRowContent(ctx: *core.AppUIContext, item: core.components.TreeItem, user
         .id = null,
         .content = node.name,
         .font = state.font_data,
-        .style = .{
-            .pointer_events = .none,
-            .font_size = 14.0,
-            .text_color = if (item.is_selected) tokens.text_inverse else tokens.text_main,
-        },
+        .style = tw.style(.{
+            tw.pointer_events_none,
+            tw.text(14.0),
+            tw.text_color_value(if (item.is_selected) tokens.text_inverse else tokens.text_main),
+        }),
     });
 }
