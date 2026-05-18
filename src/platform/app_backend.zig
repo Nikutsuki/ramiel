@@ -8,10 +8,18 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const platform = @import("backend.zig");
+const glfw = @import("glfw");
 const RenderSurface = @import("../renderer/vulkan/surface.zig").RenderSurface;
 const WindowContext = @import("../window/window.zig").WindowContext;
 const WindowConfig = @import("../window/window.zig").WindowConfig;
 const wayland_backend = if (build_options.native_wayland) @import("wayland_backend.zig") else struct {};
+
+pub const MonitorWorkarea = struct {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+};
 
 pub const Backend = union(platform.BackendKind) {
     glfw: WindowContext,
@@ -222,26 +230,6 @@ pub const Backend = union(platform.BackendKind) {
         }
     }
 
-    pub fn setCursorForHoveredNode(self: *Backend, hovered_node: anytype) void {
-        switch (self.*) {
-            .glfw => {},
-            .wayland => |*client| if (build_options.native_wayland) {
-                const cursor_name: [*:0]const u8 = if (hovered_node) |node| blk: {
-                    const c = node.style.cursor orelse break :blk @as([*:0]const u8, "default");
-                    break :blk switch (c) {
-                        .default => "default",
-                        .pointer => "pointer",
-                        .text => "text",
-                        .crosshair => "crosshair",
-                        .ns_resize => "ns-resize",
-                        .ew_resize => "ew-resize",
-                    };
-                } else "default";
-                client.setCursor(cursor_name);
-            },
-        }
-    }
-
     pub fn getClipboardString(self: *const Backend) ?[:0]const u8 {
         return switch (self.*) {
             .glfw => |*win| win.getClipboardString(),
@@ -279,9 +267,82 @@ pub const Backend = union(platform.BackendKind) {
         };
     }
 
-    pub fn glfwWindow(self: *Backend) ?*WindowContext {
+    pub fn setCursor(self: *Backend, cursor: @import("../ui/layout.zig").Cursor) void {
+        switch (self.*) {
+            .glfw => |*win| win.setCursor(cursor),
+            .wayland => |*client| if (build_options.native_wayland) {
+                const name: [*:0]const u8 = switch (cursor) {
+                    .default => "default",
+                    .pointer => "pointer",
+                    .text => "text",
+                    .crosshair => "crosshair",
+                    .ns_resize => "ns-resize",
+                    .ew_resize => "ew-resize",
+                };
+                client.setCursor(name);
+            },
+        }
+    }
+
+    pub fn setCursorPos(self: *Backend, x: f64, y: f64) void {
+        switch (self.*) {
+            .glfw => |*win| win.setCursorPos(x, y),
+            .wayland => {},
+        }
+    }
+
+    pub fn setCursorModeDisabled(self: *Backend, disabled: bool) void {
+        switch (self.*) {
+            .glfw => |*win| win.setCursorModeDisabled(disabled),
+            .wayland => {},
+        }
+    }
+
+    /// Returns the primary monitor's workarea if the backend exposes one. Native
+    /// Wayland does not allow programmatic positioning, so returns null there.
+    pub fn primaryMonitorWorkarea(self: *const Backend) ?MonitorWorkarea {
         return switch (self.*) {
-            .glfw => |*win| win,
+            .glfw => blk: {
+                const mon = glfw.getPrimaryMonitor();
+                var x: c_int = 0;
+                var y: c_int = 0;
+                var w: c_int = 0;
+                var h: c_int = 0;
+                glfw.getMonitorWorkarea(mon, &x, &y, &w, &h);
+                break :blk .{ .x = x, .y = y, .width = w, .height = h };
+            },
+            .wayland => null,
+        };
+    }
+
+    /// Position the toplevel window. No-op on backends that do not support
+    /// programmatic positioning (e.g. native Wayland).
+    pub fn setPosition(self: *Backend, x: i32, y: i32) void {
+        switch (self.*) {
+            .glfw => |*win| glfw.setWindowPos(win.window, x, y),
+            .wayland => {},
+        }
+    }
+
+    /// Center the window of the given size on the primary monitor's workarea.
+    /// No-op on backends without programmatic positioning.
+    pub fn centerOnPrimaryMonitor(self: *Backend, width: u32, height: u32) void {
+        const area = self.primaryMonitorWorkarea() orelse return;
+        const w_i: i32 = @intCast(width);
+        const h_i: i32 = @intCast(height);
+        self.setPosition(
+            area.x + @divTrunc(area.width - w_i, 2),
+            area.y + @divTrunc(area.height - h_i, 2),
+        );
+    }
+
+    /// Escape hatch: returns the underlying GLFW `*glfw.Window` when the GLFW
+    /// backend is active. The renderer needs this for DXGI transparent
+    /// composition on Windows. Avoid using this from application code; prefer
+    /// the neutral methods on `Backend` and add new ones if necessary.
+    pub fn nativeGlfwWindow(self: *Backend) ?*glfw.Window {
+        return switch (self.*) {
+            .glfw => |*win| win.window,
             .wayland => null,
         };
     }

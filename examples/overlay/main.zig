@@ -267,21 +267,10 @@ fn onSearchResultsReady(ctx: ?*anyopaque) void {
 
 fn onOverlayHotkey(user_ptr: ?*anyopaque) void {
     const app: *App = @ptrCast(@alignCast(user_ptr.?));
-    const glfw_win = app.window.glfwWindow() orelse return;
-    const currently_visible = glfw.getWindowAttrib(glfw_win.window, glfw.Visible) == 1;
+    const currently_visible = app.isVisible();
 
     if (!currently_visible) {
-        const mon = glfw.getPrimaryMonitor();
-        var mx: c_int = 0;
-        var my: c_int = 0;
-        var mw: c_int = 0;
-        var mh: c_int = 0;
-        glfw.getMonitorWorkarea(mon, &mx, &my, &mw, &mh);
-        glfw.setWindowPos(
-            glfw_win.window,
-            mx + @divTrunc(mw - @as(c_int, @intCast(WIN_W)), 2),
-            my + @divTrunc(mh - @as(c_int, @intCast(WIN_H)), 2),
-        );
+        app.window.centerOnPrimaryMonitor(@intCast(WIN_W), @intCast(WIN_H));
     }
 
     app.setVisibility(!currently_visible);

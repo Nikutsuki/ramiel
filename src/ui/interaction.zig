@@ -4,6 +4,7 @@ const TextSelection = @import("node.zig").TextSelection;
 const Style = @import("layout.zig").Style;
 const window_mod = @import("../window/window.zig");
 const platform = @import("../platform/backend.zig");
+const app_backend = @import("../platform/app_backend.zig");
 const WindowContext = window_mod.WindowContext;
 const Cursor = window_mod.Cursor;
 const types = @import("types.zig");
@@ -542,12 +543,14 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             self.processInteractionsInner(root, null, current_time);
         }
 
-        /// Process interactions with a WindowContext for GLFW cursor lock/warp.
-        pub fn processInteractionsWithCursor(self: *Self, root: *Node(MessageT), win: *WindowContext, current_time: f64) void {
-            self.processInteractionsInner(root, win, current_time);
+        /// Process interactions with a Backend pointer for cursor lock/warp during
+        /// drag. Cursor warping is a no-op on backends that do not support it
+        /// (e.g. native Wayland).
+        pub fn processInteractionsWithBackend(self: *Self, root: *Node(MessageT), backend: *app_backend.Backend, current_time: f64) void {
+            self.processInteractionsInner(root, backend, current_time);
         }
 
-        fn processInteractionsInner(self: *Self, root: *Node(MessageT), win: ?*WindowContext, current_time: f64) void {
+        fn processInteractionsInner(self: *Self, root: *Node(MessageT), win: ?*app_backend.Backend, current_time: f64) void {
             if (self.pending_focus_id) |req_id| {
                 if (findNodeById(MessageT, root, req_id)) |target| {
                     if (self.focused_node) |prev| {

@@ -14,7 +14,6 @@ const buildDevToolsPanel = @import("devtools/ui.zig").buildDevToolsPanel;
 const win_mod = @import("window/window.zig");
 const platform = @import("platform/backend.zig");
 const app_backend = @import("platform/app_backend.zig");
-const WindowContext = win_mod.WindowContext;
 pub const WindowConfig = win_mod.WindowConfig;
 pub const HotkeyFn = win_mod.HotkeyFn;
 const tracy = @import("tracy");
@@ -130,19 +129,18 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             errdefer win.deinit();
             const engine = try effective_allocator.create(Engine);
             errdefer effective_allocator.destroy(engine);
-            const glfw_window = if (win.glfwWindow()) |glfw_win| glfw_win.window else null;
             engine.* = try Engine.initWithSurface(
                 effective_allocator,
                 io,
                 win.renderSurface(),
-                glfw_window,
+                win.nativeGlfwWindow(),
                 config.transparent,
                 .{ .sample_count = .{ .@"16_bit" = true } },
             );
             errdefer engine.deinit();
 
             switch (config.surface_kind) {
-                .overlay, .popup_launcher => if (win.glfwWindow()) |glfw_win| glfw_win.configureAsOverlay(),
+                .overlay, .popup_launcher => win.configureAsOverlay(),
                 else => {},
             }
             var font_system = try FontSystem.init(effective_allocator);
@@ -961,14 +959,9 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 }
 
                 self.ui.interaction_registry.updateInputSnapshot(self.window.pointerInputSnapshot());
-                if (self.window.glfwWindow()) |glfw_win| {
-                    self.ui.interaction_registry.processInteractionsWithCursor(self.ui.root, glfw_win, current_time);
-                } else {
-                    self.ui.interaction_registry.processInteractions(self.ui.root, current_time);
-                }
+                self.ui.interaction_registry.processInteractionsWithBackend(self.ui.root, &self.window, current_time);
                 self.window.drainQueuedInputEvents(MessageType, self.ui.root, &self.ui.interaction_registry, self.backend_key_handler);
                 self.ui.interaction_registry.drainExternalMessages();
-                self.window.setCursorForHoveredNode(self.ui.interaction_registry.hovered_node);
                 self.devtools_state.syncInteractionTargets(
                     self.ui.interaction_registry.hovered_node,
                     self.ui.interaction_registry.focused_node,

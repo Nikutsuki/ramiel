@@ -1,5 +1,4 @@
 const std = @import("std");
-const build_options = @import("build_options");
 
 pub const tracy_impl = @import("tracy_impl");
 
@@ -17,11 +16,6 @@ pub const SinglePageApp = @import("managed_app.zig").SinglePageApp;
 pub const WindowConfig = @import("app.zig").WindowConfig;
 pub const AppBackendConfig = platform.AppBackendConfig;
 pub const platform = @import("platform/backend.zig");
-pub const app_backend = @import("platform/app_backend.zig");
-pub const glfw_backend = @import("platform/glfw_backend.zig");
-pub const wayland_backend = if (build_options.native_wayland) @import("platform/wayland_backend.zig") else struct {};
-pub const x11_backend = @import("platform/x11_backend.zig");
-pub const win32_backend = @import("platform/win32_backend.zig");
 pub const SurfaceKind = platform.SurfaceKind;
 pub const LayerShellOptions = platform.LayerShellOptions;
 pub const PopupLauncherOptions = platform.PopupLauncherOptions;
@@ -59,7 +53,6 @@ pub const renderer = struct {
     pub const PixelBuffer = @import("renderer/pixel_buffer.zig").PixelBuffer;
     pub const VulkanEngine = @import("renderer/vulkan/engine.zig").Engine;
     pub const RenderSurface = @import("renderer/vulkan/surface.zig").RenderSurface;
-    pub const WaylandSurfaceHandles = if (build_options.native_wayland) @import("platform/wayland_backend.zig").WaylandSurfaceHandles else opaque {};
 };
 pub const stb = @import("thirdparty/stb_image/stb_image.zig");
 pub const VideoManager = @import("video/manager.zig").VideoManager;
