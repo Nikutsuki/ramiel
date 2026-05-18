@@ -3,6 +3,7 @@ const Node = @import("node.zig").Node;
 const TextSelection = @import("node.zig").TextSelection;
 const Style = @import("layout.zig").Style;
 const window_mod = @import("../window/window.zig");
+const platform = @import("../platform/backend.zig");
 const WindowContext = window_mod.WindowContext;
 const Cursor = window_mod.Cursor;
 const types = @import("types.zig");
@@ -74,9 +75,14 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             ui: *Self,
             key: i32,
             action: i32,
-            win: *const WindowContext,
+            is_ctrl: bool,
+            is_shift: bool,
         ) bool = null,
         pending_focus_id: ?NodeId = null,
+
+        clipboard_ctx: ?*anyopaque = null,
+        clipboard_get_fn: ?*const fn (?*anyopaque) ?[:0]const u8 = null,
+        clipboard_set_fn: ?*const fn (?*anyopaque, [:0]const u8) void = null,
 
         rebuild_requested: bool = false,
         layout_requested: bool = false,
@@ -97,6 +103,15 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             y: f32 = 0.0,
             height: f32 = 0.0,
         };
+
+        fn getClipboard(self: *const Self) ?[:0]const u8 {
+            if (self.clipboard_get_fn) |get_fn| return get_fn(self.clipboard_ctx);
+            return null;
+        }
+
+        fn setClipboard(self: *Self, str: [:0]const u8) void {
+            if (self.clipboard_set_fn) |set_fn| set_fn(self.clipboard_ctx, str);
+        }
 
         fn editableTextRef(node: *Node(MessageT)) ?EditableTextRef {
             return switch (node.payload) {
@@ -482,31 +497,57 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             }
         }
 
-        pub fn updateInput(self: *Self, win: *WindowContext) void {
-            const cursor = win.getCursorPos();
-            self.mouse_x = cursor.x;
-            self.mouse_y = cursor.y;
-            self.mouse_mods = win.getMods();
-
-            const scroll = win.consumeScrollDelta();
-            self.scroll_delta_x = @floatCast(scroll.x);
-            self.scroll_delta_y = @floatCast(scroll.y);
+        pub fn updateInputSnapshot(self: *Self, snapshot: platform.PointerInputSnapshot) void {
+            self.mouse_x = snapshot.x;
+            self.mouse_y = snapshot.y;
+            self.mouse_mods = snapshot.mods;
+            self.scroll_delta_x = @floatCast(snapshot.scroll_dx);
+            self.scroll_delta_y = @floatCast(snapshot.scroll_dy);
             self.scroll_changed = false;
 
-            const current_mouse_down = win.isMouseButtonDown(glfw.MouseButtonLeft);
+            self.mouse_just_pressed = snapshot.left_down and !self.previous_mouse_down;
+            self.mouse_just_released = !snapshot.left_down and self.previous_mouse_down;
+            self.is_dragging = snapshot.left_down;
+            self.previous_mouse_down = snapshot.left_down;
 
-            self.mouse_just_pressed = current_mouse_down and !self.previous_mouse_down;
-            self.mouse_just_released = !current_mouse_down and self.previous_mouse_down;
-            self.is_dragging = current_mouse_down;
-
-            self.previous_mouse_down = current_mouse_down;
-
-            const current_right_down = win.isMouseButtonDown(glfw.MouseButtonRight);
-            self.right_just_released = !current_right_down and self.previous_right_down;
-            self.previous_right_down = current_right_down;
+            self.right_just_released = !snapshot.right_down and self.previous_right_down;
+            self.previous_right_down = snapshot.right_down;
         }
 
-        pub fn processInteractions(self: *Self, root: *Node(MessageT), win: *WindowContext, current_time: f64) void {
+        /// Update input state from raw values (for non-GLFW backends).
+        pub fn updateInputRaw(
+            self: *Self,
+            mouse_x: f64,
+            mouse_y: f64,
+            left_down: bool,
+            right_down: bool,
+            scroll_dx: f64,
+            scroll_dy: f64,
+        ) void {
+            self.updateInputSnapshot(.{
+                .x = mouse_x,
+                .y = mouse_y,
+                .left_down = left_down,
+                .right_down = right_down,
+                .scroll_dx = scroll_dx,
+                .scroll_dy = scroll_dy,
+            });
+        }
+
+        pub fn updateInput(self: *Self, win: *WindowContext) void {
+            self.updateInputSnapshot(win.pointerInputSnapshot());
+        }
+
+        pub fn processInteractions(self: *Self, root: *Node(MessageT), current_time: f64) void {
+            self.processInteractionsInner(root, null, current_time);
+        }
+
+        /// Process interactions with a WindowContext for GLFW cursor lock/warp.
+        pub fn processInteractionsWithCursor(self: *Self, root: *Node(MessageT), win: *WindowContext, current_time: f64) void {
+            self.processInteractionsInner(root, win, current_time);
+        }
+
+        fn processInteractionsInner(self: *Self, root: *Node(MessageT), win: ?*WindowContext, current_time: f64) void {
             if (self.pending_focus_id) |req_id| {
                 if (findNodeById(MessageT, root, req_id)) |target| {
                     if (self.focused_node) |prev| {
@@ -587,8 +628,10 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                                 }
                             },
                         }
-                        win.setCursorModeDisabled(false);
-                        win.setCursorPos(restore_x, restore_y);
+                        if (win) |w| {
+                            w.setCursorModeDisabled(false);
+                            w.setCursorPos(restore_x, restore_y);
+                        }
                         self.mouse_x = restore_x;
                         self.mouse_y = restore_y;
                         self.previous_drag_x = restore_x;
@@ -651,10 +694,12 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                     if (self.active_drag_node) |captured| {
                         const wants_lock = self.active_drag_axis != .None or captured.lock_pointer_on_drag;
                         if (wants_lock and !self.pointer_locked_for_drag) {
-                            const origin = win.getCursorPos();
-                            self.cursor_lock_origin_x = origin.x;
-                            self.cursor_lock_origin_y = origin.y;
-                            win.setCursorModeDisabled(true);
+                            if (win) |w| {
+                                const origin = w.getCursorPos();
+                                self.cursor_lock_origin_x = origin.x;
+                                self.cursor_lock_origin_y = origin.y;
+                                w.setCursorModeDisabled(true);
+                            }
                             self.pointer_locked_for_drag = true;
                         }
                     }
@@ -838,7 +883,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
             self.processScrollWheel();
 
-            win.setCursor(resolveCursor(MessageT, self.hovered_node));
+            if (win) |w| w.setCursor(resolveCursor(MessageT, self.hovered_node));
         }
 
         fn resolveSpatialIndex(self: *Self, target: *Node(MessageT)) usize {
@@ -970,9 +1015,9 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             }
         }
 
-        pub fn pushKey(self: *Self, root: *Node(MessageT), key: i32, action: i32, win: *const WindowContext) void {
+        pub fn pushKey(self: *Self, root: *Node(MessageT), key: i32, action: i32, is_ctrl: bool, is_shift: bool) void {
             if (self.shortcut_handler) |handler| {
-                if (handler(self.shortcut_context, self, key, action, win)) return;
+                if (handler(self.shortcut_context, self, key, action, is_ctrl, is_shift)) return;
             }
 
             if (key == glfw.KeyTab and action == glfw.Press) {
@@ -983,9 +1028,6 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             if ((action == glfw.Press or action == glfw.Repeat)) {
                 if (self.selected_text_node) |node| {
                     if (node.payload == .text) {
-                        const is_ctrl = win.isKeyDown(glfw.KeyLeftControl) or
-                            win.isKeyDown(glfw.KeyRightControl);
-
                         if (is_ctrl and key == glfw.KeyC) {
                             if (node.text_selection) |sel| {
                                 const start = @min(sel.anchor, sel.focus);
@@ -994,7 +1036,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                                     const selected = node.payload.text.content[start..end];
                                     const c_str = self.allocator.dupeZ(u8, selected) catch return;
                                     defer self.allocator.free(c_str);
-                                    win.setClipboardString(c_str);
+                                    self.setClipboard(c_str);
                                 }
                             }
                             return;
@@ -1013,9 +1055,6 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             if (self.focused_node) |node| {
                 if (action == glfw.Press or action == glfw.Repeat) {
                     if (editableTextRef(node)) |edit| {
-                        const is_ctrl = win.isKeyDown(glfw.KeyLeftControl) or
-                            win.isKeyDown(glfw.KeyRightControl);
-
                         if (is_ctrl and key == glfw.KeyA) {
                             if (edit.buffer.items.len > 0) {
                                 edit.selection_anchor.* = 0;
@@ -1032,11 +1071,11 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                                     const selected = edit.buffer.items[start..end];
                                     const c_str = self.allocator.dupeZ(u8, selected) catch return;
                                     defer self.allocator.free(c_str);
-                                    win.setClipboardString(c_str);
+                                    self.setClipboard(c_str);
                                 }
                             }
                         } else if (is_ctrl and key == glfw.KeyV) {
-                            if (win.getClipboardString()) |content| {
+                            if (self.getClipboard()) |content| {
                                 if (content.len > 0) {
                                     _ = self.deleteSelectedRange(node);
                                     edit.buffer.insertSlice(node.allocator, edit.cursor_index.*, content) catch return;
@@ -1062,7 +1101,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                             if (!self.deleteSelectedRange(node)) {
                                 const items = edit.buffer.items;
                                 if (items.len > 0 and edit.cursor_index.* > 0) {
-                                    const remove_start = prevUtf8Boundary(items, edit.cursor_index.*);
+                                    const remove_start = if (is_ctrl) 0 else prevUtf8Boundary(items, edit.cursor_index.*);
                                     const pop_count = edit.cursor_index.* - remove_start;
 
                                     std.mem.copyForwards(u8, edit.buffer.items[remove_start..], items[edit.cursor_index.*..]);
@@ -1154,6 +1193,18 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                                     self.ensureTextAreaCursorVisible(node);
                                 }
                             }
+                        } else if (key == glfw.KeyHome) {
+                            edit.selection_anchor.* = null;
+                            edit.cursor_index.* = 0;
+                            self.layout_requested = true;
+                            self.updateTextAreaNavigationX(node);
+                            self.ensureTextAreaCursorVisible(node);
+                        } else if (key == glfw.KeyEnd) {
+                            edit.selection_anchor.* = null;
+                            edit.cursor_index.* = edit.buffer.items.len;
+                            self.layout_requested = true;
+                            self.updateTextAreaNavigationX(node);
+                            self.ensureTextAreaCursorVisible(node);
                         }
                     }
 

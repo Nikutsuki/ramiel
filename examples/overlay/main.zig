@@ -267,7 +267,8 @@ fn onSearchResultsReady(ctx: ?*anyopaque) void {
 
 fn onOverlayHotkey(user_ptr: ?*anyopaque) void {
     const app: *App = @ptrCast(@alignCast(user_ptr.?));
-    const currently_visible = glfw.getWindowAttrib(app.window.window, glfw.Visible) == 1;
+    const glfw_win = app.window.glfwWindow() orelse return;
+    const currently_visible = glfw.getWindowAttrib(glfw_win.window, glfw.Visible) == 1;
 
     if (!currently_visible) {
         const mon = glfw.getPrimaryMonitor();
@@ -277,7 +278,7 @@ fn onOverlayHotkey(user_ptr: ?*anyopaque) void {
         var mh: c_int = 0;
         glfw.getMonitorWorkarea(mon, &mx, &my, &mw, &mh);
         glfw.setWindowPos(
-            app.window.window,
+            glfw_win.window,
             mx + @divTrunc(mw - @as(c_int, @intCast(WIN_W)), 2),
             my + @divTrunc(mh - @as(c_int, @intCast(WIN_H)), 2),
         );

@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 
 pub const tracy_impl = @import("tracy_impl");
 
@@ -14,6 +15,17 @@ pub const Application = @import("app.zig").Application;
 pub const ManagedApp = @import("managed_app.zig").ManagedApp;
 pub const SinglePageApp = @import("managed_app.zig").SinglePageApp;
 pub const WindowConfig = @import("app.zig").WindowConfig;
+pub const AppBackendConfig = platform.AppBackendConfig;
+pub const platform = @import("platform/backend.zig");
+pub const app_backend = @import("platform/app_backend.zig");
+pub const glfw_backend = @import("platform/glfw_backend.zig");
+pub const wayland_backend = if (build_options.native_wayland) @import("platform/wayland_backend.zig") else struct {};
+pub const x11_backend = @import("platform/x11_backend.zig");
+pub const win32_backend = @import("platform/win32_backend.zig");
+pub const SurfaceKind = platform.SurfaceKind;
+pub const LayerShellOptions = platform.LayerShellOptions;
+pub const PopupLauncherOptions = platform.PopupLauncherOptions;
+pub const ActivationRequest = platform.ActivationRequest;
 pub const WindowContext = @import("window/window.zig").WindowContext;
 pub const HotkeyFn = @import("app.zig").HotkeyFn;
 pub const win32 = @import("window/win32.zig");
@@ -45,6 +57,9 @@ pub const IconId = @import("renderer/icon/id.zig").IconId;
 pub const hashIconId = @import("renderer/icon/id.zig").hashId;
 pub const renderer = struct {
     pub const PixelBuffer = @import("renderer/pixel_buffer.zig").PixelBuffer;
+    pub const VulkanEngine = @import("renderer/vulkan/engine.zig").Engine;
+    pub const RenderSurface = @import("renderer/vulkan/surface.zig").RenderSurface;
+    pub const WaylandSurfaceHandles = if (build_options.native_wayland) @import("platform/wayland_backend.zig").WaylandSurfaceHandles else opaque {};
 };
 pub const stb = @import("thirdparty/stb_image/stb_image.zig");
 pub const VideoManager = @import("video/manager.zig").VideoManager;
@@ -61,7 +76,6 @@ pub const Style = @import("ui/layout.zig").Style;
 pub const tw = @import("ui/tw.zig");
 pub const uix = @import("ui/uix.zig");
 pub const state = @import("state.zig");
-
 pub const palette = @import("assets/palette.zig");
 pub const theme = @import("ui/theme.zig");
 pub const Theme = theme.Theme;
@@ -148,6 +162,11 @@ test {
     _ = @import("state.zig");
     _ = @import("managed_app.zig");
     _ = @import("runtime.zig");
+    _ = @import("renderer/vulkan/surface.zig");
+    _ = @import("platform/backend.zig");
+    _ = @import("platform/glfw_backend.zig");
+    _ = @import("platform/x11_backend.zig");
+    _ = @import("platform/win32_backend.zig");
     _ = @import("ui/components/root.zig");
     _ = @import("ui/components/plot.zig");
     _ = @import("animation/easing.zig");

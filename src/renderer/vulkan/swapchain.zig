@@ -155,13 +155,15 @@ pub const Swapchain = struct {
         const old_handle = self.handle;
         const new_swapchain = try Swapchain.init(core, old_handle, self.transparent, fallback_extent);
 
-        for (self.image_views) |view| {
-            core.vkd.destroyImageView(core.logical_device, view, null);
+        // Clean up the old swapchain (skip if already torn down)
+        if (old_handle != .null_handle) {
+            for (self.image_views) |view| {
+                core.vkd.destroyImageView(core.logical_device, view, null);
+            }
+            core.vkd.destroySwapchainKHR(core.logical_device, old_handle, null);
+            core.allocator.free(self.images);
+            core.allocator.free(self.image_views);
         }
-
-        core.vkd.destroySwapchainKHR(core.logical_device, old_handle, null);
-        core.allocator.free(self.images);
-        core.allocator.free(self.image_views);
 
         self.* = new_swapchain;
     }

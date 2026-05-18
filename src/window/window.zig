@@ -2,17 +2,13 @@ const glfw = @import("glfw");
 const std = @import("std");
 const builtin = @import("builtin");
 const layout = @import("../ui/layout.zig");
+const platform = @import("../platform/backend.zig");
+const glfw_backend = @import("../platform/glfw_backend.zig");
+const RenderSurface = @import("../renderer/vulkan/surface.zig").RenderSurface;
 const is_windows = builtin.os.tag == .windows;
 const is_linux = builtin.os.tag == .linux;
-const win32 = if (is_windows) @import("win32.zig") else struct {
-    pub const HWND = *anyopaque;
-    pub const WNDPROC = *const anyopaque;
-    pub const UINT = u32;
-    pub const WPARAM = usize;
-    pub const LPARAM = isize;
-    pub const LRESULT = isize;
-};
-const x11 = if (is_linux) @import("x11_native.zig") else struct {};
+const win32 = @import("../platform/win32_backend.zig");
+const x11 = @import("../platform/x11_backend.zig");
 
 const glfwGetX11Display = if (is_linux)
     struct {
@@ -47,11 +43,43 @@ pub const HotkeyFn = *const fn (user_ptr: ?*anyopaque) void;
 pub const WindowConfig = struct {
     width: i32 = 800,
     height: i32 = 600,
-    title: [:0]const u8,
+    title: [:0]const u8 = "Ramiel",
     transparent: bool = false,
     borderless: bool = false,
     topmost: bool = false,
     visible_on_start: bool = true,
+
+    /// Surface role Ramiel should request. The current implementation maps
+    /// `.normal`, `.overlay`, and `.popup_launcher` onto the GLFW backend;
+    /// `.layer_shell` is validated but requires the future native Wayland
+    /// backend from `src/platform/backend.zig`.
+    surface_kind: platform.SurfaceKind = .normal,
+
+    /// Backend preference. Only `.glfw` is implemented today; this field is the
+    /// compatibility seam for adding native Wayland without changing app code.
+    backend: platform.BackendKind = .glfw,
+
+    pub fn fromBackendConfig(config: platform.AppBackendConfig) WindowConfig {
+        return .{
+            .width = @intCast(config.width),
+            .height = @intCast(config.height),
+            .title = config.title,
+            .transparent = config.transparent,
+            .borderless = config.borderless,
+            .topmost = config.topmost,
+            .visible_on_start = config.visible_on_start,
+            .surface_kind = config.surface_kind,
+            .backend = config.backend,
+        };
+    }
+
+    pub fn waylandLayerShell(options: platform.LayerShellOptions) WindowConfig {
+        return fromBackendConfig(platform.waylandLayerShell(options));
+    }
+
+    pub fn popupLauncher(options: platform.PopupLauncherOptions) WindowConfig {
+        return fromBackendConfig(platform.popupLauncher(options));
+    }
 };
 
 const PROP_NAME = std.unicode.utf8ToUtf16LeStringLiteral("ZigWindowContext");
@@ -82,6 +110,8 @@ pub const WindowContext = struct {
     };
 
     window: *glfw.Window,
+    backend: platform.BackendKind = .glfw,
+    surface_kind: platform.SurfaceKind = .normal,
 
     user_ptr: ?*anyopaque = null,
     key_fn: ?KeyFn = null,
@@ -128,12 +158,52 @@ pub const WindowContext = struct {
         _ = glfw.setFramebufferSizeCallback(self.window, glfwResizeCallback);
     }
 
+    pub fn backendKind(self: *const WindowContext) platform.BackendKind {
+        return self.backend;
+    }
+
+    pub fn surfaceKind(self: *const WindowContext) platform.SurfaceKind {
+        return self.surface_kind;
+    }
+
     pub fn shouldClose(self: *const WindowContext) bool {
         return glfw.windowShouldClose(self.window);
     }
 
     pub fn pollEvents(_: *WindowContext) void {
         glfw.pollEvents();
+    }
+
+    pub fn waitEvents(_: *WindowContext) void {
+        glfw.waitEvents();
+    }
+
+    pub fn waitEventsTimeout(_: *WindowContext, timeout_s: f64) void {
+        glfw.waitEventsTimeout(timeout_s);
+    }
+
+    pub fn postEmptyEvent(_: *WindowContext) void {
+        glfw.postEmptyEvent();
+    }
+
+    pub fn timeSeconds(_: *const WindowContext) f64 {
+        return glfw.getTime();
+    }
+
+    pub fn renderSurface(self: *WindowContext) RenderSurface {
+        return glfw_backend.renderSurface(self.window);
+    }
+
+    pub fn isVisible(self: *const WindowContext) bool {
+        return glfw.getWindowAttrib(self.window, glfw.Visible) != 0;
+    }
+
+    pub fn primaryRefreshRateHz(_: *const WindowContext) ?f64 {
+        const monitor = glfw.getPrimaryMonitor();
+        if (glfw.getVideoMode(monitor)) |mode| {
+            return @as(f64, @floatFromInt(mode.refreshRate));
+        }
+        return null;
     }
 
     pub fn setCursorPos(self: *WindowContext, x: f64, y: f64) void {
@@ -159,6 +229,20 @@ pub const WindowContext = struct {
         self.scroll_accum_x = 0.0;
         self.scroll_accum_y = 0.0;
         return delta;
+    }
+
+    pub fn pointerInputSnapshot(self: *WindowContext) platform.PointerInputSnapshot {
+        const cursor = self.getCursorPos();
+        const scroll = self.consumeScrollDelta();
+        return .{
+            .x = cursor.x,
+            .y = cursor.y,
+            .left_down = self.isMouseButtonDown(glfw.MouseButtonLeft),
+            .right_down = self.isMouseButtonDown(glfw.MouseButtonRight),
+            .scroll_dx = scroll.x,
+            .scroll_dy = scroll.y,
+            .mods = self.getMods(),
+        };
     }
 
     pub fn isMouseButtonDown(self: *const WindowContext, button: i32) bool {
@@ -228,21 +312,7 @@ pub const WindowContext = struct {
             return;
         } else {
             const hwnd = glfwGetWin32Window(self.window) orelse return;
-
-            var ex_style = win32.getWindowLongPtrW(hwnd, win32.GWL_EXSTYLE);
-            ex_style &= ~@as(win32.LONG_PTR, @intCast(win32.WS_EX_APPWINDOW));
-            ex_style |= @as(win32.LONG_PTR, @intCast(win32.WS_EX_TOOLWINDOW));
-            _ = win32.setWindowLongPtrW(hwnd, win32.GWL_EXSTYLE, ex_style);
-
-            _ = win32.setWindowPos(
-                hwnd,
-                null,
-                0,
-                0,
-                0,
-                0,
-                win32.SWP_NOMOVE | win32.SWP_NOSIZE | win32.SWP_NOZORDER | win32.SWP_NOACTIVATE | win32.SWP_FRAMECHANGED,
-            );
+            win32.configureAsOverlay(hwnd);
         }
     }
 
@@ -303,7 +373,7 @@ pub const WindowContext = struct {
                 self.x11_hotkey_thread = null;
             }
             if (self.x11_hotkey_display) |dpy| {
-                _ = x11.XCloseDisplay(@ptrCast(dpy));
+                _ = x11.closeDisplay(@ptrCast(dpy));
                 self.x11_hotkey_display = null;
             }
         }
@@ -381,18 +451,18 @@ fn registerGlobalHotkeyX11(
     if (comptime !is_linux) return error.Unsupported;
 
     if (self.x11_hotkey_display == null) {
-        const dpy = x11.XOpenDisplay(null) orelse return error.NoNativeHandle;
+        const dpy = x11.openDisplay() orelse return error.NoNativeHandle;
         self.x11_hotkey_display = dpy;
     }
     const dpy: *x11.Display = @ptrCast(self.x11_hotkey_display.?);
 
-    const keysym = x11.vkToKeysym(key);
+    const keysym = x11.keysymForVirtualKey(key);
     if (keysym == 0) return error.HotkeyRegistrationFailed;
-    const keycode = x11.XKeysymToKeycode(dpy, keysym);
+    const keycode = x11.keysymToKeycode(dpy, keysym);
     if (keycode == 0) return error.HotkeyRegistrationFailed;
 
-    const root = x11.XDefaultRootWindow(dpy);
-    const mods = x11.modToX11(modifier);
+    const root = x11.defaultRootWindow(dpy);
+    const mods = x11.modifiersForHotkey(modifier);
 
     const lock_variants = [_]c_uint{
         0,
@@ -401,10 +471,10 @@ fn registerGlobalHotkeyX11(
         x11.LockMask | x11.Mod2Mask,
     };
     for (lock_variants) |lv| {
-        _ = x11.XGrabKey(dpy, @intCast(keycode), mods | lv, root, 0, x11.GrabModeAsync, x11.GrabModeAsync);
+        x11.grabKey(dpy, @intCast(keycode), mods | lv, root);
     }
-    _ = x11.XSelectInput(dpy, root, x11.KeyPressMask);
-    _ = x11.XSync(dpy, 0);
+    x11.selectRootKeyPress(dpy, root);
+    x11.sync(dpy);
 
     self.hotkeys_mutex.lockUncancelable(std.Options.debug_io);
     const id = self.next_hotkey_id;
@@ -431,9 +501,9 @@ fn x11HotkeyLoop(self: *WindowContext) void {
     const match_mask: c_uint = ~ignore_mask;
 
     while (!self.x11_hotkey_should_stop.load(.acquire)) {
-        if (x11.XPending(dpy) > 0) {
+        if (x11.pending(dpy) > 0) {
             var ev: x11.XEvent = undefined;
-            _ = x11.XNextEvent(dpy, &ev);
+            x11.nextEvent(dpy, &ev);
             if (ev.type == x11.KeyPress) {
                 const ke: *x11.XKeyEvent = @ptrCast(&ev);
                 const ev_keycode: u32 = ke.keycode;
@@ -460,6 +530,9 @@ fn x11HotkeyLoop(self: *WindowContext) void {
 }
 
 pub fn initWindow(allocator: std.mem.Allocator, config: WindowConfig) !WindowContext {
+    if (config.backend != .glfw) return error.UnsupportedBackend;
+    try glfw_backend.validateSurfaceKind(config.surface_kind);
+
     // Disable libdecor on Wayland: libdecor-gtk -> libpango -> hb_ot_metrics alignment crash.
     // GLFW_WAYLAND_LIBDECOR=0x00053001, GLFW_WAYLAND_DISABLE_LIBDECOR=0x00038002.
     if (comptime is_linux) {
@@ -489,27 +562,29 @@ pub fn initWindow(allocator: std.mem.Allocator, config: WindowConfig) !WindowCon
     // so VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR yields per-pixel alpha.
     if (comptime is_windows) {
         if (config.transparent) {
-        if (glfwGetWin32Window(win)) |hwnd| {
-            const margins = win32.MARGINS{
-                .cxLeftWidth = -1,
-                .cxRightWidth = -1,
-                .cyTopHeight = -1,
-                .cyBottomHeight = -1,
-            };
-            const hr = win32.dwmExtendFrameIntoClientArea(hwnd, &margins);
-            if (hr < 0) {
-                std.log.warn("DwmExtendFrameIntoClientArea failed with HRESULT={d}", .{hr});
+            if (glfwGetWin32Window(win)) |hwnd| {
+                const margins = win32.MARGINS{
+                    .cxLeftWidth = -1,
+                    .cxRightWidth = -1,
+                    .cyTopHeight = -1,
+                    .cyBottomHeight = -1,
+                };
+                const hr = win32.dwmExtendFrameIntoClientArea(hwnd, &margins);
+                if (hr < 0) {
+                    std.log.warn("DwmExtendFrameIntoClientArea failed with HRESULT={d}", .{hr});
+                } else {
+                    std.log.info("DwmExtendFrameIntoClientArea succeeded with HRESULT={d}", .{hr});
+                }
             } else {
-                std.log.info("DwmExtendFrameIntoClientArea succeeded with HRESULT={d}", .{hr});
+                std.log.warn("transparent window requested but no native Win32 handle is available", .{});
             }
-        } else {
-            std.log.warn("transparent window requested but no native Win32 handle is available", .{});
-        }
         }
     }
 
     return WindowContext{
         .window = win,
+        .backend = config.backend,
+        .surface_kind = config.surface_kind,
         .allocator = allocator,
         .hotkeys = std.AutoHashMap(i32, HotkeyEntry).init(allocator),
         .cursor_arrow = glfw.createStandardCursor(glfw.Arrow),

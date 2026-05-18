@@ -339,7 +339,8 @@ fn resetShortcut(
     ir: *@import("ramiel").For(AppMessage).InteractionRegistry,
     key: i32,
     action: i32,
-    _: *const lib.WindowContext,
+    _: bool,
+    _: bool,
 ) bool {
     if (key != lib.glfw.KeyR or action != lib.glfw.Press) return false;
     state.line_state.setAxisModes(.auto, .auto);

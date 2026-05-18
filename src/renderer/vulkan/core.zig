@@ -1,6 +1,6 @@
 const std = @import("std");
 const vk = @import("../../vk.zig");
-const glfw = @import("glfw");
+const RenderSurface = @import("surface.zig").RenderSurface;
 
 const vk_common = @import("vk_common.zig");
 const c = vk_common.c;
@@ -26,6 +26,7 @@ pub const Core = struct {
     instance: vk.Instance,
     vki: vk.InstanceWrapper,
     surface: vk.SurfaceKHR,
+    surface_provider: RenderSurface,
 
     physical_device: vk.PhysicalDevice,
     logical_device: vk.Device,
@@ -37,8 +38,8 @@ pub const Core = struct {
 
     vma_allocator: c.VmaAllocator,
 
-    pub fn init(allocator: std.mem.Allocator, window: *glfw.Window) !Core {
-        const vkb = vk.BaseWrapper.load(getVulkanProcAddress);
+    pub fn init(allocator: std.mem.Allocator, surface_provider: RenderSurface) !Core {
+        const vkb = vk.BaseWrapper.load(surface_provider.get_instance_proc_address);
 
         const appInfo = vk.ApplicationInfo{
             .p_application_name = "Ramiel",
@@ -48,8 +49,7 @@ pub const Core = struct {
             .api_version = vk.API_VERSION_1_2.toU32(),
         };
 
-        var glfw_ext_count: u32 = 0;
-        const glfw_exts_ptr = glfw.getRequiredInstanceExtensions(&glfw_ext_count) orelse return error.ExtensionQueryFailed;
+        const required_extensions = try surface_provider.requiredExtensions();
 
         if (enable_validation_layers and !try checkValidationLayerSupport(vkb, allocator)) {
             return error.ValidationLayersUnavailable;
@@ -69,23 +69,15 @@ pub const Core = struct {
             .p_application_info = &appInfo,
             .enabled_layer_count = if (enable_validation_layers) validation_layers.len else 0,
             .pp_enabled_layer_names = if (enable_validation_layers) &validation_layers else null,
-            .enabled_extension_count = glfw_ext_count,
-            .pp_enabled_extension_names = glfw_exts_ptr,
+            .enabled_extension_count = required_extensions.count,
+            .pp_enabled_extension_names = required_extensions.names,
         };
 
         const instance = try vkb.createInstance(&create_info, null);
 
         const vki = vk.InstanceWrapper.load(instance, vkb.dispatch.vkGetInstanceProcAddr.?);
 
-        var raw_surface: u64 = undefined;
-        const raw_instance = @intFromEnum(instance);
-        const glfw_result = glfw.createWindowSurface(raw_instance, window, null, &raw_surface);
-
-        const vk_result: vk.Result = @enumFromInt(@intFromEnum(glfw_result));
-        if (vk_result != vk.Result.success) {
-            return error.SurfaceCreationFailed;
-        }
-        const surface: vk.SurfaceKHR = @enumFromInt(raw_surface);
+        const surface = try surface_provider.createSurface(instance, &vki);
 
         const candidate = try pickPhysicalDevice(allocator, vki, instance, surface);
 
@@ -154,6 +146,7 @@ pub const Core = struct {
             .instance = instance,
             .vki = vki,
             .surface = surface,
+            .surface_provider = surface_provider,
             .physical_device = candidate.physical_device,
             .logical_device = dev_handle,
             .vkd = vkd,
@@ -359,6 +352,14 @@ pub const Core = struct {
         try self.endSingleTimeCommands(command_buffer);
     }
 
+    /// Destroy the old Vulkan surface and create a new one from the current
+    /// surface provider state. Used after re-creating the native Wayland surface.
+    pub fn recreateSurface(self: *Core) !void {
+        _ = self.vkd.deviceWaitIdle(self.logical_device) catch {};
+        self.vki.destroySurfaceKHR(self.instance, self.surface, null);
+        self.surface = try self.surface_provider.createSurface(self.instance, &self.vki);
+    }
+
     pub fn deinit(self: *Core) void {
         c.vmaDestroyAllocator(self.vma_allocator);
 
@@ -369,12 +370,6 @@ pub const Core = struct {
         self.vki.destroyInstance(self.instance, null);
     }
 };
-
-fn getVulkanProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction {
-    const raw_instance = @intFromEnum(instance);
-
-    return @ptrCast(glfw.getInstanceProcAddress(raw_instance, procname));
-}
 
 fn pickPhysicalDevice(allocator: std.mem.Allocator, vki: vk.InstanceWrapper, inst: vk.Instance, surface: vk.SurfaceKHR) !DeviceCandidate {
     var device_count: u32 = 0;

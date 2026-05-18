@@ -4,6 +4,7 @@ const vk = @import("../../vk.zig");
 const glfw = @import("glfw");
 
 const Core = @import("core.zig").Core;
+const RenderSurface = @import("surface.zig").RenderSurface;
 const Swapchain = @import("swapchain.zig").Swapchain;
 const RenderPass = @import("render_pass.zig").VulkanRenderPass;
 const Pipeline = @import("pipeline.zig").Pipeline;
@@ -82,7 +83,8 @@ pub const Engine = struct {
     copy_ctx_count: usize,
     kawase_ctx_count: usize,
 
-    window: *glfw.Window,
+    surface: RenderSurface,
+    window: ?*glfw.Window,
     use_dxgi_transparent_present: bool,
     dxgi_overlay: ?DxgiOverlay,
     readback_buffer: ?Buffer,
@@ -90,25 +92,24 @@ pub const Engine = struct {
     image_ingress: ImageIngress,
     frame_counter: u64,
 
-    pub fn init(
+    pub fn initWithSurface(
         allocator: std.mem.Allocator,
         io: std.Io,
-        window: *glfw.Window,
+        surface: RenderSurface,
+        window: ?*glfw.Window,
         transparent: bool,
         renderer_config: RendererConfig,
     ) !Engine {
-        var core = try Core.init(allocator, window);
-        var init_w: i32 = 0;
-        var init_h: i32 = 0;
-        glfw.getFramebufferSize(window, &init_w, &init_h);
+        var core = try Core.init(allocator, surface);
+        const initial_size = surface.framebufferSize();
         const init_fallback = vk.Extent2D{
-            .width = if (init_w > 0) @intCast(init_w) else 800,
-            .height = if (init_h > 0) @intCast(init_h) else 600,
+            .width = if (initial_size.width > 0) initial_size.width else 800,
+            .height = if (initial_size.height > 0) initial_size.height else 600,
         };
         const swapchain = try Swapchain.init(&core, .null_handle, transparent, init_fallback);
         const sample_count = pickSupportedSampleCount(&core, renderer_config.sample_count);
 
-        const use_dxgi_transparent_present = builtin.os.tag == .windows and transparent and
+        const use_dxgi_transparent_present = window != null and builtin.os.tag == .windows and transparent and
             !swapchain.has_alpha_compositing;
 
         const render_pass = try RenderPass.init(core.vkd, core.logical_device, swapchain.format.format, .undefined, .color_attachment_optimal, .clear, sample_count);
@@ -157,7 +158,7 @@ pub const Engine = struct {
         var dxgi_overlay: ?DxgiOverlay = null;
         var readback_buffer: ?Buffer = null;
         if (use_dxgi_transparent_present) {
-            dxgi_overlay = try DxgiOverlay.init(window, @intCast(swapchain.extent.width), @intCast(swapchain.extent.height));
+            dxgi_overlay = try DxgiOverlay.init(window.?, @intCast(swapchain.extent.width), @intCast(swapchain.extent.height));
             errdefer if (dxgi_overlay) |*ov| ov.deinit();
 
             const bytes: vk.DeviceSize = @as(vk.DeviceSize, swapchain.extent.width) *
@@ -205,6 +206,7 @@ pub const Engine = struct {
             .copy_ctx_count = 0,
             .kawase_ctx_count = 0,
 
+            .surface = surface,
             .window = window,
             .use_dxgi_transparent_present = use_dxgi_transparent_present,
             .dxgi_overlay = dxgi_overlay,
@@ -341,9 +343,9 @@ pub const Engine = struct {
     fn ensureDxgiRenderTargets(self: *Engine) !void {
         if (!self.use_dxgi_transparent_present) return;
 
-        var w: i32 = 0;
-        var h: i32 = 0;
-        glfw.getFramebufferSize(self.window, &w, &h);
+        const fb_size = self.surface.framebufferSize();
+        const w: i32 = @intCast(fb_size.width);
+        const h: i32 = @intCast(fb_size.height);
         if (w <= 0 or h <= 0) return;
 
         const target_w: u32 = @intCast(w);
@@ -396,7 +398,7 @@ pub const Engine = struct {
 
         self.resources.updateGlobalUbo(frame_index, .{
             .projection = Mat4.ortho(0.0, width, 0.0, height),
-            .time = @as(f32, @floatCast(glfw.getTime())),
+            .time = @as(f32, @floatCast(self.surface.timeSeconds())),
             ._pad = 0,
             .viewport_size = .{ width, height },
         });
@@ -532,6 +534,7 @@ pub const Engine = struct {
     }
 
     pub fn draw(self: *Engine, batcher: *QuadBatcher, canvases: []const *Canvas, video_manager: *VideoManager, font_registry: *FontRegistry) !bool {
+        if (self.swapchain.handle == .null_handle) return false;
         try batcher.finalizeCurrentCommand();
 
         {
@@ -557,9 +560,9 @@ pub const Engine = struct {
 
         // Wayland WSI never returns OUT_OF_DATE_KHR / SUBOPTIMAL_KHR; poll FB size manually.
         {
-            var fb_w: i32 = 0;
-            var fb_h: i32 = 0;
-            glfw.getFramebufferSize(self.window, &fb_w, &fb_h);
+            const fb_size = self.surface.framebufferSize();
+            const fb_w: i32 = @intCast(fb_size.width);
+            const fb_h: i32 = @intCast(fb_size.height);
             if (fb_w > 0 and fb_h > 0) {
                 const cur_w: i32 = @intCast(self.swapchain.extent.width);
                 const cur_h: i32 = @intCast(self.swapchain.extent.height);
@@ -600,18 +603,40 @@ pub const Engine = struct {
         return true;
     }
 
-    fn recreateSwapchain(self: *Engine) !void {
-        var width: i32 = 0;
-        var height: i32 = 0;
-        glfw.getFramebufferSize(self.window, &width, &height);
-        while (width == 0 or height == 0) {
-            glfw.getFramebufferSize(self.window, &width, &height);
-            glfw.waitEvents();
+    pub fn suspendSurface(self: *Engine) !void {
+        try self.core.vkd.deviceWaitIdle(self.core.logical_device);
+        if (self.swapchain.handle != .null_handle) {
+            self.swapchain.deinit(&self.core);
+            self.swapchain.handle = .null_handle;
+        }
+        if (self.core.surface != .null_handle) {
+            self.core.vki.destroySurfaceKHR(self.core.instance, self.core.surface, null);
+            self.core.surface = .null_handle;
+        }
+    }
+
+    pub fn resumeSurface(self: *Engine, surface: RenderSurface) !void {
+        self.surface = surface;
+        self.core.surface_provider = surface;
+        self.core.surface = try self.core.surface_provider.createSurface(self.core.instance, &self.core.vki);
+        try self.recreateSwapchain();
+    }
+
+    pub fn recreateSurface(self: *Engine, surface: RenderSurface) !void {
+        try self.suspendSurface();
+        try self.resumeSurface(surface);
+    }
+
+    pub fn recreateSwapchain(self: *Engine) !void {
+        var fb_size = self.surface.framebufferSize();
+        while (fb_size.width == 0 or fb_size.height == 0) {
+            self.surface.waitEvents();
+            fb_size = self.surface.framebufferSize();
         }
 
         try self.core.vkd.deviceWaitIdle(self.core.logical_device);
 
-        const fallback = vk.Extent2D{ .width = @intCast(width), .height = @intCast(height) };
+        const fallback = vk.Extent2D{ .width = fb_size.width, .height = fb_size.height };
         try self.swapchain.recreate(&self.core, fallback);
 
         try self.frames.resize(self.core.allocator, self.swapchain.image_views.len, &self.core);

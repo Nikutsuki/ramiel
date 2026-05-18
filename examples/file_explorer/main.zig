@@ -23,7 +23,8 @@ fn letterShortcut(
     ir: *lib.For(core.AppMessage).InteractionRegistry,
     key: i32,
     action: i32,
-    _: *const lib.WindowContext,
+    _: bool,
+    _: bool,
 ) bool {
     if (action != 1) return false;
     if (state.editing_path) return false;

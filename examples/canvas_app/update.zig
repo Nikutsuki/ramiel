@@ -111,10 +111,10 @@ pub fn appShortcutHandler(
     ir: *core.lib.For(core.AppMessage).InteractionRegistry,
     key: i32,
     action: i32,
-    win: *const core.WindowContext,
+    is_ctrl: bool,
+    _: bool,
 ) bool {
     if (action != glfw.Press) return false;
-    const is_ctrl = win.isKeyDown(glfw.KeyLeftControl) or win.isKeyDown(glfw.KeyRightControl);
 
     if (is_ctrl and key == glfw.KeyP) {
         state.editor.palette_open = !state.editor.palette_open;

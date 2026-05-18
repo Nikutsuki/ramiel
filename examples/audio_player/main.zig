@@ -206,7 +206,8 @@ fn shortcuts(
     ir: *T.InteractionRegistry,
     key: i32,
     action: i32,
-    _: *const lib.WindowContext,
+    _: bool,
+    _: bool,
 ) bool {
     _ = app;
     if (key == lib.glfw.KeySpace and action == lib.glfw.Press) {
