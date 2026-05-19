@@ -62,6 +62,7 @@ pub const Config = struct {
     width: u32 = 800,
     height: u32 = 600,
     keyboard_interactivity: platform.KeyboardInteractivity = .none,
+    input_region: platform.InputRegionMode = .default,
 
     pub fn fromBackendConfig(config: platform.AppBackendConfig) Config {
         return .{
@@ -69,6 +70,7 @@ pub const Config = struct {
             .title = config.title,
             .width = config.width,
             .height = config.height,
+            .input_region = config.input_region,
             .keyboard_interactivity = switch (config.surface_kind) {
                 .layer_shell => |opts| opts.keyboard_interactivity,
                 else => .none,
@@ -426,6 +428,26 @@ pub const WaylandClient = struct {
 
     pub fn setVisibility(self: *WaylandClient, vis: bool) void {
         if (vis) self.show() else self.hide();
+    }
+
+    pub fn inputRegionMode(self: *const WaylandClient) platform.InputRegionMode {
+        return self.config.input_region;
+    }
+
+    pub fn setInputRegion(self: *WaylandClient, rects: []const platform.InputRegionRect) void {
+        const sfc = self.surface orelse return;
+        const compositor = self.compositor orelse return;
+        const region = compositor.createRegion() catch return;
+        defer region.destroy();
+
+        for (rects) |rect| {
+            if (rect.width <= 0 or rect.height <= 0) continue;
+            region.add(rect.x, rect.y, rect.width, rect.height);
+        }
+
+        sfc.setInputRegion(region);
+        sfc.commit();
+        _ = self.display.flush();
     }
 
     /// Pump key repeat: if a key is held and the repeat deadline has passed,

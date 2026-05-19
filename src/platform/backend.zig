@@ -92,6 +92,18 @@ pub const PointerInputSnapshot = struct {
     mods: i32 = 0,
 };
 
+pub const InputRegionMode = enum {
+    default,
+    auto_interactive,
+};
+
+pub const InputRegionRect = struct {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+};
+
 pub const AppBackendConfig = struct {
     backend: BackendKind = .glfw,
     surface_kind: SurfaceKind = .normal,
@@ -102,6 +114,7 @@ pub const AppBackendConfig = struct {
     borderless: bool = false,
     topmost: bool = false,
     visible_on_start: bool = true,
+    input_region: InputRegionMode = .default,
 };
 
 pub fn waylandLayerShell(options: LayerShellOptions) AppBackendConfig {

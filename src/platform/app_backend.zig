@@ -76,6 +76,20 @@ pub const Backend = union(platform.BackendKind) {
         };
     }
 
+    pub fn inputRegionMode(self: *const Backend) platform.InputRegionMode {
+        return switch (self.*) {
+            .glfw => .default,
+            .wayland => |*client| if (build_options.native_wayland) client.inputRegionMode() else .default,
+        };
+    }
+
+    pub fn setInputRegion(self: *Backend, rects: []const platform.InputRegionRect) void {
+        switch (self.*) {
+            .glfw => {},
+            .wayland => |*client| if (build_options.native_wayland) client.setInputRegion(rects),
+        }
+    }
+
     pub fn shouldClose(self: *const Backend) bool {
         return switch (self.*) {
             .glfw => |*win| win.shouldClose(),

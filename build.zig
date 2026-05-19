@@ -262,6 +262,7 @@ pub fn build(b: *std.Build) void {
                 m.addImport("wayland", wl_mod);
                 m.linkSystemLibrary("wayland-client", .{});
                 m.linkSystemLibrary("wayland-cursor", .{});
+                m.linkSystemLibrary("gio-2.0", .{});
             }
 
             if (opt.is_win) applyWindowsCImportWorkarounds(m);
@@ -344,6 +345,9 @@ pub fn build(b: *std.Build) void {
         ex_check.step.dependOn(shader_compile_step);
         const wl_mod: ?*std.Build.Module = if (ex.requires_wayland) wayland_mod else null;
         bindExecutableConfig(ex_check, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
+        if (std.mem.eql(u8, ex.name, "wayland_basic")) {
+            ex_check.root_module.addCSourceFile(.{ .file = b.path("examples/wayland_basic/modules/tray_sni.c"), .flags = &.{"-std=c99"} });
+        }
         check_step.dependOn(&ex_check.step);
 
         // Standard Artifact Step
@@ -353,6 +357,9 @@ pub fn build(b: *std.Build) void {
         });
         ex_exe.step.dependOn(shader_compile_step);
         bindExecutableConfig(ex_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
+        if (std.mem.eql(u8, ex.name, "wayland_basic")) {
+            ex_exe.root_module.addCSourceFile(.{ .file = b.path("examples/wayland_basic/modules/tray_sni.c"), .flags = &.{"-std=c99"} });
+        }
         b.installArtifact(ex_exe);
 
         const run_ex_cmd = b.addRunArtifact(ex_exe);

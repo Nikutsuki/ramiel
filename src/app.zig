@@ -57,6 +57,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         devtools_missing_font_warned: bool = false,
         devtools_requires_builder_warned: bool = false,
         canvases: std.ArrayList(*Canvas),
+        input_region_rects: std.ArrayList(platform.InputRegionRect),
         state: StateType,
         cross_thread_mutex: std.Io.Mutex = .init,
         cross_thread_queue: std.ArrayList(InteractionMessage(MessageType)),
@@ -178,6 +179,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 .batcher = batcher,
                 .ui = ui,
                 .canvases = .empty,
+                .input_region_rects = .empty,
                 .state = initial_state,
                 .update_fn = update_fn,
                 .cross_thread_queue = .empty,
@@ -813,6 +815,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 canvas.deinit(&self.engine.core, &self.engine.resources.texture_registry);
             }
             self.canvases.deinit(self.allocator);
+            self.input_region_rects.deinit(self.allocator);
 
             self.font_system.deinit(&self.engine.core);
             self.engine.deinit();
@@ -879,6 +882,73 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 self.backend.hide();
                 self.ui.interaction_registry.resetForNewTree();
             }
+        }
+
+        fn syncAutoInputRegion(self: *Self) void {
+            if (self.backend.inputRegionMode() != .auto_interactive) return;
+
+            self.input_region_rects.clearRetainingCapacity();
+            const fb = self.backend.getFramebufferSize();
+            self.collectInputRegionRects(self.ui.root, fb) catch |err| {
+                std.log.warn("syncAutoInputRegion: failed to collect regions: {s}", .{@errorName(err)});
+                return;
+            };
+            self.backend.setInputRegion(self.input_region_rects.items);
+        }
+
+        fn collectInputRegionRects(self: *Self, node: *Node(MessageType), fb: platform.FramebufferSize) !void {
+            if (node.style.pointer_events == .none) return;
+
+            if (nodeNeedsInput(node)) {
+                try self.appendInputRegionRect(node.getTransformedRect(), fb);
+            }
+
+            for (node.children.items) |child| {
+                try self.collectInputRegionRects(child, fb);
+            }
+        }
+
+        fn appendInputRegionRect(self: *Self, rect: Node(MessageType).TransformedRect, fb: platform.FramebufferSize) !void {
+            if (rect.width <= 0.0 or rect.height <= 0.0 or fb.width <= 0 or fb.height <= 0) return;
+
+            const x0: i32 = @intFromFloat(@floor(rect.x));
+            const y0: i32 = @intFromFloat(@floor(rect.y));
+            const x1: i32 = @intFromFloat(@ceil(rect.x + rect.width));
+            const y1: i32 = @intFromFloat(@ceil(rect.y + rect.height));
+
+            const left = std.math.clamp(x0, 0, fb.width);
+            const top = std.math.clamp(y0, 0, fb.height);
+            const right = std.math.clamp(x1, 0, fb.width);
+            const bottom = std.math.clamp(y1, 0, fb.height);
+            if (right <= left or bottom <= top) return;
+
+            try self.input_region_rects.append(self.allocator, .{
+                .x = left,
+                .y = top,
+                .width = right - left,
+                .height = bottom - top,
+            });
+        }
+
+        fn nodeNeedsInput(node: *const Node(MessageType)) bool {
+            if (node.is_focusable) return true;
+            if (node.style.overflow_x == .scroll or node.style.overflow_y == .scroll) return true;
+            return switch (node.payload) {
+                .text_input, .text_area => true,
+                else => hasPointerEvent(node),
+            };
+        }
+
+        fn hasPointerEvent(node: *const Node(MessageType)) bool {
+            return node.hasEventBinding(.click) or
+                node.hasEventBinding(.pointer_down) or
+                node.hasEventBinding(.pointer_up) or
+                node.hasEventBinding(.drag) or
+                node.hasEventBinding(.hover_enter) or
+                node.hasEventBinding(.hover_exit) or
+                node.hasEventBinding(.scroll) or
+                node.hasEventBinding(.pointer_move) or
+                node.hasEventBinding(.context_menu);
         }
 
         /// callback's user_ptr is the Application. modifier: win32.MOD_*; key: VK_* code.
@@ -1066,6 +1136,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
                 if (self.ui.paint_dirty) {
                     self.ui.animation_registry.applyAnimatedValuesToTree(self.ui.root, current_time);
+                    self.syncAutoInputRegion();
 
                     const current_time_f32 = @as(f32, @floatCast(current_time));
                     try self.batcher.clear(self.engine.swapchain.extent);
