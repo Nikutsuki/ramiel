@@ -26,9 +26,11 @@ pub fn build(b: *std.Build) void {
     const devtools_enabled = b.option(bool, "devtools", "Enable DevTools overlay on startup.") orelse false;
     const requested_wayland = b.option(bool, "wayland", "Enable the native Wayland backend and Wayland-only examples (off by default).") orelse false;
     const native_wayland_enabled = requested_wayland and is_linux;
+    const power_dry_run = b.option(bool, "power-dry-run", "Print power-menu commands instead of executing them (default: false, commands are invoked).") orelse false;
     const build_options = b.addOptions();
     build_options.addOption(bool, "devtools", devtools_enabled);
     build_options.addOption(bool, "native_wayland", native_wayland_enabled);
+    build_options.addOption(bool, "power_dry_run", power_dry_run);
     const build_options_module = build_options.createModule();
     var ffmpeg_bin_install: ?*std.Build.Step.InstallDir = null;
 

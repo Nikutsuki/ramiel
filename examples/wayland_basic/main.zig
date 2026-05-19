@@ -12,6 +12,8 @@ const audio_mod = @import("modules/audio.zig");
 const hyprland = @import("modules/hyprland.zig");
 const clock_mod = @import("modules/clock.zig");
 const tray_mod = @import("modules/tray.zig");
+const network_mod = @import("modules/network.zig");
+const power_mod = @import("modules/power.zig");
 const icons = @import("icons.zig");
 
 const NodeIds = ramiel.declareIds("wayland-basic", .{
@@ -19,6 +21,7 @@ const NodeIds = ramiel.declareIds("wayland-basic", .{
     "hot_corner",
     "slide_panel",
     "tray_menu",
+    "power_menu",
 }){};
 
 const AppMessage = union(enum) {
@@ -29,6 +32,10 @@ const AppMessage = union(enum) {
     tray_menu: ?usize,
     tray_menu_hover: bool,
     tray_action: tray_mod.MenuAction,
+    toggle_power_menu: void,
+    close_power_menu: void,
+    power_action: power_mod.Action,
+    noop: void,
 };
 
 const ICON_VOL_HIGH: u32 = 100;
@@ -48,6 +55,9 @@ const AppState = struct {
     hypr: hyprland.State = .{},
     time: clock_mod.State = .{},
     tray: tray_mod.State = tray_mod.demoState(),
+    net: network_mod.State = .{},
+    power_menu_open: bool = false,
+    power_confirm: ?power_mod.Action = null,
     slide_panel_open: bool = false,
     hide_panel_at_ns: i128 = 0,
     edge_hovered: bool = false,
@@ -120,6 +130,9 @@ fn build(ui: *T.UIContext, state: *const AppState) anyerror!*T.Node {
         if (state.tray.itemById(item_id)) |item| {
             try children.append(arena, try buildTrayMenu(ui, state, item));
         }
+    }
+    if (state.power_menu_open) {
+        try children.append(arena, try buildPowerMenu(ui, state));
     }
 
     return try ux.div(.{
@@ -413,6 +426,88 @@ fn buildTrayMenu(ui: *T.UIContext, state: *const AppState, item: *const tray_mod
     });
 }
 
+fn buildPowerMenu(ui: *T.UIContext, state: *const AppState) !*T.Node {
+    const ux = ui.ux();
+    const arena = ui.build_arena.allocator();
+
+    const actions = [_]power_mod.Action{ .lock, .suspend_, .logout, .reboot, .shutdown };
+    var buttons: std.ArrayList(?*T.Node) = .empty;
+    for (actions) |action| {
+        const confirming = state.power_confirm != null and state.power_confirm.? == action;
+        const label = if (confirming)
+            try std.fmt.allocPrint(arena, "Confirm {s}?", .{action.label()})
+        else
+            action.label();
+        const destructive = action.needsConfirm();
+        const base_bg: [4]f32 = if (confirming) danger else pill_bg;
+        const text_col: [4]f32 = if (confirming) fg else if (destructive) danger else fg;
+        try buttons.append(arena, try ux.div(.{
+            .style = tw.style(.{
+                tw.flex_row,
+                tw.items_center,
+                tw.justify_center,
+                tw.w(220),
+                tw.p_xy_px(16, 12),
+                tw.bg_value(base_bg),
+                tw.hover_value(ws_active_bg),
+                tw.rounded(12),
+                tw.border_value(1.0, sep_color),
+                tw.cursor_pointer,
+                tw.transition(hover_transition),
+            }),
+            .on_click = .{ .power_action = action },
+            .children = &.{try ux.text(.{
+                .content = label,
+                .font = state.font,
+                .style = tw.style(.{ tw.text(font_size + 1), tw.text_color_value(text_col) }),
+            })},
+        }));
+    }
+
+    const card = try ux.div(.{
+        .style = tw.style(.{
+            tw.flex_col,
+            tw.items_center,
+            tw.gap_px(10),
+            tw.p_px(24),
+            tw.bg_value(menu_bg),
+            tw.border_value(1.0, sep_color),
+            tw.rounded(20),
+        }),
+        .on_click = .noop,
+        .children = blk: {
+            var rows: std.ArrayList(?*T.Node) = .empty;
+            try rows.append(arena, try ux.text(.{
+                .content = "Power",
+                .font = state.font,
+                .style = tw.style(.{ tw.text(20), tw.text_color_value(fg) }),
+            }));
+            try rows.appendSlice(arena, buttons.items);
+            break :blk rows.items;
+        },
+    });
+
+    // Full-screen dimmed backdrop; click anywhere outside the card closes it.
+    // Use explicit size_screen (not inset) so flex centering has real
+    // dimensions to work with — otherwise the card pins to the bottom edge.
+    return try ux.div(.{
+        .id = NodeIds.power_menu,
+        .style = tw.style(.{
+            tw.absolute,
+            tw.top(0),
+            tw.left(0),
+            tw.size_screen,
+            tw.flex_col,
+            tw.items_center,
+            tw.justify_center,
+            tw.bg_value(.{ 0.0, 0.0, 0.0, 0.55 }),
+            tw.z(40),
+        }),
+        .on_click = .close_power_menu,
+        .children = &.{card},
+    });
+}
+
 fn buildSlidePanel(ui: *T.UIContext, state: *const AppState) !*T.Node {
     const ux = ui.ux();
     const arena = ui.build_arena.allocator();
@@ -447,16 +542,13 @@ fn buildSlidePanel(ui: *T.UIContext, state: *const AppState) !*T.Node {
         },
     }));
 
-    try rows.append(arena, try ux.text(.{
-        .content = "Move the cursor to the right edge of the screen to reveal this surface. Only the bar, hot edge, menu, and panel are in the Wayland input region.",
-        .font = state.font,
-        .max_width = panel_w - 32,
-        .style = tw.style(.{ tw.text(font_size - 2), tw.text_color_value(dim) }),
-    }));
+    try rows.append(arena, try buildNetworkSection(ui, state, panel_w));
+    try rows.append(arena, try buildBatterySection(ui, state, panel_w));
 
     try rows.append(arena, try buildPanelMetric(ui, state, "Volume", if (state.vol.available) try std.fmt.allocPrint(arena, "{d}%", .{state.vol.volume_pct}) else "--"));
-    try rows.append(arena, try buildPanelMetric(ui, state, "Battery", if (state.bat.present) try std.fmt.allocPrint(arena, "{d}%", .{state.bat.capacity}) else "No battery"));
     try rows.append(arena, try buildPanelMetric(ui, state, "Workspace", if (state.hypr.available) try std.fmt.allocPrint(arena, "{d}", .{state.hypr.active_workspace_id}) else "Unavailable"));
+
+    try rows.append(arena, try buildPowerRow(ui, state));
 
     if (state.tray.available) {
         for (state.tray.itemSlice()) |item| {
@@ -501,6 +593,134 @@ fn buildPanelMetric(ui: *T.UIContext, state: *const AppState, label: []const u8,
         .children = &.{
             try ux.text(.{ .content = label, .font = state.font, .style = tw.style(.{ tw.text(font_size - 1), tw.text_color_value(dim) }) }),
             try ux.text(.{ .content = value, .font = state.font, .style = tw.style(.{ tw.text(font_size - 1), tw.text_color_value(fg) }) }),
+        },
+    });
+}
+
+fn buildPowerRow(ui: *T.UIContext, state: *const AppState) !*T.Node {
+    const ux = ui.ux();
+    return try ux.div(.{
+        .style = tw.style(.{
+            tw.flex_row,
+            tw.items_center,
+            tw.justify_center,
+            tw.p_xy_px(12, 10),
+            tw.bg_value(pill_bg),
+            tw.hover_value(ws_active_bg),
+            tw.rounded(12),
+            tw.border_value(1.0, sep_color),
+            tw.cursor_pointer,
+            tw.transition(hover_transition),
+        }),
+        .on_click = .toggle_power_menu,
+        .children = &.{try ux.text(.{
+            .content = "Power",
+            .font = state.font,
+            .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }),
+        })},
+    });
+}
+
+fn buildSectionHeader(ui: *T.UIContext, state: *const AppState, title: []const u8) !*T.Node {
+    const ux = ui.ux();
+    return try ux.text(.{
+        .content = title,
+        .font = state.font,
+        .style = tw.style(.{ tw.text(font_size - 3), tw.text_color_value(dim) }),
+    });
+}
+
+fn buildNetworkSection(ui: *T.UIContext, state: *const AppState, panel_w: f32) !*T.Node {
+    const ux = ui.ux();
+    const arena = ui.build_arena.allocator();
+    const net = state.net;
+
+    var rows: std.ArrayList(?*T.Node) = .empty;
+    try rows.append(arena, try buildSectionHeader(ui, state, "NETWORK"));
+
+    if (!net.connected) {
+        try rows.append(arena, try buildPanelMetric(ui, state, "Status", if (net.available) "Disconnected" else "Unavailable"));
+    } else {
+        const kind_label: []const u8 = switch (net.kind) {
+            .wifi => "Wi-Fi",
+            .ethernet => "Ethernet",
+            else => "Network",
+        };
+        const title = if (net.kind == .wifi and net.ssid_len > 0) net.ssid() else net.name();
+        try rows.append(arena, try buildPanelMetric(ui, state, kind_label, title));
+        if (net.kind == .wifi) {
+            try rows.append(arena, try buildPanelMetric(ui, state, "Signal", try std.fmt.allocPrint(arena, "{d}%", .{net.signal})));
+        }
+        if (net.ip_len > 0) {
+            try rows.append(arena, try buildPanelMetric(ui, state, "IP", net.ip()));
+        }
+    }
+
+    return try ux.div(.{
+        .style = tw.style(.{ tw.flex_col, tw.gap_px(6), tw.w(panel_w - 32) }),
+        .children = rows.items,
+    });
+}
+
+fn buildBatterySection(ui: *T.UIContext, state: *const AppState, panel_w: f32) !*T.Node {
+    const ux = ui.ux();
+    const arena = ui.build_arena.allocator();
+    const bat = state.bat;
+
+    var rows: std.ArrayList(?*T.Node) = .empty;
+    try rows.append(arena, try buildSectionHeader(ui, state, "BATTERY"));
+
+    if (!bat.present) {
+        try rows.append(arena, try buildPanelMetric(ui, state, "Status", "No battery"));
+    } else {
+        const total_label = if (bat.charging) "Total (charging)" else "Total";
+        try rows.append(arena, try buildPanelMetric(ui, state, total_label, try std.fmt.allocPrint(arena, "{d}%", .{bat.capacity})));
+
+        for (bat.slice()) |b| {
+            const status_str = batteryStatusLabel(b);
+            const value = try std.fmt.allocPrint(arena, "{d}% \u{00b7} {s}", .{ b.capacity, status_str });
+            try rows.append(arena, try buildPanelMetric(ui, state, b.nameSlice(), value));
+
+            if (b.secondsToFull()) |secs| {
+                try rows.append(arena, try buildPanelSubMetric(ui, state, "  to full", formatDuration(arena, secs)));
+            } else if (b.secondsToEmpty()) |secs| {
+                try rows.append(arena, try buildPanelSubMetric(ui, state, "  remaining", formatDuration(arena, secs)));
+            }
+        }
+    }
+
+    return try ux.div(.{
+        .style = tw.style(.{ tw.flex_col, tw.gap_px(6), tw.w(panel_w - 32) }),
+        .children = rows.items,
+    });
+}
+
+fn batteryStatusLabel(b: battery.Battery) []const u8 {
+    return switch (b.status) {
+        .charging => "Charging",
+        .discharging => "Discharging",
+        .not_charging => "Not charging",
+        .full => "Full",
+        .unknown => "Unknown",
+    };
+}
+
+fn formatDuration(arena: std.mem.Allocator, seconds: u32) []const u8 {
+    const hours = seconds / 3600;
+    const minutes = (seconds % 3600) / 60;
+    if (hours > 0) {
+        return std.fmt.allocPrint(arena, "{d}h {d:0>2}m", .{ hours, minutes }) catch "?";
+    }
+    return std.fmt.allocPrint(arena, "{d}m", .{minutes}) catch "?";
+}
+
+fn buildPanelSubMetric(ui: *T.UIContext, state: *const AppState, label: []const u8, value: []const u8) !*T.Node {
+    const ux = ui.ux();
+    return try ux.div(.{
+        .style = tw.style(.{ tw.flex_row, tw.items_center, tw.justify_between, tw.p_xy_px(12, 2) }),
+        .children = &.{
+            try ux.text(.{ .content = label, .font = state.font, .style = tw.style(.{ tw.text(font_size - 3), tw.text_color_value(dim) }) }),
+            try ux.text(.{ .content = value, .font = state.font, .style = tw.style(.{ tw.text(font_size - 3), tw.text_color_value(dim) }) }),
         },
     });
 }
@@ -616,6 +836,28 @@ fn update(app: *App, msg: T.InteractionMessage) ramiel.UpdateAction {
             app.state.hide_tray_menu_at_ns = 0;
             return .rebuild;
         },
+        .toggle_power_menu => {
+            app.state.power_menu_open = !app.state.power_menu_open;
+            app.state.power_confirm = null;
+            return .rebuild;
+        },
+        .close_power_menu => {
+            app.state.power_menu_open = false;
+            app.state.power_confirm = null;
+            return .rebuild;
+        },
+        .power_action => |action| {
+            if (action.needsConfirm() and (app.state.power_confirm == null or app.state.power_confirm.? != action)) {
+                // First click on a destructive action arms the confirm state.
+                app.state.power_confirm = action;
+                return .rebuild;
+            }
+            power_mod.run(app.state.io, action);
+            app.state.power_menu_open = false;
+            app.state.power_confirm = null;
+            return .rebuild;
+        },
+        .noop => return .none,
     }
 }
 
@@ -625,7 +867,9 @@ var hypr_ready: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
 var bg_bat: battery.State = .{};
 var bg_vol: audio_mod.State = .{};
 var bg_time: clock_mod.State = .{};
+var bg_net: network_mod.State = .{};
 var bg_slow_ready: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+var net_poll_counter: u8 = 0;
 
 fn hyprlandWorker(io: std.Io, env: *std.process.Environ.Map) void {
     hyprland.eventLoop(io, env, &hypr_state, &hypr_ready);
@@ -636,6 +880,11 @@ fn slowPollWorker(io: std.Io) void {
         bg_bat = battery.poll();
         bg_vol = audio_mod.poll(io);
         bg_time = clock_mod.poll(io);
+        // Network polling is heavier (spawns nmcli) — refresh every ~5s.
+        if (net_poll_counter == 0) {
+            bg_net = network_mod.poll(io);
+        }
+        net_poll_counter = (net_poll_counter + 1) % 5;
         bg_slow_ready.store(true, .release);
         var ts = std.os.linux.timespec{ .sec = 1, .nsec = 0 };
         _ = std.os.linux.nanosleep(&ts, null);
@@ -654,6 +903,7 @@ fn tick(app: *App) ramiel.UpdateAction {
         app.state.bat = bg_bat;
         app.state.vol = bg_vol;
         app.state.time = bg_time;
+        app.state.net = bg_net;
         changed = true;
     }
 
@@ -761,7 +1011,9 @@ pub fn main(init: std.process.Init) !void {
         .transparent = true,
         .input_region = .auto_interactive,
         .width = 0,
-        .height = 2160,
+        // 0 = fill the output height (backend queries wl_output); the bar stays
+        // anchored to the top and reserves its strip via exclusive_zone.
+        .height = 0,
     }, .{ .io = io, .env = init.environ_map }, update);
     defer app.deinit();
 
@@ -792,6 +1044,7 @@ pub fn main(init: std.process.Init) !void {
     app.state.vol = audio_mod.poll(io);
     app.state.hypr = hyprland.poll(io, init.environ_map);
     app.state.time = clock_mod.poll(io);
+    app.state.net = network_mod.poll(io);
     app.state.tray = tray_mod.demoState();
 
     const hypr_thread = try std.Thread.spawn(.{}, hyprlandWorker, .{ io, init.environ_map });

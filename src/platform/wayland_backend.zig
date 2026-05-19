@@ -117,6 +117,15 @@ pub const WaylandClient = struct {
     running: bool = true,
     visible: bool = true,
 
+    // Output geometry (first/primary wl_output), used to size full-height
+    // layer surfaces without hardcoding a resolution. Mode reports PHYSICAL
+    // pixels; the layer surface is sized in LOGICAL coordinates, so we divide
+    // by the integer scale.
+    output: ?*wl.Output = null,
+    output_width: i32 = 0,
+    output_height: i32 = 0,
+    output_scale: i32 = 1,
+
     // Input
     keyboard: ?*wl.Keyboard = null,
     pointer: ?*wl.Pointer = null,
@@ -200,11 +209,17 @@ pub const WaylandClient = struct {
         // Create wl_surface
         self.surface = try self.compositor.?.createSurface();
 
-        // Bind seat listeners if we have a seat
+        // Bind seat listeners if we have a seat. Register BEFORE the roundtrip
+        // so the wl_seat.capabilities event (which creates the pointer and
+        // keyboard) isn't dispatched without a listener.
         if (self.seat) |seat| {
             seat.setListener(*WaylandClient, seatListener, self);
-            if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
         }
+
+        // One roundtrip to deliver pending seat capabilities AND wl_output
+        // mode/scale (both bound during the first roundtrip) before we size and
+        // create the surface role.
+        if (display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
 
         // Create role
         switch (self.config.surface_kind) {
@@ -540,7 +555,25 @@ pub const WaylandClient = struct {
 
         layer_surface.setListener(*WaylandClient, layerSurfaceListener, self);
 
-        // Size — 0 means let compositor decide (must anchor opposite edges)
+        // Size. For a bar anchored to an edge + perpendiculars (e.g. top+left+
+        // right) the protocol needs an explicit non-zero height — 0 only works
+        // when opposite edges are anchored. So when the caller leaves height 0,
+        // fill the output's LOGICAL height (physical mode / scale), giving a
+        // full-height surface that overlays/modals can center within.
+        // (Width 0 is left as-is: it's valid when both left+right are anchored.)
+        if (self.height == 0) {
+            if (self.output_height > 0) {
+                const scale: i32 = if (self.output_scale > 0) self.output_scale else 1;
+                self.height = @intCast(@divTrunc(self.output_height, scale));
+            } else {
+                // Output geometry was unavailable; keep a tall fallback so the
+                // surface stays valid (previous behaviour) rather than 0.
+                self.height = 2160;
+            }
+        }
+        std.log.info("layer surface size: {d}x{d} (output mode {d}x{d} @ scale {d})", .{
+            self.width, self.height, self.output_width, self.output_height, self.output_scale,
+        });
         layer_surface.setSize(self.width, self.height);
 
         // Anchors
@@ -595,6 +628,15 @@ pub const WaylandClient = struct {
                     self.shm = registry.bind(global.name, wl.Shm, 1) catch return;
                 } else if (std.mem.orderZ(u8, global.interface, zwlr.LayerShellV1.interface.name) == .eq) {
                     self.layer_shell = registry.bind(global.name, zwlr.LayerShellV1, 5) catch return;
+                } else if (std.mem.orderZ(u8, global.interface, wl.Output.interface.name) == .eq) {
+                    // Track the first output for full-height sizing. Multi-output
+                    // placement is left to the compositor.
+                    if (self.output == null) {
+                        if (registry.bind(global.name, wl.Output, 2)) |output| {
+                            self.output = output;
+                            output.setListener(*WaylandClient, outputListener, self);
+                        } else |_| {}
+                    }
                 }
             },
             .global_remove => {},
@@ -604,6 +646,23 @@ pub const WaylandClient = struct {
     fn wmBaseListener(wm_base: *xdg.WmBase, event: xdg.WmBase.Event, _: *WaylandClient) void {
         switch (event) {
             .ping => |ping| wm_base.pong(ping.serial),
+        }
+    }
+
+    fn outputListener(_: *wl.Output, event: wl.Output.Event, self: *WaylandClient) void {
+        switch (event) {
+            .mode => |mode| {
+                // Prefer the current mode; fall back to the first reported mode
+                // if no mode is flagged current (some compositors omit it).
+                if (mode.flags.current or self.output_height == 0) {
+                    self.output_width = mode.width;
+                    self.output_height = mode.height;
+                }
+            },
+            .scale => |s| {
+                if (s.factor > 0) self.output_scale = s.factor;
+            },
+            else => {},
         }
     }
 
