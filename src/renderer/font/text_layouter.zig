@@ -10,6 +10,11 @@ const c = font_module.c;
 
 const assets = @import("../../assets.zig");
 const EFFECT_MSDF_TEXT = assets.EFFECT_MSDF_TEXT;
+const EFFECT_BITMAP_TEXT = assets.EFFECT_BITMAP_TEXT;
+
+/// Below this effective pixel size, glyphs render via the FreeType-hinted bitmap atlas.
+/// At or above, they render via MSDF.
+pub const BITMAP_THRESHOLD_PX: f32 = 18.0;
 
 fn snapPixel(value: f32) f32 {
     return @round(value);
@@ -46,6 +51,9 @@ pub const MeasureResult = struct {
     width: f32,
     height: f32,
     metrics: []GlyphMetric,
+    /// True when the bitmap (hinted FreeType) path was used; node renderers
+    /// must then sample from `font.bitmap_atlas_tex_id` with EFFECT_BITMAP_TEXT.
+    is_bitmap: bool = false,
 };
 
 pub const TextBounds = struct {
@@ -174,8 +182,24 @@ pub const TextLayouter = struct {
 
             const font_data = font_system.font_registry.fonts.getPtr(segment.font_name) orelse continue;
 
-            const scale = if (options.font_size > 0.0) (options.font_size / font_data.base_size) else 1.0;
-            const line_height = if (options.line_height > 0.0) options.line_height else (font_data.line_height * scale);
+            const target_size = if (options.font_size > 0.0) options.font_size else font_data.base_size;
+            const use_bitmap = options.font_size > 0.0 and target_size < BITMAP_THRESHOLD_PX;
+            const target_px_u: u32 = if (use_bitmap)
+                @intFromFloat(@max(@round(target_size), 1.0))
+            else
+                0;
+            const target_px_f: f32 = @floatFromInt(target_px_u);
+
+            const metric_scale: f32 = if (use_bitmap)
+                target_px_f / font_data.base_size
+            else if (options.font_size > 0.0)
+                options.font_size / font_data.base_size
+            else
+                1.0;
+            const glyph_scale: f32 = if (use_bitmap) 1.0 else metric_scale;
+            const ascender_target = font_data.ascender * metric_scale;
+
+            const line_height = if (options.line_height > 0.0) options.line_height else (font_data.line_height * metric_scale);
 
             c.hb_buffer_clear_contents(self.hb_buffer);
             c.hb_buffer_add_utf8(self.hb_buffer, text.ptr, @intCast(text.len), @intCast(segment.start_byte), @intCast(segment.end_byte - segment.start_byte));
@@ -191,18 +215,28 @@ pub const TextLayouter = struct {
 
             if (self.core) |core| {
                 if (self.font_registry) |reg| {
-                    reg.ensureGlyph(core, font_data, dot_glyph_id) catch {};
+                    if (use_bitmap) {
+                        reg.ensureBitmapGlyph(core, font_data, dot_glyph_id, target_px_u) catch {};
+                    } else {
+                        reg.ensureGlyph(core, font_data, dot_glyph_id) catch {};
+                    }
                 }
             }
 
-            const dot_advance = (if (font_data.glyphs.get(dot_glyph_id)) |dot_glyph|
-                dot_glyph.advance
-            else
-                font_data.line_height * 0.33) * scale;
+            const dot_advance: f32 = if (use_bitmap) blk: {
+                const dk = font_module.bitmapGlyphKey(dot_glyph_id, target_px_u);
+                if (font_data.bitmap_glyphs.get(dk)) |bg| break :blk bg.advance;
+                break :blk font_data.line_height * 0.33 * metric_scale;
+            } else (if (font_data.glyphs.get(dot_glyph_id)) |dot_glyph| dot_glyph.advance else font_data.line_height * 0.33) * metric_scale;
             const ellipsis_width = dot_advance * 3.0;
 
-            const combined_id: u32 = EFFECT_MSDF_TEXT | (font_data.atlas_tex_id & 0xFFFF);
-            const glyph_corner_radii = [4]f32{ weight, font_data.sdf_padding, 0, 0 };
+            const atlas_tex_id: u32 = if (use_bitmap) font_data.bitmap_atlas_tex_id else font_data.atlas_tex_id;
+            const effect_flag: u32 = if (use_bitmap) EFFECT_BITMAP_TEXT else EFFECT_MSDF_TEXT;
+            const combined_id: u32 = effect_flag | (atlas_tex_id & 0xFFFF);
+            const glyph_corner_radii: [4]f32 = if (use_bitmap)
+                [4]f32{ weight, 0, 0, 0 }
+            else
+                [4]f32{ weight, font_data.sdf_padding, 0, 0 };
 
             var i: usize = 0;
             while (i < glyph_count) : (i += 1) {
@@ -210,13 +244,28 @@ pub const TextLayouter = struct {
 
                 if (self.core) |core| {
                     if (self.font_registry) |reg| {
-                        reg.ensureGlyph(core, font_data, codepoint) catch |err| {
-                            std.log.err("TextLayouter: failed to ensure glyph {d}: {s}", .{ codepoint, @errorName(err) });
-                        };
+                        if (use_bitmap) {
+                            reg.ensureBitmapGlyph(core, font_data, codepoint, target_px_u) catch |err| {
+                                std.log.err("TextLayouter: failed to ensure bitmap glyph {d}@{d}px: {s}", .{ codepoint, target_px_u, @errorName(err) });
+                            };
+                        } else {
+                            reg.ensureGlyph(core, font_data, codepoint) catch |err| {
+                                std.log.err("TextLayouter: failed to ensure glyph {d}: {s}", .{ codepoint, @errorName(err) });
+                            };
+                        }
                     }
                 }
 
-                const x_advance = (@as(f32, @floatFromInt(glyph_pos[i].x_advance)) / 64.0) * scale;
+                const glyph_opt: ?font_module.GlyphInfo = if (use_bitmap)
+                    font_data.bitmap_glyphs.get(font_module.bitmapGlyphKey(codepoint, target_px_u))
+                else
+                    font_data.glyphs.get(codepoint);
+
+                const hb_advance = (@as(f32, @floatFromInt(glyph_pos[i].x_advance)) / 64.0) * metric_scale;
+                const x_advance: f32 = if (use_bitmap) blk: {
+                    if (glyph_opt) |g| break :blk g.advance;
+                    break :blk hb_advance;
+                } else hb_advance;
                 const cluster = glyph_info[i].cluster;
                 const cluster_in_bounds = cluster < text.len;
                 const is_space = cluster_in_bounds and text[cluster] == ' ';
@@ -272,12 +321,12 @@ pub const TextLayouter = struct {
                     }
                 }
 
-                if (font_data.glyphs.get(codepoint)) |glyph| {
-                    const px = x + cursor_x + glyph.bearing[0] * scale;
-                    const py = y + cursor_y + (-glyph.bearing[1] + font_data.ascender) * scale;
+                if (glyph_opt) |glyph| {
+                    const px = x + cursor_x + glyph.bearing[0] * glyph_scale;
+                    const py = y + cursor_y - glyph.bearing[1] * glyph_scale + ascender_target;
 
-                    const pw = glyph.size[0] * scale;
-                    const ph = glyph.size[1] * scale;
+                    const pw = glyph.size[0] * glyph_scale;
+                    const ph = glyph.size[1] * glyph_scale;
 
                     const base_idx: u32 = @intCast(self.vertices.items.len);
                     const sx = snapPixel(px);
@@ -306,14 +355,18 @@ pub const TextLayouter = struct {
             }
 
             if (ellipsis_enabled and truncated and dot_glyph_id != 0) {
-                if (font_data.glyphs.get(dot_glyph_id)) |glyph| {
+                const dot_glyph_opt: ?font_module.GlyphInfo = if (use_bitmap)
+                    font_data.bitmap_glyphs.get(font_module.bitmapGlyphKey(dot_glyph_id, target_px_u))
+                else
+                    font_data.glyphs.get(dot_glyph_id);
+                if (dot_glyph_opt) |glyph| {
                     var dot_i: usize = 0;
                     while (dot_i < 3 and cursor_x + dot_advance <= max_width + 0.01) : (dot_i += 1) {
-                        const px = x + cursor_x + (@as(f32, @floatFromInt(glyph_pos[i].x_offset)) / 64.0 + glyph.bearing[0]) * scale;
-                        const py = y + cursor_y + (@as(f32, @floatFromInt(glyph_pos[i].y_offset)) / 64.0 - glyph.bearing[1] + font_data.ascender) * scale;
+                        const px = x + cursor_x + (@as(f32, @floatFromInt(glyph_pos[i].x_offset)) / 64.0) * metric_scale + glyph.bearing[0] * glyph_scale;
+                        const py = y + cursor_y + (@as(f32, @floatFromInt(glyph_pos[i].y_offset)) / 64.0) * metric_scale - glyph.bearing[1] * glyph_scale + ascender_target;
 
-                        const pw = glyph.size[0] * scale;
-                        const ph = glyph.size[1] * scale;
+                        const pw = glyph.size[0] * glyph_scale;
+                        const ph = glyph.size[1] * glyph_scale;
 
                         const base_idx: u32 = @intCast(self.vertices.items.len);
                         const sx = snapPixel(px);
@@ -384,7 +437,7 @@ pub const TextLayouter = struct {
         text: []const u8,
         options: LayoutOptions,
     ) MeasureResult {
-        if (text.len == 0) return .{ .width = 0, .height = 0, .metrics = &.{} };
+        if (text.len == 0) return .{ .width = 0, .height = 0, .metrics = &.{}, .is_bitmap = false };
 
         c.hb_buffer_clear_contents(self.hb_buffer);
         c.hb_buffer_add_utf8(self.hb_buffer, text.ptr, @intCast(text.len), 0, @intCast(text.len));
@@ -399,9 +452,24 @@ pub const TextLayouter = struct {
         var metrics = std.ArrayList(GlyphMetric).empty;
         defer metrics.deinit(allocator);
 
-        const scale = if (options.font_size > 0.0) (options.font_size / font_data.base_size) else 1.0;
+        const target_size = if (options.font_size > 0.0) options.font_size else font_data.base_size;
+        const use_bitmap = options.font_size > 0.0 and target_size < BITMAP_THRESHOLD_PX;
+        const target_px_u: u32 = if (use_bitmap)
+            @intFromFloat(@max(@round(target_size), 1.0))
+        else
+            0;
+        const target_px_f: f32 = @floatFromInt(target_px_u);
 
-        const line_height = if (options.line_height > 0.0) options.line_height else (font_data.line_height * scale);
+        const metric_scale: f32 = if (use_bitmap)
+            target_px_f / font_data.base_size
+        else if (options.font_size > 0.0)
+            options.font_size / font_data.base_size
+        else
+            1.0;
+        const glyph_scale: f32 = if (use_bitmap) 1.0 else metric_scale;
+        const ascender_target = font_data.ascender * metric_scale;
+
+        const line_height = if (options.line_height > 0.0) options.line_height else (font_data.line_height * metric_scale);
         const max_width = @max(0.0, options.max_width);
         const wrap_enabled = options.wrap and max_width > 0.0;
         const ellipsis_enabled = options.ellipsis and !options.wrap and max_width > 0.0;
@@ -411,11 +479,19 @@ pub const TextLayouter = struct {
 
         if (self.core) |core| {
             if (self.font_registry) |reg| {
-                reg.ensureGlyph(core, font_data, dot_glyph_id) catch {};
+                if (use_bitmap) {
+                    reg.ensureBitmapGlyph(core, font_data, dot_glyph_id, target_px_u) catch {};
+                } else {
+                    reg.ensureGlyph(core, font_data, dot_glyph_id) catch {};
+                }
             }
         }
 
-        const dot_advance = (if (font_data.glyphs.get(dot_glyph_id)) |dot_glyph| dot_glyph.advance else font_data.line_height * 0.33) * scale;
+        const dot_advance: f32 = if (use_bitmap) blk: {
+            const dk = font_module.bitmapGlyphKey(dot_glyph_id, target_px_u);
+            if (font_data.bitmap_glyphs.get(dk)) |bg| break :blk bg.advance;
+            break :blk font_data.line_height * 0.33 * metric_scale;
+        } else (if (font_data.glyphs.get(dot_glyph_id)) |dot_glyph| dot_glyph.advance else font_data.line_height * 0.33) * metric_scale;
         const ellipsis_width = dot_advance * 3.0;
 
         var cursor_x: f32 = 0.0;
@@ -433,13 +509,28 @@ pub const TextLayouter = struct {
 
             if (self.core) |core| {
                 if (self.font_registry) |reg| {
-                    reg.ensureGlyph(core, font_data, codepoint) catch |err| {
-                        std.log.err("TextLayouter: failed to ensure glyph {d}: {s}", .{ codepoint, @errorName(err) });
-                    };
+                    if (use_bitmap) {
+                        reg.ensureBitmapGlyph(core, font_data, codepoint, target_px_u) catch |err| {
+                            std.log.err("TextLayouter: failed to ensure bitmap glyph {d}@{d}px: {s}", .{ codepoint, target_px_u, @errorName(err) });
+                        };
+                    } else {
+                        reg.ensureGlyph(core, font_data, codepoint) catch |err| {
+                            std.log.err("TextLayouter: failed to ensure glyph {d}: {s}", .{ codepoint, @errorName(err) });
+                        };
+                    }
                 }
             }
 
-            const x_advance = (@as(f32, @floatFromInt(glyph_pos[i].x_advance)) / 64.0) * scale;
+            const glyph_opt: ?font_module.GlyphInfo = if (use_bitmap)
+                font_data.bitmap_glyphs.get(font_module.bitmapGlyphKey(codepoint, target_px_u))
+            else
+                font_data.glyphs.get(codepoint);
+
+            const hb_advance = (@as(f32, @floatFromInt(glyph_pos[i].x_advance)) / 64.0) * metric_scale;
+            const x_advance: f32 = if (use_bitmap) blk: {
+                if (glyph_opt) |g| break :blk g.advance;
+                break :blk hb_advance;
+            } else hb_advance;
             const cluster = glyph_info[i].cluster;
             const cluster_in_bounds = cluster < text.len;
             const is_space = cluster_in_bounds and text[cluster] == ' ';
@@ -526,11 +617,11 @@ pub const TextLayouter = struct {
             var uv_min: [2]f32 = .{ 0.0, 0.0 };
             var uv_max: [2]f32 = .{ 0.0, 0.0 };
 
-            if (font_data.glyphs.get(codepoint)) |glyph| {
-                render_x = cursor_x + (@as(f32, @floatFromInt(glyph_pos[i].x_offset)) / 64.0 + glyph.bearing[0]) * scale;
-                render_y = cursor_y + (@as(f32, @floatFromInt(glyph_pos[i].y_offset)) / 64.0 - glyph.bearing[1] + font_data.ascender) * scale;
-                render_w = glyph.size[0] * scale;
-                render_h = glyph.size[1] * scale;
+            if (glyph_opt) |glyph| {
+                render_x = cursor_x + (@as(f32, @floatFromInt(glyph_pos[i].x_offset)) / 64.0) * metric_scale + glyph.bearing[0] * glyph_scale;
+                render_y = cursor_y + (@as(f32, @floatFromInt(glyph_pos[i].y_offset)) / 64.0) * metric_scale - glyph.bearing[1] * glyph_scale + ascender_target;
+                render_w = glyph.size[0] * glyph_scale;
+                render_h = glyph.size[1] * glyph_scale;
                 uv_min = glyph.uv_min;
                 uv_max = glyph.uv_max;
                 is_visible = !is_space and !is_newline;
@@ -556,7 +647,10 @@ pub const TextLayouter = struct {
         }
 
         if (ellipsis_enabled and truncated) {
-            const dot_glyph = font_data.glyphs.get(dot_glyph_id);
+            const dot_glyph: ?font_module.GlyphInfo = if (use_bitmap)
+                font_data.bitmap_glyphs.get(font_module.bitmapGlyphKey(dot_glyph_id, target_px_u))
+            else
+                font_data.glyphs.get(dot_glyph_id);
             var dot_i: usize = 0;
             while (dot_i < 3 and cursor_x + dot_advance <= max_width + 0.01) : (dot_i += 1) {
                 var is_visible = false;
@@ -568,10 +662,10 @@ pub const TextLayouter = struct {
                 var uv_max: [2]f32 = .{ 0.0, 0.0 };
 
                 if (dot_glyph) |glyph| {
-                    render_x = cursor_x + glyph.bearing[0] * scale;
-                    render_y = cursor_y + (-glyph.bearing[1] + font_data.ascender) * scale;
-                    render_w = glyph.size[0] * scale;
-                    render_h = glyph.size[1] * scale;
+                    render_x = cursor_x + glyph.bearing[0] * glyph_scale;
+                    render_y = cursor_y - glyph.bearing[1] * glyph_scale + ascender_target;
+                    render_w = glyph.size[0] * glyph_scale;
+                    render_h = glyph.size[1] * glyph_scale;
                     uv_min = glyph.uv_min;
                     uv_max = glyph.uv_max;
                     is_visible = true;
@@ -604,6 +698,7 @@ pub const TextLayouter = struct {
                 .width = max_x,
                 .height = final_height,
                 .metrics = &.{},
+                .is_bitmap = use_bitmap,
             };
         }
 
@@ -614,6 +709,7 @@ pub const TextLayouter = struct {
             .width = max_x,
             .height = final_height,
             .metrics = owned_metrics,
+            .is_bitmap = use_bitmap,
         };
     }
 

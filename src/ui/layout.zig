@@ -450,6 +450,8 @@ pub const TextLayoutCache = struct {
     ellipsis: bool = false,
     line_height: f32 = 0.0,
     font_size: f32 = 0.0,
+    /// True when glyph UVs index into `font.bitmap_atlas_tex_id` (FT-hinted path).
+    is_bitmap: bool = false,
     metrics: []TextLayoutMetric = &.{},
 
     pub fn clear(self: *TextLayoutCache, allocator: anytype) void {
@@ -584,6 +586,7 @@ fn updateTextLayoutCache(node: anytype, text_layouter: anytype, font: anytype, t
 
     cache.width = measured.width;
     cache.height = measured.height;
+    cache.is_bitmap = measured.is_bitmap;
 
     if (measured.metrics.len == 0) return;
 

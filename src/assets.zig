@@ -7,6 +7,7 @@ pub const EFFECT_SDF_ROUNDED: u32 = 1 << 16;
 pub const EFFECT_BACKDROP_BLUR: u32 = 1 << 17;
 pub const EFFECT_MSDF_TEXT: u32 = 1 << 18;
 pub const EFFECT_ELEMENT_BLUR: u32 = 1 << 19;
+pub const EFFECT_BITMAP_TEXT: u32 = 1 << 20;
 
 pub const NO_TEXTURE: u32 = 0xFFFF;
 

@@ -105,9 +105,23 @@ void main() {
         baseColor.a   = 1.0;
     }
 
-    // Foreground texture (skip for MSDF – handled below).
-    if (texIdx != 0xFFFFu && (flags & (1u << 2)) == 0u) {
+    // Foreground texture (skip for MSDF/bitmap text – handled below).
+    if (texIdx != 0xFFFFu && (flags & (1u << 2)) == 0u && (flags & (1u << 4)) == 0u) {
         baseColor *= texture(textures[nonuniformEXT(texIdx)], fragUV);
+    }
+
+    // Hinted bitmap text alpha. Atlas stores coverage replicated to RGBA.
+    // fragCornerRadii.x = font_weight (0..1+). Lower weight => thinner; higher => heavier.
+    // Gamma-based stem darkening: at default weight 0.7 -> exp 0.55 (moderate thickening)
+    // to roughly match MSDF visual weight at the crossover.
+    if ((flags & (1u << 4)) != 0u) { // EFFECT_BITMAP_TEXT
+        float cov = texture(textures[nonuniformEXT(texIdx)], fragUV).r;
+        float bw = fragCornerRadii.x;
+        if (bw <= 0.0) bw = 0.7;
+        float gamma_exp = clamp(1.0 - bw, 0.2, 2.0);
+        cov = pow(cov, gamma_exp);
+        baseColor.a *= cov;
+        baseColor.rgb *= cov;
     }
 
     // MSDF text alpha.
@@ -204,19 +218,33 @@ void main() {
                     unpackUnorm4x8(fragOutlineColors.w) * ow_mix.w) / ow_mix_sum
             : vec4(0.0);
 
-        // Composite: inner -> border -> outline
-        // Inner region: base colour clipped to (inside shape) ∩ (not in border zone).
-        baseColor.a *= (1.0 - border_cov) * shape_cov;
+        // CSS box-model compositing (background-clip: border-box):
+        //   - background fills the entire SHAPE (inner_cov + border_cov region)
+        //   - border draws ON TOP of the background in the border zone
+        //   - outline draws OUTSIDE the shape; no background under it
+        // The fragment is partitioned spatially by SDF coverage; per-region
+        // colours are then mosaic-composited so AA bands don't double-count.
+        vec3 border_zone_rgb;
+        float border_zone_a;
+        {
+            // Effective colour in the border region: bg with border composited over.
+            float ba = border_col.a;
+            border_zone_a = baseColor.a + ba * (1.0 - baseColor.a);
+            if (border_zone_a > eps) {
+                border_zone_rgb = (baseColor.rgb * baseColor.a * (1.0 - ba) + border_col.rgb * ba) / border_zone_a;
+            } else {
+                border_zone_rgb = vec3(0.0);
+            }
+        }
 
-        // Border on top of inner.
-        float ba = border_cov * shape_cov * border_col.a;
-        baseColor.rgb = mix(baseColor.rgb, border_col.rgb, ba);
-        baseColor.a   = baseColor.a + ba * (1.0 - baseColor.a);
-
-        // Outline on top of everything.
-        float oa = outline_cov * outline_col.a;
-        baseColor.rgb = mix(baseColor.rgb, outline_col.rgb, oa);
-        baseColor.a   = baseColor.a + oa * (1.0 - baseColor.a);
+        float ia = baseColor.a * inner_cov;
+        float ba_w = border_zone_a * border_cov;
+        float oa_w = outline_col.a * outline_cov;
+        float total_a = ia + ba_w + oa_w;
+        if (total_a > eps) {
+            baseColor.rgb = (baseColor.rgb * ia + border_zone_rgb * ba_w + outline_col.rgb * oa_w) / total_a;
+        }
+        baseColor.a = total_a;
     }
 
     baseColor.a *= rounded_clip_cov;

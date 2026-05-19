@@ -70,6 +70,7 @@ const AppState = struct {
 
 const transparent = [4]f32{ 0.0, 0.0, 0.0, 0.0 };
 const pill_bg = [4]f32{ 0.10, 0.10, 0.16, 0.92 };
+const pill_border = [4]f32{ 1.0, 0.2, 0.6, 1.0 };
 const panel_bg = [4]f32{ 0.08, 0.09, 0.14, 0.96 };
 const menu_bg = [4]f32{ 0.08, 0.09, 0.14, 0.98 };
 const fg = [4]f32{ 0.88, 0.90, 0.96, 1.0 };
@@ -181,6 +182,7 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
             tw.p_each_px(4, 12, 4, 6),
             tw.bg_value(pill_bg),
             tw.rounded(pill_radius),
+            tw.border_value(2.0, pill_border),
         }),
         .children = left_items.items,
     });
@@ -193,6 +195,7 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
             tw.p_xy_px(16, 4),
             tw.bg_value(pill_bg),
             tw.rounded(pill_radius),
+            tw.border_value(2.0, pill_border),
         }),
         .children = &.{try ux.text(.{
             .content = try std.fmt.allocPrint(arena, "{s} {d:0>2} {s}  {d:0>2}:{d:0>2}", .{
@@ -252,6 +255,7 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
             tw.p_xy_px(14, 4),
             tw.bg_value(pill_bg),
             tw.rounded(pill_radius),
+            tw.border_value(2.0, pill_border),
         }),
         .children = right_items.items,
     });

@@ -557,8 +557,13 @@ pub fn Node(comptime MessageT: type) type {
                         const cache = self.layout_result.text_cache;
                         const selection_color = colorWithOpacity(.{ 0.2, 0.4, 0.8, 0.5 }, combined_opacity);
                         const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
-                        const combined_id: u32 = assets.EFFECT_MSDF_TEXT | (t.font.atlas_tex_id & 0xFFFF);
-                        const glyph_corner_radii = [4]f32{ self.style.font_weight, t.font.sdf_padding, 0, 0 };
+                        const text_atlas_id: u32 = if (cache.is_bitmap) t.font.bitmap_atlas_tex_id else t.font.atlas_tex_id;
+                        const text_effect: u32 = if (cache.is_bitmap) assets.EFFECT_BITMAP_TEXT else assets.EFFECT_MSDF_TEXT;
+                        const combined_id: u32 = text_effect | (text_atlas_id & 0xFFFF);
+                        const glyph_corner_radii: [4]f32 = if (cache.is_bitmap)
+                            [4]f32{ self.style.font_weight, 0, 0, 0 }
+                        else
+                            [4]f32{ self.style.font_weight, t.font.sdf_padding, 0, 0 };
 
                         if (self.text_selection) |sel| {
                             const start = @min(sel.anchor, sel.focus);
@@ -641,8 +646,13 @@ pub fn Node(comptime MessageT: type) type {
                         else
                             self.style.text_color;
                         const text_color = colorWithOpacity(base_color, combined_opacity);
-                        const combined_id: u32 = assets.EFFECT_MSDF_TEXT | (ti.font.atlas_tex_id & 0xFFFF);
-                        const glyph_corner_radii = [4]f32{ self.style.font_weight, ti.font.sdf_padding, 0, 0 };
+                        const text_atlas_id: u32 = if (cache.is_bitmap) ti.font.bitmap_atlas_tex_id else ti.font.atlas_tex_id;
+                        const text_effect: u32 = if (cache.is_bitmap) assets.EFFECT_BITMAP_TEXT else assets.EFFECT_MSDF_TEXT;
+                        const combined_id: u32 = text_effect | (text_atlas_id & 0xFFFF);
+                        const glyph_corner_radii: [4]f32 = if (cache.is_bitmap)
+                            [4]f32{ self.style.font_weight, 0, 0, 0 }
+                        else
+                            [4]f32{ self.style.font_weight, ti.font.sdf_padding, 0, 0 };
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
@@ -819,8 +829,13 @@ pub fn Node(comptime MessageT: type) type {
                         }
 
                         const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
-                        const combined_id: u32 = assets.EFFECT_MSDF_TEXT | (ta.font.atlas_tex_id & 0xFFFF);
-                        const glyph_corner_radii = [4]f32{ self.style.font_weight, ta.font.sdf_padding, 0, 0 };
+                        const text_atlas_id: u32 = if (cache.is_bitmap) ta.font.bitmap_atlas_tex_id else ta.font.atlas_tex_id;
+                        const text_effect: u32 = if (cache.is_bitmap) assets.EFFECT_BITMAP_TEXT else assets.EFFECT_MSDF_TEXT;
+                        const combined_id: u32 = text_effect | (text_atlas_id & 0xFFFF);
+                        const glyph_corner_radii: [4]f32 = if (cache.is_bitmap)
+                            [4]f32{ self.style.font_weight, 0, 0, 0 }
+                        else
+                            [4]f32{ self.style.font_weight, ta.font.sdf_padding, 0, 0 };
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
@@ -897,8 +912,13 @@ pub fn Node(comptime MessageT: type) type {
                         const cache = self.layout_result.text_cache;
                         const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
                         const font = img.alt_font.?;
-                        const combined_id: u32 = assets.EFFECT_MSDF_TEXT | (font.atlas_tex_id & 0xFFFF);
-                        const glyph_corner_radii = [4]f32{ self.style.font_weight, font.sdf_padding, 0, 0 };
+                        const text_atlas_id: u32 = if (cache.is_bitmap) font.bitmap_atlas_tex_id else font.atlas_tex_id;
+                        const text_effect: u32 = if (cache.is_bitmap) assets.EFFECT_BITMAP_TEXT else assets.EFFECT_MSDF_TEXT;
+                        const combined_id: u32 = text_effect | (text_atlas_id & 0xFFFF);
+                        const glyph_corner_radii: [4]f32 = if (cache.is_bitmap)
+                            [4]f32{ self.style.font_weight, 0, 0, 0 }
+                        else
+                            [4]f32{ self.style.font_weight, font.sdf_padding, 0, 0 };
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
