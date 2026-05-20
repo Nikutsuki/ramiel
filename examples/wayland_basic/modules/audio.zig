@@ -15,26 +15,29 @@ pub fn poll(io: std.Io) State {
     }) catch return .{};
     var mutable_child = child;
 
+    // Read the whole reply; takeDelimiter errors if the newline hasn't arrived yet.
     var buf: [256]u8 = undefined;
     var reader = mutable_child.stdout.?.reader(io, &buf);
-    const line = reader.interface.takeDelimiter('\n') catch null;
+    const out = reader.interface.allocRemaining(std.heap.page_allocator, .limited(256)) catch {
+        _ = mutable_child.wait(io) catch {};
+        return .{};
+    };
+    defer std.heap.page_allocator.free(out);
 
     _ = mutable_child.wait(io) catch {};
 
-    if (line) |l| {
-        return parse(l);
-    }
-    return .{};
+    return parse(out);
 }
 
-fn parse(line: []const u8) State {
-    // "Volume: 0.50" or "Volume: 0.50 [MUTED]"
+fn parse(raw: []const u8) State {
+    // "Volume: 0.50" or "Volume: 0.50 [MUTED]" (with a trailing newline).
+    const line = std.mem.trim(u8, raw, " \t\r\n");
     const prefix = "Volume: ";
     if (!std.mem.startsWith(u8, line, prefix)) return .{};
     const rest = line[prefix.len..];
 
     const space = std.mem.indexOfScalar(u8, rest, ' ');
-    const vol_str = if (space) |s| rest[0..s] else rest;
+    const vol_str = std.mem.trim(u8, if (space) |s| rest[0..s] else rest, " \t\r\n");
 
     const vol = std.fmt.parseFloat(f64, vol_str) catch return .{};
     const pct: u8 = @intFromFloat(std.math.clamp(vol * 100.0, 0.0, 100.0));

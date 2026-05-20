@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) void {
     const zglfw_dep = b.dependency("zglfw", .{ .target = target, .optimize = optimize });
     const glfw_c_dep = b.dependency("glfw_zig", .{ .target = target, .optimize = optimize });
     const harfbuzz_dep = b.dependency("harfbuzz", .{ .target = target, .optimize = optimize, .@"enable-freetype" = true });
-    const freetype_dep = b.dependency("freetype", .{ .target = target, .optimize = optimize });
+    const freetype_dep = b.dependency("freetype", .{ .target = target, .optimize = optimize, .@"enable-libpng" = true });
     const msdfgen_dep = b.dependency("msdfgen", .{ .target = target, .optimize = optimize });
     const tracy_dep = b.dependency("tracy", .{ .target = target, .optimize = optimize });
     const nfd_dep = b.dependency("nfd", .{ .target = target, .optimize = optimize });

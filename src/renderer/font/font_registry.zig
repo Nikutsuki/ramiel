@@ -63,6 +63,14 @@ pub const FontData = struct {
     sdf_padding: f32,
     base_size: f32,
 
+    /// True for fonts with embedded color bitmaps (CBDT/CBLC, sbix, Apple).
+    /// Such fonts always render via the bitmap atlas as straight-alpha RGBA.
+    is_color: bool = false,
+    /// Native pixel size of the selected color strike (0 for non-color fonts).
+    color_strike_px: u32 = 0,
+    /// Index into `available_sizes` of the selected strike (color fonts only).
+    color_strike_index: i32 = 0,
+
     pub fn deinit(self: *FontData, core: *const Core) void {
         self.glyphs.deinit();
         self.bitmap_glyphs.deinit();
@@ -140,13 +148,38 @@ pub const FontRegistry = struct {
         const face_bitmap = try self.openFace(source);
         errdefer _ = c.FT_Done_Face(face_bitmap);
 
-        _ = c.FT_Set_Pixel_Sizes(face, 0, base_resolution);
+        const is_color = (face.*.face_flags & c.FT_FACE_FLAG_COLOR) != 0 and face.*.num_fixed_sizes > 0;
+
+        var color_strike_index: i32 = 0;
+        var color_strike_px: u32 = 0;
+        if (is_color) {
+            // Pick the largest available strike; emoji fonts usually ship one.
+            var best_idx: i32 = 0;
+            var best_h: c_int = 0;
+            var si: i32 = 0;
+            while (si < face.*.num_fixed_sizes) : (si += 1) {
+                const h = face.*.available_sizes[@intCast(si)].height;
+                if (h > best_h) {
+                    best_h = h;
+                    best_idx = si;
+                }
+            }
+            color_strike_index = best_idx;
+            color_strike_px = @intCast(@max(best_h, 1));
+            _ = c.FT_Select_Size(face, best_idx);
+            _ = c.FT_Select_Size(face_bitmap, best_idx);
+        } else {
+            _ = c.FT_Set_Pixel_Sizes(face, 0, base_resolution);
+        }
 
         const metrics = face.*.size.*.metrics;
         const ft_line_height = @as(f32, @floatFromInt(metrics.height)) / 64.0;
         const ft_ascender = @as(f32, @floatFromInt(metrics.ascender)) / 64.0;
         const ft_descender = @as(f32, @floatFromInt(metrics.descender)) / 64.0;
 
+        // Color fonts scale relative to their native strike size; everyone else
+        // scales relative to the requested base resolution.
+        const base_size_px: f32 = if (is_color) @floatFromInt(color_strike_px) else @floatFromInt(base_resolution);
         const sdf_padding = @max(2.0, @as(f32, @floatFromInt(base_resolution)) * 0.25);
 
         const hb_font = c.hb_ft_font_create(face, null) orelse return error.HarfBuzzFontCreationFailed;
@@ -202,7 +235,11 @@ pub const FontRegistry = struct {
             .ascender = ascender,
             .descender = descender,
             .sdf_padding = sdf_padding,
-            .base_size = @as(f32, @floatFromInt(base_resolution)),
+            .base_size = base_size_px,
+
+            .is_color = is_color,
+            .color_strike_px = color_strike_px,
+            .color_strike_index = color_strike_index,
         });
     }
 
@@ -302,11 +339,16 @@ pub const FontRegistry = struct {
         if (font_data.bitmap_glyphs.contains(key)) return;
 
         if (font_data.bitmap_face_px != pixel_size) {
-            if (c.FT_Set_Pixel_Sizes(font_data.ft_face_bitmap, 0, pixel_size) != 0) return error.FTSetSizeFailed;
+            if (font_data.is_color) {
+                if (c.FT_Select_Size(font_data.ft_face_bitmap, font_data.color_strike_index) != 0) return error.FTSetSizeFailed;
+            } else {
+                if (c.FT_Set_Pixel_Sizes(font_data.ft_face_bitmap, 0, pixel_size) != 0) return error.FTSetSizeFailed;
+            }
             font_data.bitmap_face_px = pixel_size;
         }
 
-        const load_flags: c_int = @as(c_int, c.FT_LOAD_RENDER) | @as(c_int, c.FT_LOAD_TARGET_NORMAL);
+        var load_flags: c_int = @as(c_int, c.FT_LOAD_RENDER) | @as(c_int, c.FT_LOAD_TARGET_NORMAL);
+        if (font_data.is_color) load_flags |= @as(c_int, c.FT_LOAD_COLOR);
         if (c.FT_Load_Glyph(font_data.ft_face_bitmap, glyph_index, load_flags) != 0) return error.FTLoadFailed;
 
         const slot = font_data.ft_face_bitmap.*.glyph;
@@ -356,18 +398,41 @@ pub const FontRegistry = struct {
         const src_buffer = bitmap.buffer;
         const pitch: i32 = bitmap.pitch;
         const pitch_abs: u32 = @intCast(if (pitch < 0) -pitch else pitch);
+        const is_bgra = bitmap.pixel_mode == c.FT_PIXEL_MODE_BGRA;
         var row: u32 = 0;
         while (row < bh) : (row += 1) {
             const src_row_index: u32 = if (pitch < 0) (bh - 1 - row) else row;
             const src_row = @as([*]const u8, @ptrCast(src_buffer)) + src_row_index * pitch_abs;
             var col: u32 = 0;
             while (col < bw) : (col += 1) {
-                const cov = src_row[col];
                 const dst = (row * bw + col) * 4;
-                mapped_ptr[dst + 0] = cov;
-                mapped_ptr[dst + 1] = cov;
-                mapped_ptr[dst + 2] = cov;
-                mapped_ptr[dst + 3] = cov;
+                if (is_bgra) {
+                    // FreeType color bitmaps are premultiplied BGRA. Un-premultiply
+                    // to straight-alpha RGBA so it composites under the pipeline's
+                    // src_alpha / one_minus_src_alpha blend like other textures.
+                    const b = src_row[col * 4 + 0];
+                    const g = src_row[col * 4 + 1];
+                    const r = src_row[col * 4 + 2];
+                    const a = src_row[col * 4 + 3];
+                    if (a == 0) {
+                        mapped_ptr[dst + 0] = 0;
+                        mapped_ptr[dst + 1] = 0;
+                        mapped_ptr[dst + 2] = 0;
+                        mapped_ptr[dst + 3] = 0;
+                    } else {
+                        const af: u32 = a;
+                        mapped_ptr[dst + 0] = @intCast(@min(@as(u32, 255), @as(u32, r) * 255 / af));
+                        mapped_ptr[dst + 1] = @intCast(@min(@as(u32, 255), @as(u32, g) * 255 / af));
+                        mapped_ptr[dst + 2] = @intCast(@min(@as(u32, 255), @as(u32, b) * 255 / af));
+                        mapped_ptr[dst + 3] = a;
+                    }
+                } else {
+                    const cov = src_row[col];
+                    mapped_ptr[dst + 0] = cov;
+                    mapped_ptr[dst + 1] = cov;
+                    mapped_ptr[dst + 2] = cov;
+                    mapped_ptr[dst + 3] = cov;
+                }
             }
         }
 

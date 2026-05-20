@@ -11,6 +11,7 @@ const c = font_module.c;
 const assets = @import("../../assets.zig");
 const EFFECT_MSDF_TEXT = assets.EFFECT_MSDF_TEXT;
 const EFFECT_BITMAP_TEXT = assets.EFFECT_BITMAP_TEXT;
+const EFFECT_COLOR_GLYPH = assets.EFFECT_COLOR_GLYPH;
 
 /// Below this effective pixel size, glyphs render via the FreeType-hinted bitmap atlas.
 /// At or above, they render via MSDF.
@@ -45,6 +46,14 @@ pub const GlyphMetric = struct {
     uv_min: [2]f32,
     uv_max: [2]f32,
     is_visible: bool,
+
+    /// Bindless atlas index this glyph samples from. With font fallback a single
+    /// run can mix atlases (e.g. text in the MSDF atlas, emoji in the color one).
+    atlas_id: u32 = 0,
+    /// EFFECT_MSDF_TEXT / EFFECT_BITMAP_TEXT / EFFECT_COLOR_GLYPH for this glyph.
+    effect: u32 = 0,
+    /// MSDF px-range padding for this glyph's font (0 for bitmap/color glyphs).
+    sdf_padding: f32 = 0,
 };
 
 pub const MeasureResult = struct {
@@ -77,6 +86,9 @@ pub const TextLayouter = struct {
 
     core: ?*const Core = null,
     font_registry: ?*FontRegistry = null,
+    /// Back-pointer to the owning FontSystem, used for per-codepoint font
+    /// fallback during measurement. Null until the first font is loaded.
+    font_system: ?*FontSystem = null,
 
     pub fn init(allocator: std.mem.Allocator) !TextLayouter {
         const hb_buffer = c.hb_buffer_create() orelse return error.HarfBuzzBufferCreationFailed;
@@ -430,6 +442,62 @@ pub const TextLayouter = struct {
         });
     }
 
+    /// Resolve which loaded font should render `cp`, preferring the requested
+    /// (primary) font and falling back through the FontSystem's default chain.
+    /// Returns `primary` when nothing in the chain has the glyph (renders tofu).
+    fn resolveFontForCp(self: *TextLayouter, primary: *FontData, cp: u21) *FontData {
+        if (c.FT_Get_Char_Index(primary.ft_face, cp) != 0) return primary;
+        if (self.font_system) |fs| {
+            for (fs.default_fallback_chain.items) |name| {
+                if (fs.font_registry.fonts.getPtr(name)) |fd| {
+                    if (fd != primary and c.FT_Get_Char_Index(fd.ft_face, cp) != 0) return fd;
+                }
+            }
+        }
+        return primary;
+    }
+
+    /// Per-segment rendering parameters derived from a run's resolved font.
+    const SegParams = struct {
+        font: *FontData,
+        is_color: bool,
+        use_bitmap: bool,
+        target_px_u: u32,
+        metric_scale: f32,
+        glyph_scale: f32,
+        atlas_id: u32,
+        effect: u32,
+        sdf_padding: f32,
+    };
+
+    fn deriveSegParams(font: *FontData, target_size: f32, font_size: f32) SegParams {
+        const is_color = font.is_color;
+        const use_bitmap = is_color or (font_size > 0.0 and target_size < BITMAP_THRESHOLD_PX);
+        const target_px_u: u32 = if (is_color)
+            font.color_strike_px
+        else if (use_bitmap)
+            @intFromFloat(@max(@round(target_size), 1.0))
+        else
+            0;
+        const metric_scale: f32 = if (is_color)
+            target_size / font.base_size
+        else if (use_bitmap)
+            @as(f32, @floatFromInt(target_px_u)) / font.base_size
+        else
+            target_size / font.base_size;
+        return .{
+            .font = font,
+            .is_color = is_color,
+            .use_bitmap = use_bitmap,
+            .target_px_u = target_px_u,
+            .metric_scale = metric_scale,
+            .glyph_scale = if (use_bitmap and !is_color) 1.0 else metric_scale,
+            .atlas_id = if (use_bitmap) font.bitmap_atlas_tex_id else font.atlas_tex_id,
+            .effect = if (is_color) EFFECT_COLOR_GLYPH else if (use_bitmap) EFFECT_BITMAP_TEXT else EFFECT_MSDF_TEXT,
+            .sdf_padding = if (use_bitmap) 0 else font.sdf_padding,
+        };
+    }
+
     pub fn measureTextWithOptions(
         self: *TextLayouter,
         allocator: std.mem.Allocator,
@@ -439,216 +507,240 @@ pub const TextLayouter = struct {
     ) MeasureResult {
         if (text.len == 0) return .{ .width = 0, .height = 0, .metrics = &.{}, .is_bitmap = false };
 
-        c.hb_buffer_clear_contents(self.hb_buffer);
-        c.hb_buffer_add_utf8(self.hb_buffer, text.ptr, @intCast(text.len), 0, @intCast(text.len));
-        c.hb_buffer_guess_segment_properties(self.hb_buffer);
-
-        c.hb_shape(font_data.hb_font, self.hb_buffer, null, 0);
-
-        var glyph_count: u32 = 0;
-        const glyph_info = c.hb_buffer_get_glyph_infos(self.hb_buffer, &glyph_count);
-        const glyph_pos = c.hb_buffer_get_glyph_positions(self.hb_buffer, &glyph_count);
-
         var metrics = std.ArrayList(GlyphMetric).empty;
         defer metrics.deinit(allocator);
 
+        // Target size and the baseline/line box come from the primary (requested)
+        // font, so a mixed-font run (e.g. text plus fallback emoji) shares one
+        // baseline rather than each segment using its own ascender.
         const target_size = if (options.font_size > 0.0) options.font_size else font_data.base_size;
-        const use_bitmap = options.font_size > 0.0 and target_size < BITMAP_THRESHOLD_PX;
-        const target_px_u: u32 = if (use_bitmap)
-            @intFromFloat(@max(@round(target_size), 1.0))
-        else
-            0;
-        const target_px_f: f32 = @floatFromInt(target_px_u);
+        const primary = deriveSegParams(font_data, target_size, options.font_size);
+        const ascender_target = font_data.ascender * primary.metric_scale;
+        const line_height = if (options.line_height > 0.0) options.line_height else (font_data.line_height * primary.metric_scale);
 
-        const metric_scale: f32 = if (use_bitmap)
-            target_px_f / font_data.base_size
-        else if (options.font_size > 0.0)
-            options.font_size / font_data.base_size
-        else
-            1.0;
-        const glyph_scale: f32 = if (use_bitmap) 1.0 else metric_scale;
-        const ascender_target = font_data.ascender * metric_scale;
-
-        const line_height = if (options.line_height > 0.0) options.line_height else (font_data.line_height * metric_scale);
         const max_width = @max(0.0, options.max_width);
         const wrap_enabled = options.wrap and max_width > 0.0;
         const ellipsis_enabled = options.ellipsis and !options.wrap and max_width > 0.0;
         const clip_enabled = !options.wrap and !options.ellipsis and max_width > 0.0;
 
         const dot_glyph_id: u32 = @intCast(c.FT_Get_Char_Index(font_data.ft_face, '.'));
-
         if (self.core) |core| {
             if (self.font_registry) |reg| {
-                if (use_bitmap) {
-                    reg.ensureBitmapGlyph(core, font_data, dot_glyph_id, target_px_u) catch {};
+                if (primary.use_bitmap) {
+                    reg.ensureBitmapGlyph(core, font_data, dot_glyph_id, primary.target_px_u) catch {};
                 } else {
                     reg.ensureGlyph(core, font_data, dot_glyph_id) catch {};
                 }
             }
         }
-
-        const dot_advance: f32 = if (use_bitmap) blk: {
-            const dk = font_module.bitmapGlyphKey(dot_glyph_id, target_px_u);
-            if (font_data.bitmap_glyphs.get(dk)) |bg| break :blk bg.advance;
-            break :blk font_data.line_height * 0.33 * metric_scale;
-        } else (if (font_data.glyphs.get(dot_glyph_id)) |dot_glyph| dot_glyph.advance else font_data.line_height * 0.33) * metric_scale;
+        const dot_advance: f32 = if (primary.use_bitmap) blk: {
+            const dk = font_module.bitmapGlyphKey(dot_glyph_id, primary.target_px_u);
+            if (font_data.bitmap_glyphs.get(dk)) |bg| break :blk bg.advance * primary.glyph_scale;
+            break :blk font_data.line_height * 0.33 * primary.metric_scale;
+        } else (if (font_data.glyphs.get(dot_glyph_id)) |dot_glyph| dot_glyph.advance else font_data.line_height * 0.33) * primary.metric_scale;
         const ellipsis_width = dot_advance * 3.0;
+
+        // Split the text into runs of a single resolved font (font fallback).
+        const Segment = struct { font: *FontData, start: usize, end: usize };
+        var segments = std.ArrayList(Segment).empty;
+        defer segments.deinit(allocator);
+        if (std.unicode.Utf8View.init(text)) |view| {
+            var iter = view.iterator();
+            var cur_font: ?*FontData = null;
+            var cur_start: usize = 0;
+            while (iter.nextCodepointSlice()) |slice| {
+                const cp = std.unicode.utf8Decode(slice) catch continue;
+                const off = @intFromPtr(slice.ptr) - @intFromPtr(text.ptr);
+                const f = self.resolveFontForCp(font_data, cp);
+                if (cur_font == null) {
+                    cur_font = f;
+                    cur_start = off;
+                } else if (cur_font.? != f) {
+                    segments.append(allocator, .{ .font = cur_font.?, .start = cur_start, .end = off }) catch @panic("OOM in TextLayouter");
+                    cur_font = f;
+                    cur_start = off;
+                }
+            }
+            if (cur_font) |f| segments.append(allocator, .{ .font = f, .start = cur_start, .end = text.len }) catch @panic("OOM in TextLayouter");
+        } else |_| {
+            segments.append(allocator, .{ .font = font_data, .start = 0, .end = text.len }) catch @panic("OOM in TextLayouter");
+        }
 
         var cursor_x: f32 = 0.0;
         var cursor_y: f32 = 0.0;
         var max_x: f32 = 0.0;
         var truncated = false;
+        var stop = false;
 
-        var last_safe_break: ?usize = null;
         var last_safe_break_x: f32 = 0.0;
+        var have_safe_break = false;
         var last_safe_break_metric_idx: usize = 0;
 
-        var i: usize = 0;
-        while (i < glyph_count) : (i += 1) {
-            const codepoint = glyph_info[i].codepoint;
+        for (segments.items) |segment| {
+            if (stop) break;
+            const seg = deriveSegParams(segment.font, target_size, options.font_size);
 
-            if (self.core) |core| {
-                if (self.font_registry) |reg| {
-                    if (use_bitmap) {
-                        reg.ensureBitmapGlyph(core, font_data, codepoint, target_px_u) catch |err| {
-                            std.log.err("TextLayouter: failed to ensure bitmap glyph {d}@{d}px: {s}", .{ codepoint, target_px_u, @errorName(err) });
-                        };
-                    } else {
-                        reg.ensureGlyph(core, font_data, codepoint) catch |err| {
-                            std.log.err("TextLayouter: failed to ensure glyph {d}: {s}", .{ codepoint, @errorName(err) });
-                        };
+            c.hb_buffer_clear_contents(self.hb_buffer);
+            c.hb_buffer_add_utf8(self.hb_buffer, text.ptr, @intCast(text.len), @intCast(segment.start), @intCast(segment.end - segment.start));
+            c.hb_buffer_guess_segment_properties(self.hb_buffer);
+            c.hb_shape(seg.font.hb_font, self.hb_buffer, null, 0);
+
+            var glyph_count: u32 = 0;
+            const glyph_info = c.hb_buffer_get_glyph_infos(self.hb_buffer, &glyph_count);
+            const glyph_pos = c.hb_buffer_get_glyph_positions(self.hb_buffer, &glyph_count);
+
+            var j: usize = 0;
+            while (j < glyph_count) : (j += 1) {
+                const codepoint = glyph_info[j].codepoint;
+
+                if (self.core) |core| {
+                    if (self.font_registry) |reg| {
+                        if (seg.use_bitmap) {
+                            reg.ensureBitmapGlyph(core, seg.font, codepoint, seg.target_px_u) catch |err| {
+                                std.log.err("TextLayouter: failed to ensure bitmap glyph {d}@{d}px: {s}", .{ codepoint, seg.target_px_u, @errorName(err) });
+                            };
+                        } else {
+                            reg.ensureGlyph(core, seg.font, codepoint) catch |err| {
+                                std.log.err("TextLayouter: failed to ensure glyph {d}: {s}", .{ codepoint, @errorName(err) });
+                            };
+                        }
                     }
                 }
-            }
 
-            const glyph_opt: ?font_module.GlyphInfo = if (use_bitmap)
-                font_data.bitmap_glyphs.get(font_module.bitmapGlyphKey(codepoint, target_px_u))
-            else
-                font_data.glyphs.get(codepoint);
+                const glyph_opt: ?font_module.GlyphInfo = if (seg.use_bitmap)
+                    seg.font.bitmap_glyphs.get(font_module.bitmapGlyphKey(codepoint, seg.target_px_u))
+                else
+                    seg.font.glyphs.get(codepoint);
 
-            const hb_advance = (@as(f32, @floatFromInt(glyph_pos[i].x_advance)) / 64.0) * metric_scale;
-            const x_advance: f32 = if (use_bitmap) blk: {
-                if (glyph_opt) |g| break :blk g.advance;
-                break :blk hb_advance;
-            } else hb_advance;
-            const cluster = glyph_info[i].cluster;
-            const cluster_in_bounds = cluster < text.len;
-            const is_space = cluster_in_bounds and text[cluster] == ' ';
-            const is_newline = cluster_in_bounds and text[cluster] == '\n';
+                const hb_advance = (@as(f32, @floatFromInt(glyph_pos[j].x_advance)) / 64.0) * seg.metric_scale;
+                const x_advance: f32 = if (seg.use_bitmap) blk: {
+                    if (glyph_opt) |g| break :blk g.advance * seg.glyph_scale;
+                    break :blk hb_advance;
+                } else hb_advance;
+                const cluster = glyph_info[j].cluster;
+                const cluster_in_bounds = cluster < text.len;
+                const is_space = cluster_in_bounds and text[cluster] == ' ';
+                const is_newline = cluster_in_bounds and text[cluster] == '\n';
 
-            const byte_length: usize = if (i + 1 < glyph_count)
-                glyph_info[i + 1].cluster - cluster
-            else
-                text.len - cluster;
+                const byte_length: usize = if (j + 1 < glyph_count)
+                    glyph_info[j + 1].cluster - cluster
+                else
+                    segment.end - cluster;
 
-            if (is_newline) {
-                metrics.append(allocator, .{
-                    .x = cursor_x,
-                    .y = cursor_y,
-                    .width = 0.0,
-                    .height = line_height,
-                    .byte_offset = cluster,
-                    .byte_length = byte_length,
-                    .render_x = 0.0,
-                    .render_y = 0.0,
-                    .render_w = 0.0,
-                    .render_h = 0.0,
-                    .uv_min = .{ 0.0, 0.0 },
-                    .uv_max = .{ 0.0, 0.0 },
-                    .is_visible = false,
-                }) catch @panic("OOM in TextLayouter");
+                if (is_newline) {
+                    metrics.append(allocator, .{
+                        .x = cursor_x,
+                        .y = cursor_y,
+                        .width = 0.0,
+                        .height = line_height,
+                        .byte_offset = cluster,
+                        .byte_length = byte_length,
+                        .render_x = 0.0,
+                        .render_y = 0.0,
+                        .render_w = 0.0,
+                        .render_h = 0.0,
+                        .uv_min = .{ 0.0, 0.0 },
+                        .uv_max = .{ 0.0, 0.0 },
+                        .is_visible = false,
+                    }) catch @panic("OOM in TextLayouter");
 
-                max_x = @max(max_x, cursor_x);
-                cursor_x = 0.0;
-                cursor_y += line_height;
-                last_safe_break = null;
-                continue;
-            }
-
-            if (is_space) {
-                last_safe_break = i;
-                last_safe_break_x = cursor_x + x_advance;
-                last_safe_break_metric_idx = metrics.items.len;
-            }
-
-            if (wrap_enabled and cursor_x + x_advance > max_width) {
-                if (last_safe_break != null and last_safe_break.? < i) {
-                    const shift_x = last_safe_break_x;
-                    const shift_y = line_height;
-                    for (metrics.items[last_safe_break_metric_idx..]) |*m| {
-                        m.x -= shift_x;
-                        m.y += shift_y;
-                        m.render_x -= shift_x;
-                        m.render_y += shift_y;
-                    }
-
-                    max_x = @max(max_x, last_safe_break_x);
-                    cursor_x -= shift_x;
-                    cursor_y += line_height;
-                    last_safe_break = null;
-                } else {
                     max_x = @max(max_x, cursor_x);
                     cursor_x = 0.0;
                     cursor_y += line_height;
+                    have_safe_break = false;
+                    continue;
                 }
-            }
 
-            if (!wrap_enabled and max_width > 0.0) {
-                if (ellipsis_enabled) {
-                    if (cursor_x + x_advance > max_width) {
-                        truncated = true;
+                if (is_space) {
+                    have_safe_break = true;
+                    last_safe_break_x = cursor_x + x_advance;
+                    last_safe_break_metric_idx = metrics.items.len;
+                }
+
+                if (wrap_enabled and cursor_x + x_advance > max_width) {
+                    if (have_safe_break and last_safe_break_metric_idx < metrics.items.len) {
+                        const shift_x = last_safe_break_x;
+                        const shift_y = line_height;
+                        for (metrics.items[last_safe_break_metric_idx..]) |*m| {
+                            m.x -= shift_x;
+                            m.y += shift_y;
+                            m.render_x -= shift_x;
+                            m.render_y += shift_y;
+                        }
+
+                        max_x = @max(max_x, last_safe_break_x);
+                        cursor_x -= shift_x;
+                        cursor_y += line_height;
+                        have_safe_break = false;
+                    } else {
+                        max_x = @max(max_x, cursor_x);
+                        cursor_x = 0.0;
+                        cursor_y += line_height;
+                    }
+                }
+
+                if (!wrap_enabled and max_width > 0.0) {
+                    if (ellipsis_enabled) {
+                        if (cursor_x + x_advance > max_width) {
+                            truncated = true;
+                            stop = true;
+                            break;
+                        }
+                        if (cursor_x + x_advance > max_width - ellipsis_width and j + 1 < glyph_count) {
+                            truncated = true;
+                            stop = true;
+                            break;
+                        }
+                    } else if (clip_enabled and cursor_x + x_advance > max_width) {
+                        stop = true;
                         break;
                     }
-
-                    if (cursor_x + x_advance > max_width - ellipsis_width and i + 1 < glyph_count) {
-                        truncated = true;
-                        break;
-                    }
-                } else if (clip_enabled and cursor_x + x_advance > max_width) {
-                    break;
                 }
+
+                var is_visible = false;
+                var render_x: f32 = 0.0;
+                var render_y: f32 = 0.0;
+                var render_w: f32 = 0.0;
+                var render_h: f32 = 0.0;
+                var uv_min: [2]f32 = .{ 0.0, 0.0 };
+                var uv_max: [2]f32 = .{ 0.0, 0.0 };
+
+                if (glyph_opt) |glyph| {
+                    render_x = cursor_x + (@as(f32, @floatFromInt(glyph_pos[j].x_offset)) / 64.0) * seg.metric_scale + glyph.bearing[0] * seg.glyph_scale;
+                    render_y = cursor_y + (@as(f32, @floatFromInt(glyph_pos[j].y_offset)) / 64.0) * seg.metric_scale - glyph.bearing[1] * seg.glyph_scale + ascender_target;
+                    render_w = glyph.size[0] * seg.glyph_scale;
+                    render_h = glyph.size[1] * seg.glyph_scale;
+                    uv_min = glyph.uv_min;
+                    uv_max = glyph.uv_max;
+                    is_visible = !is_space and !is_newline;
+                }
+
+                metrics.append(allocator, .{
+                    .x = cursor_x,
+                    .y = cursor_y,
+                    .width = x_advance,
+                    .height = line_height,
+                    .byte_offset = cluster,
+                    .byte_length = byte_length,
+                    .render_x = render_x,
+                    .render_y = render_y,
+                    .render_w = render_w,
+                    .render_h = render_h,
+                    .uv_min = uv_min,
+                    .uv_max = uv_max,
+                    .is_visible = is_visible,
+                    .atlas_id = seg.atlas_id,
+                    .effect = seg.effect,
+                    .sdf_padding = seg.sdf_padding,
+                }) catch @panic("OOM in TextLayouter");
+
+                cursor_x += x_advance;
             }
-
-            var is_visible = false;
-            var render_x: f32 = 0.0;
-            var render_y: f32 = 0.0;
-            var render_w: f32 = 0.0;
-            var render_h: f32 = 0.0;
-            var uv_min: [2]f32 = .{ 0.0, 0.0 };
-            var uv_max: [2]f32 = .{ 0.0, 0.0 };
-
-            if (glyph_opt) |glyph| {
-                render_x = cursor_x + (@as(f32, @floatFromInt(glyph_pos[i].x_offset)) / 64.0) * metric_scale + glyph.bearing[0] * glyph_scale;
-                render_y = cursor_y + (@as(f32, @floatFromInt(glyph_pos[i].y_offset)) / 64.0) * metric_scale - glyph.bearing[1] * glyph_scale + ascender_target;
-                render_w = glyph.size[0] * glyph_scale;
-                render_h = glyph.size[1] * glyph_scale;
-                uv_min = glyph.uv_min;
-                uv_max = glyph.uv_max;
-                is_visible = !is_space and !is_newline;
-            }
-
-            metrics.append(allocator, .{
-                .x = cursor_x,
-                .y = cursor_y,
-                .width = x_advance,
-                .height = line_height,
-                .byte_offset = cluster,
-                .byte_length = byte_length,
-                .render_x = render_x,
-                .render_y = render_y,
-                .render_w = render_w,
-                .render_h = render_h,
-                .uv_min = uv_min,
-                .uv_max = uv_max,
-                .is_visible = is_visible,
-            }) catch @panic("OOM in TextLayouter");
-
-            cursor_x += x_advance;
         }
 
         if (ellipsis_enabled and truncated) {
-            const dot_glyph: ?font_module.GlyphInfo = if (use_bitmap)
-                font_data.bitmap_glyphs.get(font_module.bitmapGlyphKey(dot_glyph_id, target_px_u))
+            const dot_glyph: ?font_module.GlyphInfo = if (primary.use_bitmap)
+                font_data.bitmap_glyphs.get(font_module.bitmapGlyphKey(dot_glyph_id, primary.target_px_u))
             else
                 font_data.glyphs.get(dot_glyph_id);
             var dot_i: usize = 0;
@@ -662,10 +754,10 @@ pub const TextLayouter = struct {
                 var uv_max: [2]f32 = .{ 0.0, 0.0 };
 
                 if (dot_glyph) |glyph| {
-                    render_x = cursor_x + glyph.bearing[0] * glyph_scale;
-                    render_y = cursor_y - glyph.bearing[1] * glyph_scale + ascender_target;
-                    render_w = glyph.size[0] * glyph_scale;
-                    render_h = glyph.size[1] * glyph_scale;
+                    render_x = cursor_x + glyph.bearing[0] * primary.glyph_scale;
+                    render_y = cursor_y - glyph.bearing[1] * primary.glyph_scale + ascender_target;
+                    render_w = glyph.size[0] * primary.glyph_scale;
+                    render_h = glyph.size[1] * primary.glyph_scale;
                     uv_min = glyph.uv_min;
                     uv_max = glyph.uv_max;
                     is_visible = true;
@@ -685,6 +777,9 @@ pub const TextLayouter = struct {
                     .uv_min = uv_min,
                     .uv_max = uv_max,
                     .is_visible = is_visible,
+                    .atlas_id = primary.atlas_id,
+                    .effect = primary.effect,
+                    .sdf_padding = primary.sdf_padding,
                 }) catch @panic("OOM in TextLayouter");
                 cursor_x += dot_advance;
             }
@@ -698,7 +793,7 @@ pub const TextLayouter = struct {
                 .width = max_x,
                 .height = final_height,
                 .metrics = &.{},
-                .is_bitmap = use_bitmap,
+                .is_bitmap = primary.use_bitmap,
             };
         }
 
@@ -709,7 +804,7 @@ pub const TextLayouter = struct {
             .width = max_x,
             .height = final_height,
             .metrics = owned_metrics,
-            .is_bitmap = use_bitmap,
+            .is_bitmap = primary.use_bitmap,
         };
     }
 

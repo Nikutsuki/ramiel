@@ -105,9 +105,17 @@ void main() {
         baseColor.a   = 1.0;
     }
 
-    // Foreground texture (skip for MSDF/bitmap text – handled below).
-    if (texIdx != 0xFFFFu && (flags & (1u << 2)) == 0u && (flags & (1u << 4)) == 0u) {
+    // Foreground texture (skip for MSDF/bitmap/color text – handled below).
+    if (texIdx != 0xFFFFu && (flags & (1u << 2)) == 0u && (flags & (1u << 4)) == 0u && (flags & (1u << 5)) == 0u) {
         baseColor *= texture(textures[nonuniformEXT(texIdx)], fragUV);
+    }
+
+    // Color glyph (bitmap emoji). Atlas stores straight-alpha RGBA from the
+    // font's own color bitmaps; use it directly and ignore the text color,
+    // modulating only by the incoming alpha for opacity/fades.
+    if ((flags & (1u << 5)) != 0u) { // EFFECT_COLOR_GLYPH
+        vec4 emoji = texture(textures[nonuniformEXT(texIdx)], fragUV);
+        baseColor = vec4(emoji.rgb, emoji.a * fragColor.a);
     }
 
     // Hinted bitmap text alpha. Atlas stores coverage replicated to RGBA.

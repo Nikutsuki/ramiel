@@ -30,7 +30,7 @@ pub const FontSystem = struct {
     pub fn setDefaultFallbackChain(self: *FontSystem, names: []const []const u8) !void {
         self.default_fallback_chain.clearRetainingCapacity();
         for (names) |name| {
-            try self.default_fallback_chain.append(name);
+            try self.default_fallback_chain.append(self.allocator, name);
         }
         self.fallback_cache.clearRetainingCapacity();
     }
@@ -65,6 +65,7 @@ pub const FontSystem = struct {
     pub fn loadFont(self: *FontSystem, core: *const Core, texture_registry: *TextureRegistry, name: []const u8, source: FontSource, base_resolution: u32) !*FontData {
         self.text_layouter.core = core;
         self.text_layouter.font_registry = &self.font_registry;
+        self.text_layouter.font_system = self;
 
         try self.font_registry.loadFont(core, texture_registry, name, source, base_resolution);
         return self.font_registry.fonts.getPtr(name) orelse return error.FontLookupFailed;

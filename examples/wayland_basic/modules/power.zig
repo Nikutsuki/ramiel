@@ -25,7 +25,7 @@ pub const Action = enum {
 
     fn argv(self: Action) []const []const u8 {
         return switch (self) {
-            .lock => &.{ "loginctl", "lock-session" },
+            .lock => &.{"hyprlock"},
             .suspend_ => &.{ "systemctl", "suspend" },
             .reboot => &.{ "systemctl", "reboot" },
             .shutdown => &.{ "systemctl", "poweroff" },
@@ -35,7 +35,7 @@ pub const Action = enum {
 
     fn cmdString(self: Action) []const u8 {
         return switch (self) {
-            .lock => "loginctl lock-session",
+            .lock => "hyprlock",
             .suspend_ => "systemctl suspend",
             .reboot => "systemctl reboot",
             .shutdown => "systemctl poweroff",

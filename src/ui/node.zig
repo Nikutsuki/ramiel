@@ -542,7 +542,7 @@ pub fn Node(comptime MessageT: type) type {
             switch (self.payload) {
                 .container, .none, .fragment, .portal => {},
 
-                .text => |t| {
+                .text => {
                     const sc = batcher.current_scissor;
                     const view_min_x: f32 = @floatFromInt(sc.offset.x);
                     const view_min_y: f32 = @floatFromInt(sc.offset.y);
@@ -557,13 +557,7 @@ pub fn Node(comptime MessageT: type) type {
                         const cache = self.layout_result.text_cache;
                         const selection_color = colorWithOpacity(.{ 0.2, 0.4, 0.8, 0.5 }, combined_opacity);
                         const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
-                        const text_atlas_id: u32 = if (cache.is_bitmap) t.font.bitmap_atlas_tex_id else t.font.atlas_tex_id;
-                        const text_effect: u32 = if (cache.is_bitmap) assets.EFFECT_BITMAP_TEXT else assets.EFFECT_MSDF_TEXT;
-                        const combined_id: u32 = text_effect | (text_atlas_id & 0xFFFF);
-                        const glyph_corner_radii: [4]f32 = if (cache.is_bitmap)
-                            [4]f32{ self.style.font_weight, 0, 0, 0 }
-                        else
-                            [4]f32{ self.style.font_weight, t.font.sdf_padding, 0, 0 };
+                        const text_weight = self.style.font_weight;
 
                         if (self.text_selection) |sel| {
                             const start = @min(sel.anchor, sel.focus);
@@ -588,6 +582,8 @@ pub fn Node(comptime MessageT: type) type {
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
+                            const combined_id: u32 = m.effect | (m.atlas_id & 0xFFFF);
+                            const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
                             const glyph_x = abs_x + m.render_x;
                             const glyph_y = abs_y + m.render_y;
                             try batcher.addGlyphQuad(
@@ -646,16 +642,12 @@ pub fn Node(comptime MessageT: type) type {
                         else
                             self.style.text_color;
                         const text_color = colorWithOpacity(base_color, combined_opacity);
-                        const text_atlas_id: u32 = if (cache.is_bitmap) ti.font.bitmap_atlas_tex_id else ti.font.atlas_tex_id;
-                        const text_effect: u32 = if (cache.is_bitmap) assets.EFFECT_BITMAP_TEXT else assets.EFFECT_MSDF_TEXT;
-                        const combined_id: u32 = text_effect | (text_atlas_id & 0xFFFF);
-                        const glyph_corner_radii: [4]f32 = if (cache.is_bitmap)
-                            [4]f32{ self.style.font_weight, 0, 0, 0 }
-                        else
-                            [4]f32{ self.style.font_weight, ti.font.sdf_padding, 0, 0 };
+                        const text_weight = self.style.font_weight;
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
+                            const combined_id: u32 = m.effect | (m.atlas_id & 0xFFFF);
+                            const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
                             const glyph_x = text_x + m.render_x;
                             const glyph_y = text_y + m.render_y;
                             try batcher.addGlyphQuad(
@@ -829,16 +821,12 @@ pub fn Node(comptime MessageT: type) type {
                         }
 
                         const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
-                        const text_atlas_id: u32 = if (cache.is_bitmap) ta.font.bitmap_atlas_tex_id else ta.font.atlas_tex_id;
-                        const text_effect: u32 = if (cache.is_bitmap) assets.EFFECT_BITMAP_TEXT else assets.EFFECT_MSDF_TEXT;
-                        const combined_id: u32 = text_effect | (text_atlas_id & 0xFFFF);
-                        const glyph_corner_radii: [4]f32 = if (cache.is_bitmap)
-                            [4]f32{ self.style.font_weight, 0, 0, 0 }
-                        else
-                            [4]f32{ self.style.font_weight, ta.font.sdf_padding, 0, 0 };
+                        const text_weight = self.style.font_weight;
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
+                            const combined_id: u32 = m.effect | (m.atlas_id & 0xFFFF);
+                            const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
                             const glyph_x = text_x + m.render_x;
                             const glyph_y = text_y + m.render_y;
                             try batcher.addGlyphQuad(
@@ -911,17 +899,12 @@ pub fn Node(comptime MessageT: type) type {
                     if (img.fallback_state != .ready and img.alt_text.len > 0 and img.alt_font != null) {
                         const cache = self.layout_result.text_cache;
                         const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
-                        const font = img.alt_font.?;
-                        const text_atlas_id: u32 = if (cache.is_bitmap) font.bitmap_atlas_tex_id else font.atlas_tex_id;
-                        const text_effect: u32 = if (cache.is_bitmap) assets.EFFECT_BITMAP_TEXT else assets.EFFECT_MSDF_TEXT;
-                        const combined_id: u32 = text_effect | (text_atlas_id & 0xFFFF);
-                        const glyph_corner_radii: [4]f32 = if (cache.is_bitmap)
-                            [4]f32{ self.style.font_weight, 0, 0, 0 }
-                        else
-                            [4]f32{ self.style.font_weight, font.sdf_padding, 0, 0 };
+                        const text_weight = self.style.font_weight;
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
+                            const combined_id: u32 = m.effect | (m.atlas_id & 0xFFFF);
+                            const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
                             const glyph_x = abs_x + m.render_x;
                             const glyph_y = abs_y + m.render_y;
                             try batcher.addGlyphQuad(

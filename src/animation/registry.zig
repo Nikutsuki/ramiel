@@ -62,6 +62,27 @@ pub const AnimationEntry = struct {
     looping: bool = false,
 };
 
+/// True if both animations (same active tag) head to the same target.
+fn targetsEqual(a: AnimatedValue, b: AnimatedValue) bool {
+    return switch (a) {
+        .background_color => |x| std.mem.eql(f32, &x.to, &b.background_color.to),
+        .hover_color => |x| std.mem.eql(f32, &x.to, &b.hover_color.to),
+        .text_color => |x| std.mem.eql(f32, &x.to, &b.text_color.to),
+        .border_color => |x| std.mem.eql(f32, &x.to, &b.border_color.to),
+        .outline_color => |x| std.mem.eql(f32, &x.to, &b.outline_color.to),
+        .shadow_color => |x| std.mem.eql(f32, &x.to, &b.shadow_color.to),
+        .corner_radius => |x| std.mem.eql(f32, &x.to, &b.corner_radius.to),
+        .shadow_offset => |x| std.mem.eql(f32, &x.to, &b.shadow_offset.to),
+        .translate => |x| std.mem.eql(f32, &x.to, &b.translate.to),
+        .opacity => |x| x.to == b.opacity.to,
+        .shadow_blur => |x| x.to == b.shadow_blur.to,
+        .blur => |x| x.to == b.blur.to,
+        .backdrop_blur => |x| x.to == b.backdrop_blur.to,
+        .scale => |x| x.to == b.scale.to,
+        .rotate => |x| x.to == b.rotate.to,
+    };
+}
+
 fn lerpF(a: f32, b: f32, t: f32) f32 {
     return a + (b - a) * t;
 }
@@ -90,7 +111,8 @@ fn lerpRadii(a: [4]f32, b: [4]f32, t: f32) [4]f32 {
 
 fn computeT(entry: *const AnimationEntry, current_time: f64) ?f32 {
     const elapsed = current_time - (entry.start_time + entry.delay);
-    if (elapsed < 0.0) return null;
+    // Hold the start value during the delay (CSS transition-delay semantics).
+    if (elapsed < 0.0) return 0.0;
     if (entry.duration <= 0.0) return 1.0;
     const raw = elapsed / entry.duration;
     if (entry.looping) {
@@ -170,6 +192,10 @@ pub const AnimationRegistry = struct {
         for (self.entries.items) |*existing| {
             if (existing.node_id != entry.node_id) continue;
             if (existing.value.property() != prop) continue;
+
+            // Same target already running: keep its timeline (don't restart on
+            // an unrelated rebuild). Only redirect when the target changed.
+            if (targetsEqual(existing.value, entry.value)) return;
 
             const new_entry = interpolateFrom(existing, entry, current_time);
             existing.* = new_entry;

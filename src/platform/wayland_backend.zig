@@ -571,9 +571,6 @@ pub const WaylandClient = struct {
                 self.height = 2160;
             }
         }
-        std.log.info("layer surface size: {d}x{d} (output mode {d}x{d} @ scale {d})", .{
-            self.width, self.height, self.output_width, self.output_height, self.output_scale,
-        });
         layer_surface.setSize(self.width, self.height);
 
         // Anchors

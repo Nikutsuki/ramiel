@@ -440,6 +440,13 @@ pub const TextLayoutMetric = struct {
     uv_min: [2]f32 = .{ 0.0, 0.0 },
     uv_max: [2]f32 = .{ 0.0, 0.0 },
     is_visible: bool = false,
+
+    /// Bindless atlas index + effect flag for this glyph. Font fallback can mix
+    /// atlases within one run (e.g. MSDF text alongside color-bitmap emoji), so
+    /// routing is per-glyph rather than per-text-node.
+    atlas_id: u32 = 0,
+    effect: u32 = 0,
+    sdf_padding: f32 = 0,
 };
 
 pub const TextLayoutCache = struct {
@@ -606,6 +613,9 @@ fn updateTextLayoutCache(node: anytype, text_layouter: anytype, font: anytype, t
             .uv_min = m.uv_min,
             .uv_max = m.uv_max,
             .is_visible = m.is_visible,
+            .atlas_id = m.atlas_id,
+            .effect = m.effect,
+            .sdf_padding = m.sdf_padding,
         };
     }
     node.allocator.free(measured.metrics);

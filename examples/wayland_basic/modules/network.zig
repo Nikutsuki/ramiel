@@ -32,9 +32,30 @@ pub const State = struct {
 };
 
 fn setField(buf: []u8, len: *u8, value: []const u8) void {
-    const n = @min(value.len, buf.len);
-    @memcpy(buf[0..n], value[0..n]);
-    len.* = @intCast(n);
+    // Copy while stripping ANSI escape sequences (ESC [ ... final-byte) and
+    // stray control chars, so colorized command output never reaches the panel.
+    var w: usize = 0;
+    var i: usize = 0;
+    while (i < value.len and w < buf.len) {
+        const ch = value[i];
+        if (ch == 0x1b) {
+            i += 1;
+            if (i < value.len and value[i] == '[') {
+                i += 1;
+                while (i < value.len and !(value[i] >= 0x40 and value[i] <= 0x7e)) : (i += 1) {}
+                if (i < value.len) i += 1; // skip the final byte
+            }
+            continue;
+        }
+        if (ch < 0x20) {
+            i += 1;
+            continue;
+        }
+        buf[w] = ch;
+        w += 1;
+        i += 1;
+    }
+    len.* = @intCast(w);
 }
 
 pub fn poll(io: std.Io) State {
@@ -42,7 +63,7 @@ pub fn poll(io: std.Io) State {
 
     // Active connection: NAME:TYPE:DEVICE:STATE — pick the first wifi/ethernet.
     var conn_buf: [4096]u8 = undefined;
-    const conn_out = runCapture(io, &.{ "nmcli", "-t", "-f", "NAME,TYPE,DEVICE,STATE", "connection", "show", "--active" }, &conn_buf) orelse return state;
+    const conn_out = runCapture(io, &.{ "nmcli", "-t", "-c", "no", "-f", "NAME,TYPE,DEVICE,STATE", "connection", "show", "--active" }, &conn_buf) orelse return state;
     state.available = true;
 
     var lines = std.mem.splitScalar(u8, conn_out, '\n');
@@ -74,7 +95,7 @@ pub fn poll(io: std.Io) State {
 
     // IP4 address for the chosen device.
     var ip_buf: [2048]u8 = undefined;
-    if (runCapture(io, &.{ "nmcli", "-t", "-f", "IP4.ADDRESS", "device", "show", state.device() }, &ip_buf)) |ip_out| {
+    if (runCapture(io, &.{ "nmcli", "-t", "-c", "no", "-f", "IP4.ADDRESS", "device", "show", state.device() }, &ip_buf)) |ip_out| {
         var ip_lines = std.mem.splitScalar(u8, ip_out, '\n');
         while (ip_lines.next()) |line| {
             // Format: IP4.ADDRESS[1]:192.168.1.5/24
@@ -91,7 +112,7 @@ pub fn poll(io: std.Io) State {
     // Wi-Fi SSID + signal: IN-USE:SSID:SIGNAL, in-use line marked with '*'.
     if (state.kind == .wifi) {
         var wifi_buf: [8192]u8 = undefined;
-        if (runCapture(io, &.{ "nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL", "device", "wifi", "list" }, &wifi_buf)) |wifi_out| {
+        if (runCapture(io, &.{ "nmcli", "-t", "-c", "no", "-f", "IN-USE,SSID,SIGNAL", "device", "wifi", "list" }, &wifi_buf)) |wifi_out| {
             var wifi_lines = std.mem.splitScalar(u8, wifi_out, '\n');
             while (wifi_lines.next()) |line| {
                 if (line.len == 0 or line[0] != '*') continue;

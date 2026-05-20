@@ -14,6 +14,7 @@ const clock_mod = @import("modules/clock.zig");
 const tray_mod = @import("modules/tray.zig");
 const network_mod = @import("modules/network.zig");
 const power_mod = @import("modules/power.zig");
+const settings_mod = @import("modules/settings.zig");
 const icons = @import("icons.zig");
 
 const NodeIds = ramiel.declareIds("wayland-basic", .{
@@ -22,7 +23,42 @@ const NodeIds = ramiel.declareIds("wayland-basic", .{
     "slide_panel",
     "tray_menu",
     "power_menu",
+    "power_card",
+    "power_header",
+    "pwr_lock",
+    "pwr_suspend",
+    "pwr_logout",
+    "pwr_reboot",
+    "pwr_shutdown",
+    "settings_menu",
+    "settings_card",
+    "set_accent_swatch",
+    "set_track_0",
+    "set_track_1",
+    "set_track_2",
+    "set_track_3",
+    "set_track_4",
+    "set_track_5",
+    "set_track_6",
+    "set_track_7",
+    "set_knob_0",
+    "set_knob_1",
+    "set_knob_2",
+    "set_knob_3",
+    "set_knob_4",
+    "set_knob_5",
+    "set_knob_6",
+    "set_knob_7",
 }){};
+
+const set_track_ids = [_]u32{
+    NodeIds.set_track_0, NodeIds.set_track_1, NodeIds.set_track_2, NodeIds.set_track_3,
+    NodeIds.set_track_4, NodeIds.set_track_5, NodeIds.set_track_6, NodeIds.set_track_7,
+};
+const set_knob_ids = [_]u32{
+    NodeIds.set_knob_0, NodeIds.set_knob_1, NodeIds.set_knob_2, NodeIds.set_knob_3,
+    NodeIds.set_knob_4, NodeIds.set_knob_5, NodeIds.set_knob_6, NodeIds.set_knob_7,
+};
 
 const AppMessage = union(enum) {
     switch_workspace: i32,
@@ -35,6 +71,11 @@ const AppMessage = union(enum) {
     toggle_power_menu: void,
     close_power_menu: void,
     power_action: power_mod.Action,
+    toggle_settings_menu: void,
+    close_settings_menu: void,
+    toggle_setting: settings_mod.Key,
+    cycle_accent: void,
+    cycle_rounding: void,
     noop: void,
 };
 
@@ -47,6 +88,13 @@ const ICON_BAT_LOW: u32 = 105;
 const ICON_TRAY_NETWORK: u32 = 106;
 const ICON_TRAY_MESSAGES: u32 = 107;
 const ICON_TRAY_UPDATES: u32 = 108;
+const ICON_PWR_LOCK: u32 = 110;
+const ICON_PWR_SUSPEND: u32 = 111;
+const ICON_PWR_LOGOUT: u32 = 112;
+const ICON_PWR_REBOOT: u32 = 113;
+const ICON_PWR_SHUTDOWN: u32 = 114;
+const ICON_WIFI: u32 = 115;
+const ICON_TUNE: u32 = 116;
 
 const AppState = struct {
     font: *ramiel.FontData = undefined,
@@ -57,7 +105,12 @@ const AppState = struct {
     tray: tray_mod.State = tray_mod.demoState(),
     net: network_mod.State = .{},
     power_menu_open: bool = false,
+    // Flipped true one frame after open so the entrance has a change to animate.
+    power_revealed: bool = false,
     power_confirm: ?power_mod.Action = null,
+    settings: settings_mod.Settings = .{},
+    settings_menu_open: bool = false,
+    settings_revealed: bool = false,
     slide_panel_open: bool = false,
     hide_panel_at_ns: i128 = 0,
     edge_hovered: bool = false,
@@ -76,29 +129,138 @@ const AppState = struct {
     tex_tray_network: u32 = 0,
     tex_tray_messages: u32 = 0,
     tex_tray_updates: u32 = 0,
+    tex_pwr_lock: u32 = 0,
+    tex_pwr_suspend: u32 = 0,
+    tex_pwr_logout: u32 = 0,
+    tex_pwr_reboot: u32 = 0,
+    tex_pwr_shutdown: u32 = 0,
+    tex_wifi: u32 = 0,
+    tex_tune: u32 = 0,
+
+    // Persisted surface: only the user settings round-trip to disk.
+    pub const snapshot_version: ramiel.state.SnapshotVersion = 1;
+    pub const Snapshot = struct { settings: settings_mod.Settings = .{} };
+
+    pub fn snapshot(self: *const AppState) Snapshot {
+        return .{ .settings = self.settings };
+    }
+    pub fn restoreSnapshot(self: *AppState, data: *const Snapshot) !void {
+        self.settings = data.settings;
+    }
 };
 
+const settings_file = "settings.json";
+
+fn settingsLoad(app: *App, io: std.Io) void {
+    var dbuf: [512]u8 = undefined;
+    const dir = settings_mod.configDir(app.state.env, &dbuf) orelse return;
+    var pbuf: [600]u8 = undefined;
+    const path = std.fmt.bufPrint(&pbuf, "{s}/{s}", .{ dir, settings_file }) catch return;
+    const bytes = std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), io, path, std.heap.page_allocator, .limited(8192)) catch return;
+    defer std.heap.page_allocator.free(bytes);
+
+    var parsed = ramiel.state.parseEnvelope(AppState.Snapshot, std.heap.page_allocator, bytes, .{ .ignore_unknown_fields = true }) catch return;
+    defer parsed.deinit();
+    ramiel.state.expectEnvelopeVersion(AppState.Snapshot, &parsed, AppState.snapshot_version) catch return;
+    app.state.restoreSnapshot(&parsed.value.data) catch {};
+}
+
+fn settingsSave(app: *App, io: std.Io) void {
+    const json = ramiel.state.stringifyEnvelopeAlloc(AppState.Snapshot, std.heap.page_allocator, AppState.snapshot_version, app.state.snapshot(), .{}) catch return;
+    defer std.heap.page_allocator.free(json);
+
+    var dbuf: [512]u8 = undefined;
+    const dir = settings_mod.configDir(app.state.env, &dbuf) orelse return;
+    std.Io.Dir.cwd().createDirPath(io, dir) catch {};
+    var pbuf: [600]u8 = undefined;
+    const path = std.fmt.bufPrint(&pbuf, "{s}/{s}", .{ dir, settings_file }) catch return;
+    std.Io.Dir.writeFile(std.Io.Dir.cwd(), io, .{ .sub_path = path, .data = json }) catch {};
+}
+
 const transparent = [4]f32{ 0.0, 0.0, 0.0, 0.0 };
-const pill_bg = [4]f32{ 0.10, 0.10, 0.16, 0.92 };
-const pill_border = [4]f32{ 1.0, 0.2, 0.6, 1.0 };
-const panel_bg = [4]f32{ 0.08, 0.09, 0.14, 0.96 };
-const menu_bg = [4]f32{ 0.08, 0.09, 0.14, 0.98 };
-const fg = [4]f32{ 0.88, 0.90, 0.96, 1.0 };
-const dim = [4]f32{ 0.52, 0.55, 0.66, 1.0 };
-const accent = [4]f32{ 0.45, 0.65, 1.0, 1.0 };
-const ws_active_bg = [4]f32{ 0.25, 0.32, 0.50, 1.0 };
-const ws_hover = [4]f32{ 0.18, 0.20, 0.30, 0.9 };
-const sep_color = [4]f32{ 0.25, 0.27, 0.35, 1.0 };
-const danger = [4]f32{ 1.0, 0.40, 0.40, 1.0 };
+
+// Theme-driven colors: resolved from the active Theme's semantic tokens by
+// applyTheme() and re-applied whenever the user changes a theme setting. Kept as
+// module vars so the existing tw.*_value(...) call sites need no changes.
+var pill_bg = [4]f32{ 0.10, 0.10, 0.16, 0.92 };
+var pill_border = [4]f32{ 0.45, 0.65, 1.0, 1.0 };
+var panel_bg = [4]f32{ 0.08, 0.09, 0.14, 0.96 };
+var menu_bg = [4]f32{ 0.08, 0.09, 0.14, 0.98 };
+var fg = [4]f32{ 0.88, 0.90, 0.96, 1.0 };
+var dim = [4]f32{ 0.52, 0.55, 0.66, 1.0 };
+var accent = [4]f32{ 0.45, 0.65, 1.0, 1.0 };
+var ws_active_bg = [4]f32{ 0.25, 0.32, 0.50, 1.0 };
+var ws_hover = [4]f32{ 0.18, 0.20, 0.30, 0.9 };
+var sep_color = [4]f32{ 0.25, 0.27, 0.35, 1.0 };
+var danger = [4]f32{ 1.0, 0.40, 0.40, 1.0 };
+
+// Driven by the border/rounding settings.
+var pill_border_w: f32 = 2.0;
+var pill_radius: f32 = 14.0;
+const base_pill_radius = 14.0;
 
 const font_size = 15.0;
 const icon_px = 20;
 const tray_icon_px = 20;
 const tray_icon_box = 24;
-const pill_radius = 14.0;
 const bar_h = 36.0;
+
+fn withA(c: [4]f32, a: f32) [4]f32 {
+    return .{ c[0], c[1], c[2], a };
+}
+
+/// Rebuild the theme from settings and push it into the color vars, the border
+/// width, the pill radius, and the UI context (for any token-styled widgets).
+fn applyTheme(app: *App) void {
+    const s = app.state.settings;
+    const o = s.accent.oklch();
+    const t = ramiel.Theme.fromOklch(.{ .l = o.l, .c = o.c, .h = o.h }, if (s.dark_mode) .dark else .light);
+    const k = t.tokens;
+
+    pill_bg = withA(k.bg_surface, 0.92);
+    panel_bg = withA(k.bg_base, 0.96);
+    menu_bg = withA(k.bg_elevated, 0.98);
+    fg = k.text_main;
+    dim = k.text_muted;
+    accent = k.accent_default;
+    pill_border = k.accent_default;
+    ws_active_bg = k.accent_subtle;
+    ws_hover = withA(k.bg_elevated, 0.9);
+    sep_color = k.border_subtle;
+    danger = k.status_danger;
+
+    pill_border_w = if (s.border_enabled) 2.0 else 0.0;
+    pill_radius = base_pill_radius * s.rounding.scale();
+
+    app.updateTheme(t);
+}
 const hover_transition = layout.TransitionStyle.forColors(150);
-const panel_transition = layout.TransitionStyle.forTransform(220);
+// Panel slides in from the right and fades simultaneously.
+const panel_transition = layout.TransitionStyle{
+    .property = .{ .translate = true, .opacity = true },
+    .duration_ms = 240,
+    .timing = .ease_out,
+};
+// Card slides only (opacity stays on the children — see buildPowerMenu).
+const card_transition = layout.TransitionStyle{
+    .property = .{ .translate = true },
+    .duration_ms = 300,
+    .timing = .ease_out,
+};
+const overlay_transition = layout.TransitionStyle.forColors(280);
+
+const switch_track_transition = layout.TransitionStyle.forColors(150);
+const switch_knob_transition = layout.TransitionStyle.forTransform(180);
+
+// Staggered entrance fade; each row passes its own delay.
+fn fadeIn(delay_ms: u32) layout.TransitionStyle {
+    return .{
+        .property = .{ .opacity = true },
+        .duration_ms = 220,
+        .delay_ms = delay_ms,
+        .timing = .ease_out,
+    };
+}
 const panel_hide_delay_ns: i128 = 300 * std.time.ns_per_ms;
 const tray_menu_hide_delay_ns: i128 = 300 * std.time.ns_per_ms;
 
@@ -134,6 +296,9 @@ fn build(ui: *T.UIContext, state: *const AppState) anyerror!*T.Node {
     if (state.power_menu_open) {
         try children.append(arena, try buildPowerMenu(ui, state));
     }
+    if (state.settings_menu_open) {
+        try children.append(arena, try buildSettingsMenu(ui, state));
+    }
 
     return try ux.div(.{
         .style = tw.style(.{
@@ -152,7 +317,7 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
     const font = state.font;
 
     var left_items: std.ArrayList(?*T.Node) = .empty;
-    if (state.hypr.available) {
+    if (state.hypr.available and state.settings.show_workspaces) {
         for (state.hypr.workspaces[0..state.hypr.workspace_count]) |ws| {
             const label = if (ws.name_len > 0) ws.nameSlice() else try std.fmt.allocPrint(arena, "{d}", .{ws.id});
             const bg: [4]f32 = if (ws.active) ws_active_bg else transparent;
@@ -177,7 +342,7 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
     }
 
     const title = if (state.hypr.title_len > 0) state.hypr.activeTitle() else "";
-    if (title.len > 0) {
+    if (title.len > 0 and state.settings.show_title) {
         try appendSeparator(ui, &left_items, arena, font, 8);
         const truncated = if (title.len > 50) title[0..50] else title;
         try left_items.append(arena, try ux.text(.{
@@ -187,18 +352,21 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
         }));
     }
 
-    const left_pill = try ux.div(.{
-        .style = tw.style(.{
-            tw.flex_row,
-            tw.items_center,
-            tw.gap_px(2),
-            tw.p_each_px(4, 12, 4, 6),
-            tw.bg_value(pill_bg),
-            tw.rounded(pill_radius),
-            tw.border_value(2.0, pill_border),
-        }),
-        .children = left_items.items,
-    });
+    const left_pill = if (left_items.items.len == 0)
+        try ux.div(.{ .style = tw.style(.{}) })
+    else
+        try ux.div(.{
+            .style = tw.style(.{
+                tw.flex_row,
+                tw.items_center,
+                tw.gap_px(2),
+                tw.p_each_px(4, 12, 4, 6),
+                tw.bg_value(pill_bg),
+                tw.rounded(pill_radius),
+                tw.border_value(pill_border_w, pill_border),
+            }),
+            .children = left_items.items,
+        });
 
     const center_pill = try ux.div(.{
         .style = tw.style(.{
@@ -208,36 +376,32 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
             tw.p_xy_px(16, 4),
             tw.bg_value(pill_bg),
             tw.rounded(pill_radius),
-            tw.border_value(2.0, pill_border),
+            tw.border_value(pill_border_w, pill_border),
         }),
         .children = &.{try ux.text(.{
-            .content = try std.fmt.allocPrint(arena, "{s} {d:0>2} {s}  {d:0>2}:{d:0>2}", .{
-                state.time.weekday,
-                state.time.day,
-                monthName(state.time.month),
-                state.time.hour,
-                state.time.minute,
-            }),
+            .content = try formatClock(arena, state.time, state.settings.clock_24h),
             .font = font,
             .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }),
         })},
     });
 
     var right_items: std.ArrayList(?*T.Node) = .empty;
-    const vol_tex = if (state.vol.muted) state.tex_vol_mute else if (state.vol.volume_pct < 30) state.tex_vol_low else state.tex_vol_high;
-    try right_items.append(arena, try ux.image(.{
-        .tex_id = vol_tex,
-        .tint = fg,
-        .style = tw.style(.{tw.square(icon_px)}),
-    }));
-    try right_items.append(arena, try ux.text(.{
-        .content = if (state.vol.available) try std.fmt.allocPrint(arena, "{d}%", .{state.vol.volume_pct}) else "--",
-        .font = font,
-        .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }),
-    }));
+    if (state.settings.show_volume) {
+        const vol_tex = if (state.vol.muted) state.tex_vol_mute else if (state.vol.volume_pct < 30) state.tex_vol_low else state.tex_vol_high;
+        try right_items.append(arena, try ux.image(.{
+            .tex_id = vol_tex,
+            .tint = fg,
+            .style = tw.style(.{tw.square(icon_px)}),
+        }));
+        try right_items.append(arena, try ux.text(.{
+            .content = if (state.vol.available) try std.fmt.allocPrint(arena, "{d}%", .{state.vol.volume_pct}) else "--",
+            .font = font,
+            .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }),
+        }));
+    }
 
-    if (state.bat.present) {
-        try appendSeparator(ui, &right_items, arena, font, 6);
+    if (state.bat.present and state.settings.show_battery) {
+        if (right_items.items.len > 0) try appendSeparator(ui, &right_items, arena, font, 6);
         const bat_color: [4]f32 = if (state.bat.capacity <= 15 and !state.bat.charging) danger else fg;
         const bat_tex = if (state.bat.charging) state.tex_bat_charge else if (state.bat.capacity <= 15) state.tex_bat_low else state.tex_bat_full;
         try right_items.append(arena, try ux.image(.{
@@ -253,8 +417,8 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
         }));
     }
 
-    if (state.tray.available and state.tray.item_count > 0) {
-        try appendSeparator(ui, &right_items, arena, font, 6);
+    if (state.tray.available and state.tray.item_count > 0 and state.settings.show_tray) {
+        if (right_items.items.len > 0) try appendSeparator(ui, &right_items, arena, font, 6);
         for (state.tray.itemSlice()) |item| {
             try right_items.append(arena, try buildTrayIcon(ui, state, item));
         }
@@ -268,7 +432,7 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
             tw.p_xy_px(14, 4),
             tw.bg_value(pill_bg),
             tw.rounded(pill_radius),
-            tw.border_value(2.0, pill_border),
+            tw.border_value(pill_border_w, pill_border),
         }),
         .children = right_items.items,
     });
@@ -283,6 +447,7 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
             tw.h(bar_h),
             tw.flex_row,
             tw.items_center,
+            tw.p_xy_px(6, 0),
             tw.bg_value(transparent),
             tw.z(10),
         }),
@@ -429,67 +594,93 @@ fn buildTrayMenu(ui: *T.UIContext, state: *const AppState, item: *const tray_mod
 fn buildPowerMenu(ui: *T.UIContext, state: *const AppState) !*T.Node {
     const ux = ui.ux();
     const arena = ui.build_arena.allocator();
+    const revealed = state.power_revealed;
 
     const actions = [_]power_mod.Action{ .lock, .suspend_, .logout, .reboot, .shutdown };
-    var buttons: std.ArrayList(?*T.Node) = .empty;
-    for (actions) |action| {
+    const btn_ids = [_]u32{ NodeIds.pwr_lock, NodeIds.pwr_suspend, NodeIds.pwr_logout, NodeIds.pwr_reboot, NodeIds.pwr_shutdown };
+
+    var rows: std.ArrayList(?*T.Node) = .empty;
+
+    try rows.append(arena, try ux.div(.{
+        .id = NodeIds.power_header,
+        .style = tw.style(.{
+            tw.flex_row,
+            tw.items_center,
+            tw.gap_px(10),
+            tw.p_each_px(0, 4, 12, 4),
+            tw.opacity(if (revealed) 1.0 else 0.0),
+            tw.transition(fadeIn(40)),
+        }),
+        .children = &.{
+            try ux.image(.{ .tex_id = state.tex_pwr_shutdown, .tint = accent, .style = tw.style(.{tw.square(22)}) }),
+            try ux.text(.{
+                .content = "Power",
+                .font = state.font,
+                .style = tw.style(.{ tw.text(20), tw.text_color_value(fg) }),
+            }),
+        },
+    }));
+
+    for (actions, 0..) |action, idx| {
         const confirming = state.power_confirm != null and state.power_confirm.? == action;
+        const destructive = action.needsConfirm();
         const label = if (confirming)
             try std.fmt.allocPrint(arena, "Confirm {s}?", .{action.label()})
         else
             action.label();
-        const destructive = action.needsConfirm();
         const base_bg: [4]f32 = if (confirming) danger else pill_bg;
         const text_col: [4]f32 = if (confirming) fg else if (destructive) danger else fg;
-        try buttons.append(arena, try ux.div(.{
+        const icon_tint: [4]f32 = if (confirming) fg else if (destructive) danger else accent;
+
+        try rows.append(arena, try ux.div(.{
+            .id = btn_ids[idx],
             .style = tw.style(.{
                 tw.flex_row,
                 tw.items_center,
-                tw.justify_center,
-                tw.w(220),
-                tw.p_xy_px(16, 12),
+                tw.gap_px(14),
+                tw.w(248),
+                tw.p_xy_px(14, 12),
                 tw.bg_value(base_bg),
                 tw.hover_value(ws_active_bg),
-                tw.rounded(12),
+                tw.rounded(14),
                 tw.border_value(1.0, sep_color),
                 tw.cursor_pointer,
-                tw.transition(hover_transition),
+                tw.opacity(if (revealed) 1.0 else 0.0),
+                tw.transition(fadeIn(@intCast(110 + 70 * idx))),
             }),
             .on_click = .{ .power_action = action },
-            .children = &.{try ux.text(.{
-                .content = label,
-                .font = state.font,
-                .style = tw.style(.{ tw.text(font_size + 1), tw.text_color_value(text_col) }),
-            })},
+            .children = &.{
+                try ux.image(.{ .tex_id = powerActionTex(state, action), .tint = icon_tint, .style = tw.style(.{tw.square(20)}) }),
+                try ux.text(.{
+                    .content = label,
+                    .font = state.font,
+                    .style = tw.style(.{ tw.text(font_size + 1), tw.text_color_value(text_col) }),
+                }),
+            },
         }));
     }
 
     const card = try ux.div(.{
+        .id = NodeIds.power_card,
         .style = tw.style(.{
             tw.flex_col,
-            tw.items_center,
-            tw.gap_px(10),
-            tw.p_px(24),
+            tw.items_start,
+            tw.gap_px(8),
+            tw.p_px(22),
             tw.bg_value(menu_bg),
             tw.border_value(1.0, sep_color),
-            tw.rounded(20),
+            tw.rounded(22),
+            // Card only slides; children fade (one opacity level).
+            .{ .transform = layout.Transform{ .translate = .{ 0, if (revealed) 0 else 24 } } },
+            tw.transition(card_transition),
         }),
         .on_click = .noop,
-        .children = blk: {
-            var rows: std.ArrayList(?*T.Node) = .empty;
-            try rows.append(arena, try ux.text(.{
-                .content = "Power",
-                .font = state.font,
-                .style = tw.style(.{ tw.text(20), tw.text_color_value(fg) }),
-            }));
-            try rows.appendSlice(arena, buttons.items);
-            break :blk rows.items;
-        },
+        .children = rows.items,
     });
 
-    // Full-screen dimmed backdrop; click anywhere outside the card closes it.
-    // Use explicit size_screen (not inset) so flex centering has real
-    // dimensions to work with — otherwise the card pins to the bottom edge.
+    // Dimmed backdrop; click outside the card closes it. size_screen (not inset)
+    // so flex centering has real dimensions.
+    const overlay_bg: [4]f32 = if (revealed) .{ 0.0, 0.0, 0.0, 0.5 } else transparent;
     return try ux.div(.{
         .id = NodeIds.power_menu,
         .style = tw.style(.{
@@ -500,11 +691,192 @@ fn buildPowerMenu(ui: *T.UIContext, state: *const AppState) !*T.Node {
             tw.flex_col,
             tw.items_center,
             tw.justify_center,
-            tw.bg_value(.{ 0.0, 0.0, 0.0, 0.55 }),
+            tw.bg_value(overlay_bg),
+            tw.transition(overlay_transition),
             tw.z(40),
         }),
         .on_click = .close_power_menu,
         .children = &.{card},
+    });
+}
+
+fn powerActionTex(state: *const AppState, action: power_mod.Action) u32 {
+    return switch (action) {
+        .lock => state.tex_pwr_lock,
+        .suspend_ => state.tex_pwr_suspend,
+        .logout => state.tex_pwr_logout,
+        .reboot => state.tex_pwr_reboot,
+        .shutdown => state.tex_pwr_shutdown,
+    };
+}
+
+fn buildSettingsMenu(ui: *T.UIContext, state: *const AppState) !*T.Node {
+    const ux = ui.ux();
+    const arena = ui.build_arena.allocator();
+    const revealed = state.settings_revealed;
+
+    var rows: std.ArrayList(?*T.Node) = .empty;
+
+    try rows.append(arena, try ux.div(.{
+        .style = tw.style(.{ tw.flex_row, tw.items_center, tw.gap_px(10), tw.p_each_px(0, 4, 12, 4) }),
+        .children = &.{
+            try ux.image(.{ .tex_id = state.tex_tune, .tint = accent, .style = tw.style(.{tw.square(22)}) }),
+            try ux.text(.{ .content = "Settings", .font = state.font, .style = tw.style(.{ tw.text(20), tw.text_color_value(fg) }) }),
+        },
+    }));
+
+    for (settings_mod.keys, 0..) |key, idx| {
+        try rows.append(arena, try buildSettingRow(ui, state, key, idx));
+    }
+    try rows.append(arena, try buildAccentRow(ui, state));
+    try rows.append(arena, try buildCycleRow(ui, state, "Rounding", state.settings.rounding.label(), .cycle_rounding));
+
+    const card = try ux.div(.{
+        .id = NodeIds.settings_card,
+        .style = tw.style(.{
+            tw.flex_col,
+            tw.items_start,
+            tw.gap_px(8),
+            tw.w(320),
+            tw.p_px(22),
+            tw.bg_value(menu_bg),
+            tw.border_value(1.0, sep_color),
+            tw.rounded(22),
+            .{ .transform = layout.Transform{ .translate = .{ 0, if (revealed) 0 else 24 } } },
+            tw.transition(card_transition),
+        }),
+        .on_click = .noop,
+        .children = rows.items,
+    });
+
+    const overlay_bg: [4]f32 = if (revealed) .{ 0.0, 0.0, 0.0, 0.5 } else transparent;
+    return try ux.div(.{
+        .id = NodeIds.settings_menu,
+        .style = tw.style(.{
+            tw.absolute,
+            tw.top(0),
+            tw.left(0),
+            tw.size_screen,
+            tw.flex_col,
+            tw.items_center,
+            tw.justify_center,
+            tw.bg_value(overlay_bg),
+            tw.transition(overlay_transition),
+            tw.z(41),
+        }),
+        .on_click = .close_settings_menu,
+        .children = &.{card},
+    });
+}
+
+fn buildSettingRow(ui: *T.UIContext, state: *const AppState, key: settings_mod.Key, idx: usize) !*T.Node {
+    const ux = ui.ux();
+    const on = settings_mod.get(state.settings, key);
+    const track_bg: [4]f32 = if (on) accent else sep_color;
+    const knob_x: f32 = if (on) 22 else 3;
+
+    const knob = try ux.div(.{
+        .id = set_knob_ids[idx],
+        .style = tw.style(.{
+            tw.square(18),
+            tw.rounded(9),
+            tw.bg_value(fg),
+            .{ .transform = layout.Transform{ .translate = .{ knob_x, 0 } } },
+            tw.transition(switch_knob_transition),
+        }),
+    });
+
+    const track = try ux.div(.{
+        .id = set_track_ids[idx],
+        .style = tw.style(.{
+            tw.w(44),
+            tw.h(24),
+            tw.flex_row,
+            tw.items_center,
+            tw.rounded(12),
+            tw.bg_value(track_bg),
+            tw.transition(switch_track_transition),
+        }),
+        .children = &.{knob},
+    });
+
+    return try ux.div(.{
+        .style = tw.style(.{
+            tw.flex_row,
+            tw.items_center,
+            tw.justify_between,
+            tw.gap_px(12),
+            tw.w_full,
+            tw.p_xy_px(12, 8),
+            tw.bg_value(pill_bg),
+            tw.hover_value(ws_hover),
+            tw.rounded(12),
+            tw.cursor_pointer,
+            tw.transition(hover_transition),
+        }),
+        .on_click = .{ .toggle_setting = key },
+        .children = &.{
+            try ux.text(.{ .content = key.label(), .font = state.font, .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }) }),
+            track,
+        },
+    });
+}
+
+fn buildAccentRow(ui: *T.UIContext, state: *const AppState) !*T.Node {
+    const ux = ui.ux();
+    const swatch = try ux.div(.{
+        .id = NodeIds.set_accent_swatch,
+        .style = tw.style(.{
+            tw.square(22),
+            tw.rounded(11),
+            tw.bg_value(accent),
+            tw.border_value(2.0, fg),
+            tw.transition(switch_track_transition),
+        }),
+    });
+    return try ux.div(.{
+        .style = tw.style(.{
+            tw.flex_row,
+            tw.items_center,
+            tw.justify_between,
+            tw.gap_px(12),
+            tw.w_full,
+            tw.p_xy_px(12, 8),
+            tw.bg_value(pill_bg),
+            tw.hover_value(ws_hover),
+            tw.rounded(12),
+            tw.cursor_pointer,
+            tw.transition(hover_transition),
+        }),
+        .on_click = .cycle_accent,
+        .children = &.{
+            try ux.text(.{ .content = "Accent", .font = state.font, .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }) }),
+            swatch,
+        },
+    });
+}
+
+fn buildCycleRow(ui: *T.UIContext, state: *const AppState, label: []const u8, value: []const u8, msg: AppMessage) !*T.Node {
+    const ux = ui.ux();
+    return try ux.div(.{
+        .style = tw.style(.{
+            tw.flex_row,
+            tw.items_center,
+            tw.justify_between,
+            tw.gap_px(12),
+            tw.w_full,
+            tw.p_xy_px(12, 8),
+            tw.bg_value(pill_bg),
+            tw.hover_value(ws_hover),
+            tw.rounded(12),
+            tw.cursor_pointer,
+            tw.transition(hover_transition),
+        }),
+        .on_click = msg,
+        .children = &.{
+            try ux.text(.{ .content = label, .font = state.font, .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }) }),
+            try ux.text(.{ .content = value, .font = state.font, .style = tw.style(.{ tw.text(font_size), tw.text_color_value(accent) }) }),
+        },
     });
 }
 
@@ -515,40 +887,13 @@ fn buildSlidePanel(ui: *T.UIContext, state: *const AppState) !*T.Node {
     const panel_translate: f32 = if (state.slide_panel_open) 0 else panel_w + 28;
     var rows: std.ArrayList(?*T.Node) = .empty;
 
-    try rows.append(arena, try ux.div(.{
-        .style = tw.style(.{ tw.flex_row, tw.items_center, tw.justify_between }),
-        .children = &.{
-            try ux.text(.{
-                .content = "Quick panel",
-                .font = state.font,
-                .style = tw.style(.{ tw.text(18), tw.text_color_value(fg) }),
-            }),
-            try ux.div(.{
-                .style = tw.style(.{
-                    tw.p_xy_px(10, 5),
-                    tw.bg_value(ws_hover),
-                    tw.hover_value(ws_active_bg),
-                    tw.rounded(10),
-                    tw.cursor_pointer,
-                    tw.transition(hover_transition),
-                }),
-                .on_click = .panel_force_close,
-                .children = &.{try ux.text(.{
-                    .content = "Close",
-                    .font = state.font,
-                    .style = tw.style(.{ tw.text(font_size - 2), tw.text_color_value(fg) }),
-                })},
-            }),
-        },
-    }));
-
     try rows.append(arena, try buildNetworkSection(ui, state, panel_w));
     try rows.append(arena, try buildBatterySection(ui, state, panel_w));
 
     try rows.append(arena, try buildPanelMetric(ui, state, "Volume", if (state.vol.available) try std.fmt.allocPrint(arena, "{d}%", .{state.vol.volume_pct}) else "--"));
     try rows.append(arena, try buildPanelMetric(ui, state, "Workspace", if (state.hypr.available) try std.fmt.allocPrint(arena, "{d}", .{state.hypr.active_workspace_id}) else "Unavailable"));
 
-    try rows.append(arena, try buildPowerRow(ui, state));
+    try rows.append(arena, try buildPanelActions(ui, state));
 
     if (state.tray.available) {
         for (state.tray.itemSlice()) |item| {
@@ -569,6 +914,7 @@ fn buildSlidePanel(ui: *T.UIContext, state: *const AppState) !*T.Node {
             tw.bg_value(panel_bg),
             tw.border_value(1, sep_color),
             tw.rounded(18),
+            tw.opacity(if (state.slide_panel_open) 1.0 else 0.0),
             tw.translate(panel_translate, 0),
             tw.transition(panel_transition),
             tw.z(20),
@@ -586,6 +932,8 @@ fn buildPanelMetric(ui: *T.UIContext, state: *const AppState, label: []const u8,
             tw.flex_row,
             tw.items_center,
             tw.justify_between,
+            tw.gap_px(12),
+            tw.w_full,
             tw.p_xy_px(12, 8),
             tw.bg_value(pill_bg),
             tw.rounded(12),
@@ -597,13 +945,26 @@ fn buildPanelMetric(ui: *T.UIContext, state: *const AppState, label: []const u8,
     });
 }
 
-fn buildPowerRow(ui: *T.UIContext, state: *const AppState) !*T.Node {
+fn buildPanelActions(ui: *T.UIContext, state: *const AppState) !*T.Node {
+    const ux = ui.ux();
+    return try ux.div(.{
+        .style = tw.style(.{ tw.flex_row, tw.items_center, tw.gap_px(8), tw.w_full }),
+        .children = &.{
+            try panelActionButton(ui, state, state.tex_tune, "Settings", .toggle_settings_menu),
+            try panelActionButton(ui, state, state.tex_pwr_shutdown, "Power", .toggle_power_menu),
+        },
+    });
+}
+
+fn panelActionButton(ui: *T.UIContext, state: *const AppState, tex: u32, label: []const u8, msg: AppMessage) !*T.Node {
     const ux = ui.ux();
     return try ux.div(.{
         .style = tw.style(.{
             tw.flex_row,
             tw.items_center,
             tw.justify_center,
+            tw.gap_px(8),
+            tw.grow(1),
             tw.p_xy_px(12, 10),
             tw.bg_value(pill_bg),
             tw.hover_value(ws_active_bg),
@@ -612,21 +973,37 @@ fn buildPowerRow(ui: *T.UIContext, state: *const AppState) !*T.Node {
             tw.cursor_pointer,
             tw.transition(hover_transition),
         }),
-        .on_click = .toggle_power_menu,
-        .children = &.{try ux.text(.{
-            .content = "Power",
-            .font = state.font,
-            .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }),
-        })},
+        .on_click = msg,
+        .children = &.{
+            try ux.image(.{ .tex_id = tex, .tint = accent, .style = tw.style(.{tw.square(18)}) }),
+            try ux.text(.{
+                .content = label,
+                .font = state.font,
+                .style = tw.style(.{ tw.text(font_size), tw.text_color_value(fg) }),
+            }),
+        },
     });
 }
 
-fn buildSectionHeader(ui: *T.UIContext, state: *const AppState, title: []const u8) !*T.Node {
+fn buildSectionHeader(ui: *T.UIContext, state: *const AppState, title: []const u8, icon_tex: u32) !*T.Node {
     const ux = ui.ux();
-    return try ux.text(.{
+    const arena = ui.build_arena.allocator();
+    var items: std.ArrayList(?*T.Node) = .empty;
+    if (icon_tex != 0) {
+        try items.append(arena, try ux.image(.{
+            .tex_id = icon_tex,
+            .tint = dim,
+            .style = tw.style(.{tw.square(14)}),
+        }));
+    }
+    try items.append(arena, try ux.text(.{
         .content = title,
         .font = state.font,
         .style = tw.style(.{ tw.text(font_size - 3), tw.text_color_value(dim) }),
+    }));
+    return try ux.div(.{
+        .style = tw.style(.{ tw.flex_row, tw.items_center, tw.gap_px(6), tw.p_each_px(2, 0, 2, 2) }),
+        .children = items.items,
     });
 }
 
@@ -636,7 +1013,7 @@ fn buildNetworkSection(ui: *T.UIContext, state: *const AppState, panel_w: f32) !
     const net = state.net;
 
     var rows: std.ArrayList(?*T.Node) = .empty;
-    try rows.append(arena, try buildSectionHeader(ui, state, "NETWORK"));
+    try rows.append(arena, try buildSectionHeader(ui, state, "NETWORK", state.tex_wifi));
 
     if (!net.connected) {
         try rows.append(arena, try buildPanelMetric(ui, state, "Status", if (net.available) "Disconnected" else "Unavailable"));
@@ -668,7 +1045,7 @@ fn buildBatterySection(ui: *T.UIContext, state: *const AppState, panel_w: f32) !
     const bat = state.bat;
 
     var rows: std.ArrayList(?*T.Node) = .empty;
-    try rows.append(arena, try buildSectionHeader(ui, state, "BATTERY"));
+    try rows.append(arena, try buildSectionHeader(ui, state, "BATTERY", state.tex_bat_full));
 
     if (!bat.present) {
         try rows.append(arena, try buildPanelMetric(ui, state, "Status", "No battery"));
@@ -717,7 +1094,7 @@ fn formatDuration(arena: std.mem.Allocator, seconds: u32) []const u8 {
 fn buildPanelSubMetric(ui: *T.UIContext, state: *const AppState, label: []const u8, value: []const u8) !*T.Node {
     const ux = ui.ux();
     return try ux.div(.{
-        .style = tw.style(.{ tw.flex_row, tw.items_center, tw.justify_between, tw.p_xy_px(12, 2) }),
+        .style = tw.style(.{ tw.flex_row, tw.items_center, tw.justify_between, tw.gap_px(12), tw.w_full, tw.p_xy_px(12, 2) }),
         .children = &.{
             try ux.text(.{ .content = label, .font = state.font, .style = tw.style(.{ tw.text(font_size - 3), tw.text_color_value(dim) }) }),
             try ux.text(.{ .content = value, .font = state.font, .style = tw.style(.{ tw.text(font_size - 3), tw.text_color_value(dim) }) }),
@@ -762,6 +1139,20 @@ fn trayTexture(state: *const AppState, item: tray_mod.Item) u32 {
         .updates => state.tex_tray_updates,
         .app => state.tex_tray_messages,
     };
+}
+
+fn formatClock(arena: std.mem.Allocator, time: clock_mod.State, clock_24h: bool) ![]const u8 {
+    if (clock_24h) {
+        return std.fmt.allocPrint(arena, "{s} {d:0>2} {s}  {d:0>2}:{d:0>2}", .{
+            time.weekday, time.day, monthName(time.month), time.hour, time.minute,
+        });
+    }
+    const h = time.hour % 12;
+    const h12: u8 = if (h == 0) 12 else h;
+    const period = if (time.hour < 12) "AM" else "PM";
+    return std.fmt.allocPrint(arena, "{s} {d:0>2} {s}  {d}:{d:0>2} {s}", .{
+        time.weekday, time.day, monthName(time.month), h12, time.minute, period,
+    });
 }
 
 fn monthName(m: u8) []const u8 {
@@ -838,11 +1229,13 @@ fn update(app: *App, msg: T.InteractionMessage) ramiel.UpdateAction {
         },
         .toggle_power_menu => {
             app.state.power_menu_open = !app.state.power_menu_open;
+            app.state.power_revealed = false;
             app.state.power_confirm = null;
             return .rebuild;
         },
         .close_power_menu => {
             app.state.power_menu_open = false;
+            app.state.power_revealed = false;
             app.state.power_confirm = null;
             return .rebuild;
         },
@@ -855,6 +1248,34 @@ fn update(app: *App, msg: T.InteractionMessage) ramiel.UpdateAction {
             power_mod.run(app.state.io, action);
             app.state.power_menu_open = false;
             app.state.power_confirm = null;
+            return .rebuild;
+        },
+        .toggle_settings_menu => {
+            app.state.settings_menu_open = !app.state.settings_menu_open;
+            app.state.settings_revealed = false;
+            return .rebuild;
+        },
+        .close_settings_menu => {
+            app.state.settings_menu_open = false;
+            app.state.settings_revealed = false;
+            return .rebuild;
+        },
+        .toggle_setting => |key| {
+            settings_mod.toggle(&app.state.settings, key);
+            applyTheme(app);
+            settingsSave(app, app.state.io);
+            return .rebuild;
+        },
+        .cycle_accent => {
+            settings_mod.cycleAccent(&app.state.settings);
+            applyTheme(app);
+            settingsSave(app, app.state.io);
+            return .rebuild;
+        },
+        .cycle_rounding => {
+            settings_mod.cycleRounding(&app.state.settings);
+            applyTheme(app);
+            settingsSave(app, app.state.io);
             return .rebuild;
         },
         .noop => return .none,
@@ -901,9 +1322,22 @@ fn tick(app: *App) ramiel.UpdateAction {
 
     if (bg_slow_ready.swap(false, .acquire)) {
         app.state.bat = bg_bat;
-        app.state.vol = bg_vol;
+        // Keep the last good volume on a transient wpctl failure (avoids "--" blips).
+        if (bg_vol.available or !app.state.vol.available) {
+            app.state.vol = bg_vol;
+        }
         app.state.time = bg_time;
         app.state.net = bg_net;
+        changed = true;
+    }
+
+    // One frame after open, reveal so the entrance has a change to animate.
+    if (app.state.power_menu_open and !app.state.power_revealed) {
+        app.state.power_revealed = true;
+        changed = true;
+    }
+    if (app.state.settings_menu_open and !app.state.settings_revealed) {
+        app.state.settings_revealed = true;
         changed = true;
     }
 
@@ -992,6 +1426,46 @@ fn uploadTrayPixmaps(app: *App) void {
     }
 }
 
+fn captureFirstLine(io: std.Io, argv: []const []const u8, buf: []u8) ?[]const u8 {
+    const child = std.process.spawn(io, .{
+        .argv = argv,
+        .stdin = .ignore,
+        .stdout = .pipe,
+        .stderr = .ignore,
+    }) catch return null;
+    var mutable_child = child;
+
+    var read_buf: [1024]u8 = undefined;
+    var reader = mutable_child.stdout.?.reader(io, &read_buf);
+    const out = reader.interface.allocRemaining(std.heap.page_allocator, .limited(buf.len)) catch {
+        _ = mutable_child.wait(io) catch {};
+        return null;
+    };
+    defer std.heap.page_allocator.free(out);
+    _ = mutable_child.wait(io) catch {};
+
+    const trimmed = std.mem.trim(u8, out, " \t\r\n");
+    if (trimmed.len == 0 or trimmed.len > buf.len) return null;
+    @memcpy(buf[0..trimmed.len], trimmed);
+    return buf[0..trimmed.len];
+}
+
+/// Register a color emoji font as the default fallback so emoji/symbols in
+/// window titles and other text resolve to it. Best-effort.
+fn loadEmojiFallback(app: *App, io: std.Io) void {
+    var out_buf: [1024]u8 = undefined;
+    const path = captureFirstLine(io, &.{ "fc-match", "-f", "%{file}", "Noto Color Emoji" }, &out_buf) orelse return;
+    if (path.len >= 1023) return;
+
+    var path_buf: [1024]u8 = undefined;
+    @memcpy(path_buf[0..path.len], path);
+    path_buf[path.len] = 0;
+    const path_z: [:0]const u8 = path_buf[0..path.len :0];
+
+    _ = app.loadFont("emoji", .{ .path = path_z }, 109) catch return;
+    app.setDefaultFallbackChain(&.{"emoji"}) catch {};
+}
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
@@ -1022,6 +1496,7 @@ pub fn main(init: std.process.Init) !void {
         .{ .memory = ramiel.assets.getFontData(.jetbrains_mono) },
         16,
     );
+    loadEmojiFallback(&app, io);
 
     try app.loadIconSvgFromMemory(ICON_VOL_HIGH, icons.volume_high, icon_px, icon_px, 1.0);
     try app.loadIconSvgFromMemory(ICON_VOL_MUTE, icons.volume_mute, icon_px, icon_px, 1.0);
@@ -1030,12 +1505,28 @@ pub fn main(init: std.process.Init) !void {
     try app.loadIconSvgFromMemory(ICON_BAT_CHARGE, icons.battery_charging, icon_px, icon_px, 1.0);
     try app.loadIconSvgFromMemory(ICON_BAT_LOW, icons.battery_low, icon_px, icon_px, 1.0);
 
+    // Power menu + panel accent icons (rendered larger, so rasterize at 24px).
+    try app.loadIconSvgFromMemory(ICON_PWR_LOCK, icons.power_lock, 24, 24, 1.0);
+    try app.loadIconSvgFromMemory(ICON_PWR_SUSPEND, icons.power_suspend, 24, 24, 1.0);
+    try app.loadIconSvgFromMemory(ICON_PWR_LOGOUT, icons.power_logout, 24, 24, 1.0);
+    try app.loadIconSvgFromMemory(ICON_PWR_REBOOT, icons.power_reboot, 24, 24, 1.0);
+    try app.loadIconSvgFromMemory(ICON_PWR_SHUTDOWN, icons.power_shutdown, 24, 24, 1.0);
+    try app.loadIconSvgFromMemory(ICON_WIFI, icons.net_wifi, icon_px, icon_px, 1.0);
+    try app.loadIconSvgFromMemory(ICON_TUNE, icons.panel_tune, icon_px, icon_px, 1.0);
+
     app.state.tex_vol_high = app.getIconTextureId(ICON_VOL_HIGH, 1.0) orelse 0;
     app.state.tex_vol_mute = app.getIconTextureId(ICON_VOL_MUTE, 1.0) orelse 0;
     app.state.tex_vol_low = app.getIconTextureId(ICON_VOL_LOW, 1.0) orelse 0;
     app.state.tex_bat_full = app.getIconTextureId(ICON_BAT_FULL, 1.0) orelse 0;
     app.state.tex_bat_charge = app.getIconTextureId(ICON_BAT_CHARGE, 1.0) orelse 0;
     app.state.tex_bat_low = app.getIconTextureId(ICON_BAT_LOW, 1.0) orelse 0;
+    app.state.tex_pwr_lock = app.getIconTextureId(ICON_PWR_LOCK, 1.0) orelse 0;
+    app.state.tex_pwr_suspend = app.getIconTextureId(ICON_PWR_SUSPEND, 1.0) orelse 0;
+    app.state.tex_pwr_logout = app.getIconTextureId(ICON_PWR_LOGOUT, 1.0) orelse 0;
+    app.state.tex_pwr_reboot = app.getIconTextureId(ICON_PWR_REBOOT, 1.0) orelse 0;
+    app.state.tex_pwr_shutdown = app.getIconTextureId(ICON_PWR_SHUTDOWN, 1.0) orelse 0;
+    app.state.tex_wifi = app.getIconTextureId(ICON_WIFI, 1.0) orelse 0;
+    app.state.tex_tune = app.getIconTextureId(ICON_TUNE, 1.0) orelse 0;
 
     app.setTickFn(tick, 0.05);
     tray_mod.start();
@@ -1046,6 +1537,8 @@ pub fn main(init: std.process.Init) !void {
     app.state.time = clock_mod.poll(io);
     app.state.net = network_mod.poll(io);
     app.state.tray = tray_mod.demoState();
+    settingsLoad(&app, io);
+    applyTheme(&app);
 
     const hypr_thread = try std.Thread.spawn(.{}, hyprlandWorker, .{ io, init.environ_map });
     hypr_thread.detach();

@@ -190,6 +190,11 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
                         .font = font,
                         .style = tw.style(.{tw.text_color_value(.{ 0.66, 0.72, 0.84, 1.0 })}),
                     }),
+                    try ui.ux().text(.{
+                        .content = "Color emoji via font fallback: hi 😀 🎉 🚀 ❤️ 🔥",
+                        .font = font,
+                        .style = tw.style(.{tw.text_color_value(.{ 0.93, 0.96, 1.0, 1.0 })}),
+                    }),
                     checkbox_group_node,
                     radio_group_node,
                     try ui.ux().text(.{
@@ -248,6 +253,45 @@ fn update(app: *App, msg: AppInteractionMessage) UpdateAction {
     }
 }
 
+fn runCapture(io: std.Io, argv: []const []const u8, buf: []u8) ?[]const u8 {
+    const child = std.process.spawn(io, .{
+        .argv = argv,
+        .stdin = .ignore,
+        .stdout = .pipe,
+        .stderr = .ignore,
+    }) catch return null;
+    var mutable_child = child;
+
+    var read_buf: [1024]u8 = undefined;
+    var reader = mutable_child.stdout.?.reader(io, &read_buf);
+    const out = reader.interface.allocRemaining(std.heap.page_allocator, .limited(buf.len)) catch {
+        _ = mutable_child.wait(io) catch {};
+        return null;
+    };
+    defer std.heap.page_allocator.free(out);
+    _ = mutable_child.wait(io) catch {};
+
+    if (out.len == 0) return null;
+    const n = @min(out.len, buf.len);
+    @memcpy(buf[0..n], out[0..n]);
+    return buf[0..n];
+}
+
+fn loadEmojiFallback(app: *App, io: std.Io) void {
+    var out_buf: [1024]u8 = undefined;
+    const found = runCapture(io, &.{ "fc-match", "-f", "%{file}", "Noto Color Emoji" }, &out_buf) orelse return;
+    const path = std.mem.trim(u8, found, " \t\r\n");
+    if (path.len == 0 or path.len >= 1023) return;
+
+    var path_buf: [1024]u8 = undefined;
+    @memcpy(path_buf[0..path.len], path);
+    path_buf[path.len] = 0;
+    const path_z: [:0]const u8 = path_buf[0..path.len :0];
+
+    _ = app.loadFont("emoji", .{ .path = path_z }, 109) catch return;
+    app.setDefaultFallbackChain(&.{"emoji"}) catch {};
+}
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
@@ -264,7 +308,11 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     app.state.font_data = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    loadEmojiFallback(&app, io);
 
     try app.setRootBuilder(build);
     try app.run();
 }
+/// Locate a color emoji font via fontconfig and register it as the default
+/// fallback so emoji codepoints resolve to it during text shaping. Best-effort:
+/// silently does nothing if fontconfig or the font is unavailable.
