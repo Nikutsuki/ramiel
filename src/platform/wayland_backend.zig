@@ -465,6 +465,20 @@ pub const WaylandClient = struct {
         _ = self.display.flush();
     }
 
+    /// Change layer-surface keyboard focus at runtime (e.g. grab exclusive
+    /// keyboard while a launcher overlay is open, release it when closed).
+    pub fn setKeyboardInteractivity(self: *WaylandClient, mode: platform.KeyboardInteractivity) void {
+        const layer_surface = self.layer_surface orelse return;
+        const kb: zwlr.LayerSurfaceV1.KeyboardInteractivity = switch (mode) {
+            .none => .none,
+            .exclusive => .exclusive,
+            .on_demand => .on_demand,
+        };
+        layer_surface.setKeyboardInteractivity(kb);
+        if (self.surface) |sfc| sfc.commit();
+        _ = self.display.flush();
+    }
+
     /// Pump key repeat: if a key is held and the repeat deadline has passed,
     /// re-fire the key and character events. Returns the ms until next repeat
     /// or null if no repeat is pending.

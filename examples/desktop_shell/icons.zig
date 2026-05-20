@@ -18,3 +18,4 @@ pub const power_shutdown = @embedFile("icons/power-shutdown.svg");
 // Panel accents.
 pub const net_wifi = @embedFile("icons/net-wifi.svg");
 pub const panel_tune = @embedFile("icons/panel-tune.svg");
+pub const launcher = @embedFile("icons/launcher.svg");

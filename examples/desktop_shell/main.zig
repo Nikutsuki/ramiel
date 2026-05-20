@@ -15,12 +15,17 @@ const tray_mod = @import("modules/tray.zig");
 const network_mod = @import("modules/network.zig");
 const power_mod = @import("modules/power.zig");
 const settings_mod = @import("modules/settings.zig");
+const launcher = @import("launcher.zig");
 const icons = @import("icons.zig");
 
-const NodeIds = ramiel.declareIds("wayland-basic", .{
+const NodeIds = ramiel.declareIds("desktop-shell", .{
     "bar_row",
     "hot_corner",
     "slide_panel",
+    "launcher_menu",
+    "launcher_card",
+    "search_input",
+    "results_list",
     "tray_menu",
     "power_menu",
     "power_card",
@@ -76,6 +81,12 @@ const AppMessage = union(enum) {
     toggle_setting: settings_mod.Key,
     cycle_accent: void,
     cycle_rounding: void,
+    toggle_launcher: void,
+    launcher_show: void,
+    launcher_hide: void,
+    launcher_query_changed: void,
+    launcher_select: usize,
+    launcher_key_nav: void,
     noop: void,
 };
 
@@ -95,6 +106,7 @@ const ICON_PWR_REBOOT: u32 = 113;
 const ICON_PWR_SHUTDOWN: u32 = 114;
 const ICON_WIFI: u32 = 115;
 const ICON_TUNE: u32 = 116;
+const ICON_LAUNCHER: u32 = 117;
 
 const AppState = struct {
     font: *ramiel.FontData = undefined,
@@ -111,6 +123,7 @@ const AppState = struct {
     settings: settings_mod.Settings = .{},
     settings_menu_open: bool = false,
     settings_revealed: bool = false,
+    launcher: launcher.State,
     slide_panel_open: bool = false,
     hide_panel_at_ns: i128 = 0,
     edge_hovered: bool = false,
@@ -136,6 +149,7 @@ const AppState = struct {
     tex_pwr_shutdown: u32 = 0,
     tex_wifi: u32 = 0,
     tex_tune: u32 = 0,
+    tex_launcher: u32 = 0,
 
     // Persisted surface: only the user settings round-trip to disk.
     pub const snapshot_version: ramiel.state.SnapshotVersion = 1;
@@ -299,6 +313,9 @@ fn build(ui: *T.UIContext, state: *const AppState) anyerror!*T.Node {
     if (state.settings_menu_open) {
         try children.append(arena, try buildSettingsMenu(ui, state));
     }
+    if (state.launcher.open) {
+        try children.append(arena, try buildLauncher(ui, state));
+    }
 
     return try ux.div(.{
         .style = tw.style(.{
@@ -453,8 +470,8 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
         }),
         .children = &.{
             try ux.div(.{
-                .style = tw.style(.{ tw.w_frac(1, 3), tw.flex_row, tw.items_center, tw.justify_start }),
-                .children = &.{left_pill},
+                .style = tw.style(.{ tw.w_frac(1, 3), tw.flex_row, tw.items_center, tw.justify_start, tw.gap_px(8) }),
+                .children = &.{ try buildLauncherButton(ui, state), left_pill },
             }),
             try ux.div(.{
                 .style = tw.style(.{ tw.w_frac(1, 3), tw.flex_row, tw.items_center, tw.justify_center }),
@@ -708,6 +725,233 @@ fn powerActionTex(state: *const AppState, action: power_mod.Action) u32 {
         .reboot => state.tex_pwr_reboot,
         .shutdown => state.tex_pwr_shutdown,
     };
+}
+
+fn buildLauncherButton(ui: *T.UIContext, state: *const AppState) !*T.Node {
+    const ux = ui.ux();
+    return try ux.div(.{
+        .style = tw.style(.{
+            tw.square(bar_h - 8),
+            tw.flex_row,
+            tw.items_center,
+            tw.justify_center,
+            tw.bg_value(pill_bg),
+            tw.hover_value(ws_active_bg),
+            tw.rounded(pill_radius),
+            tw.border_value(pill_border_w, pill_border),
+            tw.cursor_pointer,
+            tw.transition(hover_transition),
+        }),
+        .on_click = .toggle_launcher,
+        .children = &.{
+            try ux.image(.{ .tex_id = state.tex_launcher, .tint = accent, .style = tw.style(.{tw.square(18)}) }),
+        },
+    });
+}
+
+fn resultRow(ui: *T.UIContext, state: *const AppState, match: launcher.Match, rank: usize) !*T.Node {
+    const ux = ui.ux();
+    const desktop_app = state.launcher.index.apps.items[match.index];
+    const is_selected = state.launcher.selected == rank;
+    const row_bg: [4]f32 = if (is_selected) ws_active_bg else pill_bg;
+    const subtitle = if (desktop_app.generic_name.len > 0)
+        desktop_app.generic_name
+    else if (desktop_app.categories.len > 0)
+        desktop_app.categories
+    else
+        desktop_app.exec;
+
+    return try ux.div(.{
+        .style = tw.style(.{
+            tw.w_full,
+            tw.flex_col,
+            tw.p_xy_px(14, 8),
+            tw.gap_px(2),
+            tw.bg_value(row_bg),
+            tw.hover_value(ws_hover),
+            tw.rounded(8),
+            tw.cursor_pointer,
+            tw.overflow_x_hidden,
+        }),
+        .on_click = .{ .launcher_select = rank },
+        .children = &.{
+            try ux.text(.{
+                .content = desktop_app.name,
+                .font = state.font,
+                .style = tw.style(.{ tw.text(15), tw.text_color_value(if (is_selected) accent else fg), tw.text_ellipsis, tw.whitespace_nowrap }),
+            }),
+            try ux.text(.{
+                .content = subtitle,
+                .font = state.font,
+                .style = tw.style(.{ tw.text(12), tw.text_color_value(dim), tw.text_ellipsis, tw.whitespace_nowrap }),
+            }),
+        },
+    });
+}
+
+fn buildLauncher(ui: *T.UIContext, state: *const AppState) !*T.Node {
+    const ux = ui.ux();
+    const arena = ui.build_arena.allocator();
+    const revealed = state.launcher.revealed;
+    const query = ui.getInputText(NodeIds.search_input) orelse "";
+    const matches = try launcher.collectMatches(arena, &state.launcher.index, &state.launcher.freq, query);
+
+    const mutable: *AppState = @constCast(state);
+    mutable.launcher.last_match_count = matches.len;
+    const shown = @min(state.launcher.limit, @min(matches.len, launcher.max_visible));
+    for (matches[0..shown], 0..) |m, rank| mutable.launcher.visible_app_indices[rank] = m.index;
+
+    const prev_scroll: f32 = if (ui.getById(NodeIds.results_list)) |old| old.scroll_y else 0.0;
+    const prev_viewport: f32 = if (ui.getById(NodeIds.results_list)) |old| old.layout_result.height else 400.0;
+
+    var result_children: std.ArrayList(?*T.Node) = .empty;
+    for (matches[0..shown], 0..) |m, rank| {
+        try result_children.append(arena, try resultRow(ui, state, m, rank));
+    }
+    if (shown == 0 and query.len > 0) {
+        try result_children.append(arena, try ux.div(.{
+            .style = tw.style(.{ tw.w_full, tw.p_xy_px(14, 16) }),
+            .children = &.{try ux.text(.{ .content = "No matches", .font = state.font, .style = tw.style(.{ tw.text(14), tw.text_color_value(dim) }) })},
+        }));
+    }
+
+    ui.requestFocus(NodeIds.search_input);
+
+    const search_bar = try ux.div(.{
+        .style = tw.style(.{ tw.w_full, tw.p_each_px(14, 16, 10, 16) }),
+        .children = &.{try ux.textInput(.{
+            .id = NodeIds.search_input,
+            .style = tw.style(.{
+                tw.w_full,
+                tw.p_px(10),
+                tw.bg_value(panel_bg),
+                tw.text_color_value(fg),
+                tw.text(16),
+                tw.rounded(8),
+                tw.border_value(1.0, sep_color),
+            }),
+            .font = state.font,
+            .placeholder = "Search apps\u{2026}",
+            .placeholder_color = dim,
+            .on_text_input = .launcher_query_changed,
+            .on_key_down = .launcher_key_nav,
+        })},
+    });
+
+    const divider = try ux.div(.{ .style = tw.style(.{ tw.w_full, tw.h(1), tw.bg_value(sep_color) }) });
+
+    const list_node = try ux.div(.{
+        .id = NodeIds.results_list,
+        .style = tw.style(.{
+            tw.w_full,
+            tw.grow_1,
+            tw.flex_col,
+            tw.p_each_px(6, 8, 8, 8),
+            tw.gap_px(2),
+            tw.overflow_y_scroll,
+            tw.overflow_x_hidden,
+        }),
+        .children = result_children.items,
+    });
+    {
+        const row_h: f32 = 53.0;
+        const gap_v: f32 = 2.0;
+        const pad_top: f32 = 6.0;
+        const sel_f: f32 = @floatFromInt(state.launcher.selected);
+        const item_top = pad_top + sel_f * (row_h + gap_v);
+        const item_bottom = item_top + row_h;
+        var scroll = prev_scroll;
+        if (item_bottom + row_h > scroll + prev_viewport) scroll = item_bottom + row_h - prev_viewport;
+        if (item_top - row_h < scroll) scroll = @max(item_top - row_h, 0.0);
+        list_node.scroll_y = @max(scroll, 0.0);
+    }
+
+    const card = try ux.div(.{
+        .id = NodeIds.launcher_card,
+        .style = tw.style(.{
+            tw.w(620),
+            tw.max_h(520),
+            tw.flex_col,
+            tw.bg_value(menu_bg),
+            tw.border_value(1.0, sep_color),
+            tw.rounded(16),
+            tw.overflow_y_hidden,
+            .{ .transform = layout.Transform{ .translate = .{ 0, if (revealed) 0 else 18 } } },
+            tw.transition(card_transition),
+        }),
+        .on_click = .noop,
+        .children = &.{ search_bar, divider, list_node },
+    });
+
+    const overlay_bg: [4]f32 = if (revealed) .{ 0.0, 0.0, 0.0, 0.5 } else transparent;
+    return try ux.div(.{
+        .id = NodeIds.launcher_menu,
+        .style = tw.style(.{
+            tw.absolute,
+            tw.top(0),
+            tw.left(0),
+            tw.size_screen,
+            tw.flex_col,
+            tw.items_center,
+            tw.justify_center,
+            tw.bg_value(overlay_bg),
+            tw.transition(overlay_transition),
+            tw.z(42),
+        }),
+        .on_click = .launcher_hide,
+        .children = &.{card},
+    });
+}
+
+// Evdev scancodes for launcher navigation.
+const EvKey = struct {
+    const ESC = 1;
+    const ENTER = 28;
+    const UP = 103;
+    const DOWN = 108;
+    const TAB = 15;
+};
+
+var g_app: ?*App = null;
+
+fn onKeyCallback(evdev_key: u32, state_val: u32) void {
+    const app = g_app orelse return;
+    if (!app.state.launcher.open) return;
+    if (state_val == 0) return; // ignore release
+    const is_press = state_val == 1;
+    const ls = &app.state.launcher;
+    switch (evdev_key) {
+        EvKey.ESC => if (is_press) app.postMessageId(.launcher_hide),
+        EvKey.ENTER => if (is_press) app.postMessageId(.{ .launcher_select = ls.selected }),
+        EvKey.UP => {
+            if (ls.selected > 0) ls.selected -= 1;
+            app.postMessageId(.launcher_key_nav);
+        },
+        EvKey.DOWN => {
+            const max = @min(ls.limit, ls.last_match_count);
+            if (max > 0 and ls.selected < max - 1) ls.selected += 1;
+            app.postMessageId(.launcher_key_nav);
+        },
+        EvKey.TAB => {
+            const max = @min(ls.limit, ls.last_match_count);
+            if (max > 0 and ls.selected < max - 1) ls.selected += 1 else ls.selected = 0;
+            app.postMessageId(.launcher_key_nav);
+        },
+        else => {},
+    }
+}
+
+fn launcherSetOpen(app: *App, open: bool) ramiel.UpdateAction {
+    app.state.launcher.open = open;
+    app.state.launcher.revealed = false;
+    if (open) {
+        app.state.launcher.selected = 0;
+        _ = launcher.rescanIfNeeded(&app.state.launcher, app.state.io, app.state.env);
+        app.setKeyboardInteractivity(.exclusive);
+    } else {
+        app.setKeyboardInteractivity(.none);
+    }
+    return .rebuild;
 }
 
 fn buildSettingsMenu(ui: *T.UIContext, state: *const AppState) !*T.Node {
@@ -1278,6 +1522,20 @@ fn update(app: *App, msg: T.InteractionMessage) ramiel.UpdateAction {
             settingsSave(app, app.state.io);
             return .rebuild;
         },
+        .toggle_launcher => return launcherSetOpen(app, !app.state.launcher.open),
+        .launcher_show => return launcherSetOpen(app, true),
+        .launcher_hide => return launcherSetOpen(app, false),
+        .launcher_query_changed => {
+            app.state.launcher.selected = 0;
+            return .rebuild;
+        },
+        .launcher_key_nav => return .rebuild,
+        .launcher_select => |rank| {
+            if (launcher.activate(&app.state.launcher, app.state.io, app.allocator, rank)) {
+                return launcherSetOpen(app, false);
+            }
+            return .none;
+        },
         .noop => return .none,
     }
 }
@@ -1338,6 +1596,10 @@ fn tick(app: *App) ramiel.UpdateAction {
     }
     if (app.state.settings_menu_open and !app.state.settings_revealed) {
         app.state.settings_revealed = true;
+        changed = true;
+    }
+    if (app.state.launcher.open and !app.state.launcher.revealed) {
+        app.state.launcher.revealed = true;
         changed = true;
     }
 
@@ -1466,6 +1728,42 @@ fn loadEmojiFallback(app: *App, io: std.Io) void {
     app.setDefaultFallbackChain(&.{"emoji"}) catch {};
 }
 
+const app_id = "ramiel-shell";
+
+const usage =
+    \\Usage: desktop_shell [options]
+    \\
+    \\A Wayland desktop shell: top bar + app launcher in one process,
+    \\sharing the GPU device, buffers and font atlas.
+    \\
+    \\  --scan-path     Also index $PATH binaries in the launcher.
+    \\  --limit N       Max launcher results (default 50).
+    \\  --no-cache      Ignore the cached app index.
+    \\  --cache-ttl N   Cache lifetime in seconds (default 3600).
+    \\  --dir PATH      Add an application directory to scan.
+    \\  --invalidate    Delete the cached index and exit.
+    \\  --toggle        Toggle the launcher on the running shell and exit.
+    \\  --show / --hide Show / hide the launcher and exit.
+    \\
+    \\Hyprland: exec-once = desktop_shell --scan-path
+    \\          bind = SUPER, SPACE, exec, desktop_shell --toggle
+    \\
+;
+
+const IpcCtx = struct { app: *App, server: launcher.ipc.Server };
+
+fn ipcLoop(ctx: *IpcCtx) void {
+    while (true) {
+        const req = ctx.server.acceptActivation() catch continue;
+        const msg: AppMessage = switch (req) {
+            .hide => .launcher_hide,
+            .toggle => .toggle_launcher,
+            else => .launcher_show,
+        };
+        ctx.app.postMessageId(msg);
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
@@ -1473,14 +1771,89 @@ pub fn main(init: std.process.Init) !void {
     defer rt.deinit();
     const allocator = rt.allocator();
 
+    var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, allocator);
+    defer arg_it.deinit();
+    _ = arg_it.skip();
+
+    var dirs: std.ArrayList([]const u8) = .empty;
+    defer dirs.deinit(allocator);
+    var owned_dirs: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (owned_dirs.items) |d| allocator.free(d);
+        owned_dirs.deinit(allocator);
+    }
+
+    var limit: usize = 50;
+    var scan_path = false;
+    var use_cache = true;
+    var cache_ttl: i96 = launcher.default_cache_ttl;
+    var client_request: ?launcher.activation.Request = null;
+    var invalidate = false;
+
+    while (arg_it.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            std.debug.print("{s}", .{usage});
+            return;
+        } else if (std.mem.eql(u8, arg, "--dir")) {
+            try dirs.append(allocator, arg_it.next() orelse return error.MissingDirectoryArgument);
+        } else if (std.mem.eql(u8, arg, "--limit")) {
+            limit = try std.fmt.parseInt(usize, arg_it.next() orelse return error.MissingLimitArgument, 10);
+        } else if (std.mem.eql(u8, arg, "--scan-path")) {
+            scan_path = true;
+        } else if (std.mem.eql(u8, arg, "--no-cache")) {
+            use_cache = false;
+        } else if (std.mem.eql(u8, arg, "--cache-ttl")) {
+            cache_ttl = try std.fmt.parseInt(i96, arg_it.next() orelse return error.MissingCacheTtlArgument, 10);
+        } else if (std.mem.eql(u8, arg, "--toggle")) {
+            client_request = .toggle;
+        } else if (std.mem.eql(u8, arg, "--show")) {
+            client_request = .show;
+        } else if (std.mem.eql(u8, arg, "--hide")) {
+            client_request = .hide;
+        } else if (std.mem.eql(u8, arg, "--invalidate")) {
+            invalidate = true;
+        } else {
+            std.debug.print("unknown argument: {s}\n\n{s}", .{ arg, usage });
+            return error.UnknownArgument;
+        }
+    }
+
+    const socket_path = try launcher.ipc.socketPath(allocator, launcher.runtimeDir(init.environ_map), app_id);
+    defer allocator.free(socket_path);
+
+    // Client mode: forward to the running shell and exit.
+    if (client_request) |req| {
+        try (launcher.ipc.Client{ .path = socket_path, .io = io }).sendActivation(req);
+        return;
+    }
+
+    const cache_path = try launcher.cache.cacheDir(allocator, init.environ_map);
+    defer allocator.free(cache_path);
+
+    if (invalidate) {
+        var empty = launcher.app_index.Index.init(allocator);
+        defer empty.deinit();
+        launcher.cache.writeIndex(io, cache_path, &empty) catch {};
+        launcher.cache.writeStamp(io, allocator, cache_path) catch {};
+        std.debug.print("Cache invalidated.\n", .{});
+        return;
+    }
+
+    if (dirs.items.len == 0) try launcher.appendDefaultDirs(allocator, init.environ_map, &dirs, &owned_dirs);
+
+    var freq = try launcher.cache.readFrequency(io, allocator, cache_path);
+    defer freq.deinit();
+    const index = launcher.loadInitialIndex(allocator, io, cache_path, use_cache, cache_ttl);
+
     var app = try App.init(allocator, io, .{
         .backend = .wayland,
         .surface_kind = .{ .layer_shell = .{
             .layer = .top,
             .anchors = .{ .top = true, .left = true, .right = true },
             .exclusive_zone = 40,
+            // Bar takes no keyboard by default; grabbed at runtime for the launcher.
             .keyboard_interactivity = .none,
-            .namespace = "ramiel-bar",
+            .namespace = "ramiel-shell",
         } },
         .transparent = true,
         .input_region = .auto_interactive,
@@ -1488,8 +1861,23 @@ pub fn main(init: std.process.Init) !void {
         // 0 = fill the output height (backend queries wl_output); the bar stays
         // anchored to the top and reserves its strip via exclusive_zone.
         .height = 0,
-    }, .{ .io = io, .env = init.environ_map }, update);
+    }, .{
+        .io = io,
+        .env = init.environ_map,
+        .launcher = .{
+            .index = index,
+            .freq = freq,
+            .cache_dir_path = cache_path,
+            .limit = limit,
+            .scan_dirs = dirs.items,
+            .scan_path_binaries = scan_path,
+        },
+    }, update);
     defer app.deinit();
+    defer app.state.launcher.index.deinit();
+
+    g_app = &app;
+    app.setBackendKeyHandler(onKeyCallback);
 
     app.state.font = try app.loadDefaultFont(
         "JetBrains Mono",
@@ -1513,6 +1901,7 @@ pub fn main(init: std.process.Init) !void {
     try app.loadIconSvgFromMemory(ICON_PWR_SHUTDOWN, icons.power_shutdown, 24, 24, 1.0);
     try app.loadIconSvgFromMemory(ICON_WIFI, icons.net_wifi, icon_px, icon_px, 1.0);
     try app.loadIconSvgFromMemory(ICON_TUNE, icons.panel_tune, icon_px, icon_px, 1.0);
+    try app.loadIconSvgFromMemory(ICON_LAUNCHER, icons.launcher, icon_px, icon_px, 1.0);
 
     app.state.tex_vol_high = app.getIconTextureId(ICON_VOL_HIGH, 1.0) orelse 0;
     app.state.tex_vol_mute = app.getIconTextureId(ICON_VOL_MUTE, 1.0) orelse 0;
@@ -1527,6 +1916,7 @@ pub fn main(init: std.process.Init) !void {
     app.state.tex_pwr_shutdown = app.getIconTextureId(ICON_PWR_SHUTDOWN, 1.0) orelse 0;
     app.state.tex_wifi = app.getIconTextureId(ICON_WIFI, 1.0) orelse 0;
     app.state.tex_tune = app.getIconTextureId(ICON_TUNE, 1.0) orelse 0;
+    app.state.tex_launcher = app.getIconTextureId(ICON_LAUNCHER, 1.0) orelse 0;
 
     app.setTickFn(tick, 0.05);
     tray_mod.start();
@@ -1545,6 +1935,19 @@ pub fn main(init: std.process.Init) !void {
 
     const slow_thread = try std.Thread.spawn(.{}, slowPollWorker, .{io});
     slow_thread.detach();
+
+    // The shell is always running, so it always serves IPC: a Hyprland keybind
+    // (`desktop_shell --toggle`) flips the launcher overlay.
+    var ipc_ctx: ?*IpcCtx = null;
+    defer if (ipc_ctx) |c| allocator.destroy(c);
+    if (launcher.ipc.Server.listen(socket_path, io) catch null) |server| {
+        const ctx = try allocator.create(IpcCtx);
+        ctx.* = .{ .app = &app, .server = server };
+        ipc_ctx = ctx;
+        const ipc_thread = try std.Thread.spawn(.{}, ipcLoop, .{ctx});
+        ipc_thread.detach();
+        std.log.info("shell IPC listening on {s}", .{socket_path});
+    }
 
     try app.setRootBuilder(build);
     try app.run();

@@ -90,6 +90,13 @@ pub const Backend = union(platform.BackendKind) {
         }
     }
 
+    pub fn setKeyboardInteractivity(self: *Backend, mode: platform.KeyboardInteractivity) void {
+        switch (self.*) {
+            .glfw => {},
+            .wayland => |*client| if (build_options.native_wayland) client.setKeyboardInteractivity(mode),
+        }
+    }
+
     pub fn shouldClose(self: *const Backend) bool {
         return switch (self.*) {
             .glfw => |*win| win.shouldClose(),

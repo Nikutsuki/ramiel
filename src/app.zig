@@ -884,6 +884,13 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             }
         }
 
+        /// Grab or release keyboard focus at runtime (layer-shell only). Lets a
+        /// normally non-interactive surface (e.g. a bar) take exclusive keyboard
+        /// while an overlay like a launcher is open.
+        pub fn setKeyboardInteractivity(self: *Self, mode: platform.KeyboardInteractivity) void {
+            self.backend.setKeyboardInteractivity(mode);
+        }
+
         fn syncAutoInputRegion(self: *Self) void {
             if (self.backend.inputRegionMode() != .auto_interactive) return;
 

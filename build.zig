@@ -332,8 +332,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "file_explorer", .path = "examples/file_explorer/main.zig" },
         .{ .name = "plot", .path = "examples/plot/main.zig" },
         .{ .name = "audio_player", .path = "examples/audio_player/main.zig" },
-        .{ .name = "app_launcher", .path = "examples/app_launcher/main.zig", .requires_wayland = true },
-        .{ .name = "wayland_basic", .path = "examples/wayland_basic/main.zig", .requires_wayland = true },
+        .{ .name = "desktop_shell", .path = "examples/desktop_shell/main.zig", .requires_wayland = true },
     };
 
     for (examples) |ex| {
@@ -347,8 +346,8 @@ pub fn build(b: *std.Build) void {
         ex_check.step.dependOn(shader_compile_step);
         const wl_mod: ?*std.Build.Module = if (ex.requires_wayland) wayland_mod else null;
         bindExecutableConfig(ex_check, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
-        if (std.mem.eql(u8, ex.name, "wayland_basic")) {
-            ex_check.root_module.addCSourceFile(.{ .file = b.path("examples/wayland_basic/modules/tray_sni.c"), .flags = &.{"-std=c99"} });
+        if (std.mem.eql(u8, ex.name, "desktop_shell")) {
+            ex_check.root_module.addCSourceFile(.{ .file = b.path("examples/desktop_shell/modules/tray_sni.c"), .flags = &.{"-std=c99"} });
         }
         check_step.dependOn(&ex_check.step);
 
@@ -359,8 +358,8 @@ pub fn build(b: *std.Build) void {
         });
         ex_exe.step.dependOn(shader_compile_step);
         bindExecutableConfig(ex_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
-        if (std.mem.eql(u8, ex.name, "wayland_basic")) {
-            ex_exe.root_module.addCSourceFile(.{ .file = b.path("examples/wayland_basic/modules/tray_sni.c"), .flags = &.{"-std=c99"} });
+        if (std.mem.eql(u8, ex.name, "desktop_shell")) {
+            ex_exe.root_module.addCSourceFile(.{ .file = b.path("examples/desktop_shell/modules/tray_sni.c"), .flags = &.{"-std=c99"} });
         }
         b.installArtifact(ex_exe);
 

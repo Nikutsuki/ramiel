@@ -313,6 +313,3 @@ pub fn main(init: std.process.Init) !void {
     try app.setRootBuilder(build);
     try app.run();
 }
-/// Locate a color emoji font via fontconfig and register it as the default
-/// fallback so emoji codepoints resolve to it during text shaping. Best-effort:
-/// silently does nothing if fontconfig or the font is unavailable.

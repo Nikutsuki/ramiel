@@ -6,15 +6,16 @@ BIN_DIR="$PREFIX/bin"
 LIB_DIR="$PREFIX/lib"
 
 echo "Building ReleaseFast..."
-# Build locally first to get the full RUNPATH (includes nix store paths)
-zig build -Doptimize=ReleaseFast
+# Build locally first to get the full RUNPATH (includes nix store paths).
+# -Dwayland=true is required to build the desktop_shell (bar + launcher).
+zig build -Dwayland=true -Doptimize=ReleaseFast
 
 # Capture the RUNPATH from the local build (has all nix store lib paths)
 REF_BIN=$(find zig-out/bin -maxdepth 1 -type f | head -1)
 ORIGINAL_RPATH=$(patchelf --print-rpath "$REF_BIN" 2>/dev/null || true)
 
 # Now install to prefix
-zig build -Doptimize=ReleaseFast -p "$PREFIX"
+zig build -Dwayland=true -Doptimize=ReleaseFast -p "$PREFIX"
 
 echo "Creating ffmpeg library symlinks..."
 cd "$LIB_DIR"

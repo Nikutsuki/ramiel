@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const c = @cImport({
-    @cInclude("/home/nikutsuki/Projects/ramiel/examples/wayland_basic/modules/tray_sni.h");
+    @cInclude("/home/nikutsuki/Projects/ramiel/examples/desktop_shell/modules/tray_sni.h");
 });
 
 pub const Icon = enum {
