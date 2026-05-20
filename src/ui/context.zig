@@ -157,6 +157,7 @@ pub fn UIContext(comptime MessageT: type) type {
             self.interaction_registry.resetForNewTree();
             self.id_map.clearRetainingCapacity();
             self.portal_list.clearRetainingCapacity();
+            self.post_layout_hooks.clearRetainingCapacity();
             self.root.deinit();
 
             const root = try self.gpa.create(Node(MessageT));
@@ -1196,14 +1197,16 @@ fn reconcileNode(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *
 
 fn patchStyle(comptime MessageT: type, ctx: *UIContext(MessageT), node: *Node(MessageT), new_style: *const layout.Style) void {
     const preserved_hover_blend = node.style._hover_blend;
+    const old = node.style;
 
     const id = node.id orelse {
         node.style = new_style.*;
         node.style._hover_blend = preserved_hover_blend;
+        // Anonymous nodes also need relayout on style change (e.g. absolute left/top).
+        if (!std.meta.eql(old, node.style)) node.markSizeDirty();
         return;
     };
 
-    const old = node.style;
     const tr = new_style.transition;
 
     node.style = new_style.*;

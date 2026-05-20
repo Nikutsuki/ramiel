@@ -14,6 +14,9 @@ const ExampleTarget = struct {
     requires_network: bool = false,
     requires_shell32: bool = false,
     requires_wayland: bool = false,
+    /// With -Dhot-reload, also build <name>-host + libapp_<name>.so from the dir's
+    /// host_main.zig + app_lib.zig.
+    hot_reloadable: bool = false,
 };
 
 pub fn build(b: *std.Build) void {
@@ -27,6 +30,7 @@ pub fn build(b: *std.Build) void {
     const requested_wayland = b.option(bool, "wayland", "Enable the native Wayland backend and Wayland-only examples (off by default).") orelse false;
     const native_wayland_enabled = requested_wayland and is_linux;
     const power_dry_run = b.option(bool, "power-dry-run", "Print power-menu commands instead of executing them (default: false, commands are invoked).") orelse false;
+    const hot_reload = b.option(bool, "hot-reload", "Build hot-reloadable examples as a swappable shared library + thin host.") orelse false;
     const build_options = b.addOptions();
     build_options.addOption(bool, "devtools", devtools_enabled);
     build_options.addOption(bool, "native_wayland", native_wayland_enabled);
@@ -325,7 +329,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "animation", .path = "examples/animation/main.zig" },
         .{ .name = "overlay", .path = "examples/overlay/main.zig", .requires_shell32 = true },
         .{ .name = "canvas_app", .path = "examples/canvas_app/main.zig" },
-        .{ .name = "pointer_capture", .path = "examples/pointer_capture/main.zig" },
+        .{ .name = "pointer_capture", .path = "examples/pointer_capture/main.zig", .hot_reloadable = true },
+        .{ .name = "managed", .path = "examples/managed/main.zig", .hot_reloadable = true },
         .{ .name = "components_showcase", .path = "examples/components_showcase/main.zig" },
         .{ .name = "video_player", .path = "examples/video_player/main.zig" },
         .{ .name = "tree", .path = "examples/tree/main.zig" },
@@ -367,6 +372,70 @@ pub fn build(b: *std.Build) void {
         bindRunEnvironment(b, run_ex_cmd, ffmpeg_bin_install, is_windows);
         if (b.args) |args| run_ex_cmd.addArgs(args);
         b.step(b.fmt("run-{s}", .{std.mem.replaceOwned(u8, b.allocator, ex.name, "_", "-") catch @panic("OOM")}), b.fmt("Run the {s} example", .{ex.name})).dependOn(&run_ex_cmd.step);
+
+        if (hot_reload and ex.hot_reloadable) {
+            const ex_dir = std.fs.path.dirname(ex.path).?;
+            const lib_name = b.fmt("app_{s}", .{ex.name});
+
+            const app_lib = b.addLibrary(.{
+                .name = lib_name,
+                .linkage = .dynamic,
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path(b.fmt("{s}/app_lib.zig", .{ex_dir})),
+                    .target = target,
+                    .optimize = optimize,
+                    .link_libc = true,
+                }),
+            });
+            app_lib.step.dependOn(shader_compile_step);
+            bindExecutableConfig(app_lib, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
+            const install_app_lib = b.addInstallArtifact(app_lib, .{});
+            b.getInstallStep().dependOn(&install_app_lib.step);
+
+            const host_exe = b.addExecutable(.{
+                .name = b.fmt("{s}-host", .{ex.name}),
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path(b.fmt("{s}/host_main.zig", .{ex_dir})),
+                    .target = target,
+                    .optimize = optimize,
+                    .link_libc = ex.requires_wayland,
+                }),
+            });
+            host_exe.step.dependOn(shader_compile_step);
+            bindExecutableConfig(host_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
+            const install_host = b.addInstallArtifact(host_exe, .{});
+            b.getInstallStep().dependOn(&install_host.step);
+
+            const lib_basename = if (is_windows)
+                b.fmt("{s}.dll", .{lib_name})
+            else
+                b.fmt("lib{s}.so", .{lib_name});
+
+            const kebab = std.mem.replaceOwned(u8, b.allocator, ex.name, "_", "-") catch @panic("OOM");
+            const hot_target = b.fmt("hot-{s}", .{kebab});
+
+            const build_host_step = b.step(
+                hot_target,
+                b.fmt("Build the {s} hot-reload host + lib", .{ex.name}),
+            );
+            build_host_step.dependOn(&install_app_lib.step);
+            build_host_step.dependOn(&install_host.step);
+
+            const run_host = b.addRunArtifact(host_exe);
+            run_host.step.dependOn(&install_app_lib.step);
+            run_host.step.dependOn(&install_host.step);
+            bindRunEnvironment(b, run_host, ffmpeg_bin_install, is_windows);
+            run_host.addArgs(&.{
+                "--lib",          b.getInstallPath(if (is_windows) .bin else .lib, lib_basename),
+                "--watch",        ex_dir,
+                "--build-target", hot_target,
+            });
+            if (b.args) |args| run_host.addArgs(args);
+            b.step(
+                b.fmt("run-{s}-host", .{kebab}),
+                b.fmt("Run the {s} example with hot reload", .{ex.name}),
+            ).dependOn(&run_host.step);
+        }
     }
 
     // Isolated microbenchmark target(s).

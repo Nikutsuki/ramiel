@@ -77,6 +77,16 @@ pub const Palette = palette.Palette;
 pub const Runtime = @import("runtime.zig").Runtime;
 pub const FontSpec = @import("managed_app.zig").FontSpec;
 
+pub const hotreload = struct {
+    pub const abi = @import("hotreload/abi.zig");
+    pub const abi_version = abi.abi_version;
+    pub const abiHash = abi.abiHash;
+    pub const Coordinator = @import("hotreload/coordinator.zig").Coordinator;
+    pub const Watcher = @import("hotreload/watcher.zig").Watcher;
+    pub const snapshot = @import("hotreload/snapshot.zig");
+    pub const dynlib = @import("hotreload/dynlib.zig");
+};
+
 pub fn declareIds(comptime namespace: []const u8, comptime tags: anytype) type {
     if (namespace.len == 0) @compileError("declareIds namespace must not be empty");
     const tags_type_info = @typeInfo(@TypeOf(tags));

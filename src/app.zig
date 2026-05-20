@@ -18,6 +18,7 @@ pub const HotkeyFn = win_mod.HotkeyFn;
 const tracy = @import("tracy");
 const VideoManager = @import("video/manager.zig").VideoManager;
 const Theme = @import("ui/theme.zig").Theme;
+const layout = @import("ui/layout.zig");
 
 const FontSource = @import("renderer/font/font_registry.zig").FontSource;
 const FontData = @import("renderer/font/font_registry.zig").FontData;
@@ -77,6 +78,35 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         initial_tree_mounted: bool = false,
 
         build_fn: ?*const fn (ui: *UIContext(MessageType), state: *const StateType) anyerror!*Node(MessageType) = null,
+
+        reload_hook: ?*const ReloadHook = null,
+        reload_error: ?[]u8 = null,
+        reload_error_version: u32 = 0,
+
+        pub const ReloadHook = struct {
+            ctx: *anyopaque,
+            pending_fn: *const fn (*anyopaque) bool,
+            perform_fn: *const fn (*anyopaque, *Self, *bool) anyerror!void,
+            request_fn: *const fn (*anyopaque) void,
+            error_version_fn: *const fn (*anyopaque) u32,
+            copy_error_fn: *const fn (*anyopaque, std.mem.Allocator) ?[]u8,
+
+            pub fn pending(self: *const ReloadHook) bool {
+                return self.pending_fn(self.ctx);
+            }
+            pub fn perform(self: *const ReloadHook, app: *Self, needs_rebuild: *bool) anyerror!void {
+                return self.perform_fn(self.ctx, app, needs_rebuild);
+            }
+            pub fn request(self: *const ReloadHook) void {
+                self.request_fn(self.ctx);
+            }
+            pub fn errorVersion(self: *const ReloadHook) u32 {
+                return self.error_version_fn(self.ctx);
+            }
+            pub fn copyError(self: *const ReloadHook, allocator: std.mem.Allocator) ?[]u8 {
+                return self.copy_error_fn(self.ctx, allocator);
+            }
+        };
 
         pub const FileDialogCallback = *const fn (path: ?[]const u8) MessageType;
 
@@ -291,6 +321,11 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 _ = task.await(self.io);
                 self.file_dialog_task = null;
             }
+        }
+
+        pub fn fileDialogPending(self: *Self) bool {
+            self.reapFileDialogIfDone();
+            return self.file_dialog_task != null;
         }
 
         fn fileDialogWorker(args: FileDialogTaskArgs) void {
@@ -617,8 +652,30 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             const root = try build(&self.ui, &self.state);
             self.ui.building = false;
             try self.appendDevToolsOverlay(root);
+            try self.appendReloadErrorOverlay(root);
             try self.ui.mountRoot(root);
             self.initial_tree_mounted = true;
+        }
+
+        pub fn wireResolvers(self: *Self) void {
+            self.wireImageResolver();
+            self.wireIconResolver();
+        }
+
+        pub fn forceRemount(self: *Self) !void {
+            self.initial_tree_mounted = false;
+            try self.mountRoot();
+        }
+
+        pub fn setReloadHook(self: *Self, hook: *const ReloadHook) void {
+            self.reload_hook = hook;
+        }
+
+        /// Only needed for an app that overrode the clipboard fns with `.so` code.
+        pub fn resetClipboardToBackend(self: *Self) void {
+            self.ui.interaction_registry.clipboard_ctx = &self.backend;
+            self.ui.interaction_registry.clipboard_get_fn = clipboardGet;
+            self.ui.interaction_registry.clipboard_set_fn = clipboardSet;
         }
 
         pub fn setDevToolsActive(self: *Self, active: bool) void {
@@ -655,6 +712,68 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 self.ui.root,
             );
             try root.addChild(devtools_root);
+        }
+
+        fn appendReloadErrorOverlay(self: *Self, root: *Node(MessageType)) !void {
+            const err = self.reload_error orelse return;
+            const font = self.ui.getDefaultFont() orelse self.font_system.getFont("JetBrains Mono") orelse return;
+            const alloc = if (self.ui.use_arena) self.ui.build_arena.allocator() else self.allocator;
+
+            const clean = try sanitizeForDisplay(alloc, err);
+            defer alloc.free(clean);
+            const max_len: usize = 1800;
+            const shown = if (clean.len > max_len) clean[0..max_len] else clean;
+            const msg = try std.fmt.allocPrint(alloc, "hot reload: build failed\n\n{s}", .{shown});
+            defer alloc.free(msg);
+
+            const fb = self.backend.getFramebufferSize();
+            const wrap_w = @max(120.0, @as(f32, @floatFromInt(fb.width)) - 32.0);
+
+            var text_style: layout.Style = .{};
+            text_style.text_color = .{ 1.0, 0.86, 0.86, 1.0 };
+            text_style.font_size = 13.0;
+            const text_node = try self.ui.text(.{ .content = msg, .font = font, .style = text_style, .max_width = wrap_w });
+
+            var banner_style: layout.Style = .{};
+            banner_style.position = .absolute;
+            banner_style.left = 0.0;
+            banner_style.top = 0.0;
+            banner_style.right = 0.0;
+            banner_style.background_color = .{ 0.16, 0.02, 0.03, 0.95 };
+            banner_style.padding = .{ .top = 12.0, .bottom = 12.0, .left = 16.0, .right = 16.0 };
+            banner_style.direction = .Column;
+            const banner = try self.ui.div(.{ .style = banner_style, .children = &.{text_node} });
+            try root.addChild(banner);
+        }
+
+        /// Drop ANSI escape sequences and stray control bytes so the text renderer
+        /// only sees printable characters, newlines, and tabs-as-spaces.
+        fn sanitizeForDisplay(alloc: std.mem.Allocator, raw: []const u8) ![]u8 {
+            const buf = try alloc.alloc(u8, raw.len);
+            defer alloc.free(buf);
+            var j: usize = 0;
+            var i: usize = 0;
+            while (i < raw.len) {
+                const c = raw[i];
+                if (c == 0x1b) {
+                    i += 1;
+                    if (i < raw.len and raw[i] == '[') {
+                        i += 1;
+                        while (i < raw.len and !(raw[i] >= 0x40 and raw[i] <= 0x7e)) i += 1;
+                        if (i < raw.len) i += 1;
+                    }
+                    continue;
+                }
+                if (c == '\t') {
+                    buf[j] = ' ';
+                    j += 1;
+                } else if (c == '\n' or c >= 0x20) {
+                    buf[j] = c;
+                    j += 1;
+                }
+                i += 1;
+            }
+            return alloc.dupe(u8, buf[0..j]);
         }
 
         fn wireImageResolver(self: *Self) void {
@@ -801,6 +920,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 self.cross_thread_queue.items,
             );
             self.cross_thread_queue.deinit(self.allocator);
+            if (self.reload_error) |e| self.allocator.free(e);
             self.ui.deinit();
             self.batcher.deinit();
             self.video_manager.deinit();
@@ -1002,6 +1122,15 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                     }
                     self.ui.interaction_registry.message_queue.clearRetainingCapacity();
 
+                    if (self.reload_hook) |hook| {
+                        if (hook.pending()) {
+                            var nr_hidden = false;
+                            hook.perform(self, &nr_hidden) catch |err| {
+                                std.log.err("hotreload: reload failed: {s}; continuing with current code", .{@errorName(err)});
+                            };
+                        }
+                    }
+
                     continue;
                 }
 
@@ -1074,6 +1203,21 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 }
                 self.ui.interaction_registry.message_queue.clearRetainingCapacity();
 
+                if (self.reload_hook) |hook| {
+                    if (hook.pending()) {
+                        hook.perform(self, &needs_rebuild) catch |err| {
+                            std.log.err("hotreload: reload failed: {s}; continuing with current code", .{@errorName(err)});
+                        };
+                    }
+                    const ev = hook.errorVersion();
+                    if (ev != self.reload_error_version) {
+                        self.reload_error_version = ev;
+                        if (self.reload_error) |e| self.allocator.free(e);
+                        self.reload_error = hook.copyError(self.allocator);
+                        needs_rebuild = true;
+                    }
+                }
+
                 if (self.devtools_state.consumeRebuildRequest() and self.build_fn != null) {
                     needs_rebuild = true;
                 }
@@ -1099,6 +1243,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                         self.ui.min_animated_frame_ms = 0;
                         const new_root = try build(&self.ui, &self.state);
                         try self.appendDevToolsOverlay(new_root);
+                        try self.appendReloadErrorOverlay(new_root);
                         self.ui.use_arena = false;
                         self.ui.building = false;
                         try self.ui.reconcile(new_root);
@@ -1198,6 +1343,9 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             const app: *Self = @ptrCast(@alignCast(ptr));
             if (key == glfw.KeyF12 and action == glfw.Press) {
                 app.toggleDevTools();
+            }
+            if (key == glfw.KeyF5 and action == glfw.Press) {
+                if (app.reload_hook) |hook| hook.request();
             }
             const is_ctrl = app.backend.isKeyDown(glfw.KeyLeftControl) or app.backend.isKeyDown(glfw.KeyRightControl);
             const is_shift = app.backend.isKeyDown(glfw.KeyLeftShift) or app.backend.isKeyDown(glfw.KeyRightShift);

@@ -186,6 +186,10 @@ pub const AnimationRegistry = struct {
         return self.entries.items.len == 0;
     }
 
+    pub fn clear(self: *AnimationRegistry) void {
+        self.entries.clearRetainingCapacity();
+    }
+
     pub fn register(self: *AnimationRegistry, entry: AnimationEntry, current_time: f64) !void {
         const prop = entry.value.property();
 

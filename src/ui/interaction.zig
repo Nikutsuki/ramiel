@@ -373,6 +373,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
         pub fn resetForNewTree(self: *Self) void {
             self.hovered_node = null;
+            self.focused_node = null;
             self.hover_chain.clearRetainingCapacity();
             self.prev_hover_chain.clearRetainingCapacity();
             self.active_drag_node = null;
@@ -392,6 +393,23 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             self.external_mutex.lockUncancelable(std.Options.debug_io);
             self.external_queue.clearRetainingCapacity();
             self.external_mutex.unlock(std.Options.debug_io);
+        }
+
+        pub fn resetAllForReload(self: *Self) void {
+            self.resetForNewTree();
+            self.shortcut_handler = null;
+            self.shortcut_context = null;
+        }
+
+        pub fn assertCleanForReload(self: *const Self) void {
+            std.debug.assert(self.hovered_node == null);
+            std.debug.assert(self.focused_node == null);
+            std.debug.assert(self.active_drag_node == null);
+            std.debug.assert(self.selected_text_node == null);
+            std.debug.assert(self.shortcut_handler == null);
+            std.debug.assert(self.shortcut_context == null);
+            std.debug.assert(self.hover_chain.items.len == 0);
+            std.debug.assert(self.message_queue.items.len == 0);
         }
 
         fn swapHoverChains(self: *Self) void {

@@ -64,6 +64,32 @@ zig build bench                 # microbenchmarks
 Build options:
 - `-Dtracy=true` — enable Tracy profiler integration.
 - `-Ddevtools=true` — enable in-app DevTools overlay.
+- `-Dhot-reload=true` — build hot-reloadable examples as a swappable shared
+  library + thin host (see below).
+
+## Hot reload (dev)
+
+Hot-reloadable examples (`pointer_capture`, `managed`) split into a thin host
+that owns the window/GPU/state and a `libapp_<name>.so` holding the app's
+`build`/`update` bodies. Run the host:
+
+```sh
+zig build run-pointer-capture-host -Dhot-reload   # or run-managed-host
+```
+
+Edit the app logic (e.g. `examples/pointer_capture/logic.zig`) and save. A
+background watcher rebuilds the `.so` and the host swaps it in place, preserving
+live state, the window, the GPU device, fonts and audio. Press **F5** to force a
+reload. Two paths are chosen automatically by an ABI hash:
+
+- **Logic edits** (`build`/`update` bodies) keep the same process; `State` stays
+  in memory untouched.
+- **Schema edits** (changing `State`/`Msg`/page shape) change the layout, so the
+  host serializes state to JSON, re-execs the freshly built host, and restores —
+  the window flashes but logical state is preserved.
+
+Hot reload is a dev-only feature (Linux today). Release builds are single static
+binaries and are unaffected.
 
 ## Platform support
 
