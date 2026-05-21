@@ -1052,8 +1052,11 @@ fn clearInteractionRefsInSubtree(comptime MessageT: type, ctx: *UIContext(Messag
     if (ctx.interaction_registry.hovered_node == node) {
         ctx.interaction_registry.hovered_node = null;
     }
-    if (ctx.interaction_registry.selected_text_node == node) {
-        ctx.interaction_registry.selected_text_node = null;
+    if (ctx.interaction_registry.selection_anchor) |a| {
+        if (a.node == node) ctx.interaction_registry.selection_anchor = null;
+    }
+    if (ctx.interaction_registry.selection_focus) |f| {
+        if (f.node == node) ctx.interaction_registry.selection_focus = null;
     }
     if (ctx.interaction_registry.active_drag_node == node) {
         ctx.interaction_registry.active_drag_node = null;

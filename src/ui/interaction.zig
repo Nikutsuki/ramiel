@@ -60,7 +60,8 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         previous_drag_x: f64 = 0.0,
         previous_drag_y: f64 = 0.0,
 
-        selected_text_node: ?*Node(MessageT) = null,
+        selection_anchor: ?SelectionPoint = null,
+        selection_focus: ?SelectionPoint = null,
 
         message_queue: std.ArrayList(InteractionMessage(MessageT)),
         external_mutex: std.Io.Mutex = .init,
@@ -87,6 +88,11 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         rebuild_requested: bool = false,
         layout_requested: bool = false,
         paint_requested: bool = false,
+
+        const SelectionPoint = struct {
+            node: *Node(MessageT),
+            offset: usize,
+        };
 
         const EditableTextRef = struct {
             buffer: *std.ArrayList(u8),
@@ -387,7 +393,8 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             self.scroll_delta_x = 0.0;
             self.scroll_delta_y = 0.0;
             self.scroll_changed = false;
-            self.selected_text_node = null;
+            self.selection_anchor = null;
+            self.selection_focus = null;
             self.message_queue.clearRetainingCapacity();
 
             self.external_mutex.lockUncancelable(std.Options.debug_io);
@@ -405,7 +412,8 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             std.debug.assert(self.hovered_node == null);
             std.debug.assert(self.focused_node == null);
             std.debug.assert(self.active_drag_node == null);
-            std.debug.assert(self.selected_text_node == null);
+            std.debug.assert(self.selection_anchor == null);
+            std.debug.assert(self.selection_focus == null);
             std.debug.assert(self.shortcut_handler == null);
             std.debug.assert(self.shortcut_context == null);
             std.debug.assert(self.hover_chain.items.len == 0);
@@ -738,9 +746,8 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                         self.focused_node = target;
                         target.is_focused = true;
 
-                        if (self.selected_text_node) |prev| {
-                            prev.text_selection = null;
-                            self.selected_text_node = null;
+                        if (self.selection_anchor != null) {
+                            self.clearTextSelection(root);
                             self.paint_requested = true;
                         }
                     }
@@ -755,20 +762,16 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                         self.ensureTextAreaCursorVisible(target);
                         self.layout_requested = true;
                     } else if (target.payload == .text) {
-                        if (self.selected_text_node) |prev| {
-                            if (prev != target) {
-                                prev.text_selection = null;
-                                self.paint_requested = true;
-                            }
-                        }
-                        self.selected_text_node = target;
+                        const tn = self.findTextNode(target) orelse target;
                         const idx = self.resolveSpatialIndex(target);
-                        target.text_selection = TextSelection{ .anchor = idx, .focus = idx };
+                        clearSelectionVisuals(root);
+                        self.selection_anchor = .{ .node = tn, .offset = idx };
+                        self.selection_focus = .{ .node = tn, .offset = idx };
+                        self.applyTextSelectionSpan(root);
                         self.paint_requested = true;
                     } else {
-                        if (self.selected_text_node) |prev| {
-                            prev.text_selection = null;
-                            self.selected_text_node = null;
+                        if (self.selection_anchor != null) {
+                            self.clearTextSelection(root);
                             self.paint_requested = true;
                         }
                     }
@@ -787,9 +790,8 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                     }
                     self.focused_node = null;
 
-                    if (self.selected_text_node) |prev| {
-                        prev.text_selection = null;
-                        self.selected_text_node = null;
+                    if (self.selection_anchor != null) {
+                        self.clearTextSelection(root);
                         self.paint_requested = true;
                     }
                 }
@@ -810,14 +812,17 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                     }
                 }
 
-                if (self.selected_text_node) |node| {
-                    if (self.hovered_node == node) {
-                        const idx = self.resolveSpatialIndex(node);
-                        if (node.text_selection) |*sel| {
-                            if (sel.focus != idx) {
-                                sel.focus = idx;
-                                self.paint_requested = true;
-                            }
+                if (self.selection_anchor != null) {
+                    if (self.resolveDragFocusNode(root)) |tn| {
+                        const idx = self.resolveSpatialIndex(tn);
+                        const changed = if (self.selection_focus) |f|
+                            f.node != tn or f.offset != idx
+                        else
+                            true;
+                        if (changed) {
+                            self.selection_focus = .{ .node = tn, .offset = idx };
+                            self.applyTextSelectionSpan(root);
+                            self.paint_requested = true;
                         }
                     }
                 }
@@ -969,6 +974,185 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             return null;
         }
 
+        fn clearSelectionVisuals(node: *Node(MessageT)) void {
+            if (node.payload == .text) node.text_selection = null;
+            for (node.children.items) |child| clearSelectionVisuals(child);
+        }
+
+        fn clearTextSelection(self: *Self, root: *Node(MessageT)) void {
+            self.selection_anchor = null;
+            self.selection_focus = null;
+            clearSelectionVisuals(root);
+        }
+
+        fn collectSelectionOrders(
+            node: *Node(MessageT),
+            anchor: *Node(MessageT),
+            focus: *Node(MessageT),
+            counter: *u32,
+            anchor_order: *?u32,
+            focus_order: *?u32,
+        ) void {
+            if (node.payload == .text) {
+                if (node == anchor) anchor_order.* = counter.*;
+                if (node == focus) focus_order.* = counter.*;
+                counter.* += 1;
+            }
+            for (node.children.items) |child| {
+                collectSelectionOrders(child, anchor, focus, counter, anchor_order, focus_order);
+            }
+        }
+
+        fn applySelectionSpanWalk(
+            node: *Node(MessageT),
+            start_order: u32,
+            start_off: usize,
+            end_order: u32,
+            end_off: usize,
+            counter: *u32,
+        ) void {
+            if (node.payload == .text) {
+                const o = counter.*;
+                counter.* += 1;
+                const content_len = node.payload.text.content.len;
+                if (o < start_order or o > end_order) {
+                    node.text_selection = null;
+                } else if (start_order == end_order) {
+                    node.text_selection = .{ .anchor = start_off, .focus = end_off };
+                } else if (o == start_order) {
+                    node.text_selection = .{ .anchor = start_off, .focus = content_len };
+                } else if (o == end_order) {
+                    node.text_selection = .{ .anchor = 0, .focus = end_off };
+                } else {
+                    node.text_selection = .{ .anchor = 0, .focus = content_len };
+                }
+            }
+            for (node.children.items) |child| {
+                applySelectionSpanWalk(child, start_order, start_off, end_order, end_off, counter);
+            }
+        }
+
+        const OrderedSpan = struct {
+            start_order: u32,
+            start_off: usize,
+            end_order: u32,
+            end_off: usize,
+        };
+
+        fn orderedSpan(self: *Self, root: *Node(MessageT)) ?OrderedSpan {
+            const anchor = self.selection_anchor orelse return null;
+            const focus = self.selection_focus orelse return null;
+
+            var counter: u32 = 0;
+            var anchor_order: ?u32 = null;
+            var focus_order: ?u32 = null;
+            collectSelectionOrders(root, anchor.node, focus.node, &counter, &anchor_order, &focus_order);
+
+            const ao = anchor_order orelse return null;
+            const fo = focus_order orelse return null;
+
+            const focus_first = fo < ao or (fo == ao and focus.offset < anchor.offset);
+            if (focus_first) {
+                return .{ .start_order = fo, .start_off = focus.offset, .end_order = ao, .end_off = anchor.offset };
+            }
+            return .{ .start_order = ao, .start_off = anchor.offset, .end_order = fo, .end_off = focus.offset };
+        }
+
+        fn applyTextSelectionSpan(self: *Self, root: *Node(MessageT)) void {
+            const span = self.orderedSpan(root) orelse {
+                clearSelectionVisuals(root);
+                return;
+            };
+            var counter: u32 = 0;
+            applySelectionSpanWalk(root, span.start_order, span.start_off, span.end_order, span.end_off, &counter);
+        }
+
+        fn findSelectableTextAtCursor(self: *Self, node: *Node(MessageT)) ?*Node(MessageT) {
+            if (node.style.display == .none) return null;
+            const t = node.getTransformedRect();
+            const mx: f32 = @floatCast(self.mouse_x);
+            const my: f32 = @floatCast(self.mouse_y);
+            const inside = mx >= t.x and mx <= t.x + t.width and my >= t.y and my <= t.y + t.height;
+            if (node.clipsChildren() and !inside) return null;
+
+            var result: ?*Node(MessageT) = if (node.payload == .text and inside) node else null;
+            for (node.children.items) |child| {
+                if (self.findSelectableTextAtCursor(child)) |r| result = r;
+            }
+            return result;
+        }
+
+        fn findNearestSelectableText(
+            self: *Self,
+            node: *Node(MessageT),
+            best: *?*Node(MessageT),
+            best_dist: *f32,
+        ) void {
+            if (node.style.display == .none) return;
+            if (node.payload == .text) {
+                const t = node.getTransformedRect();
+                const mx: f32 = @floatCast(self.mouse_x);
+                const my: f32 = @floatCast(self.mouse_y);
+                const dx: f32 = if (mx < t.x) t.x - mx else if (mx > t.x + t.width) mx - (t.x + t.width) else 0.0;
+                const dy: f32 = if (my < t.y) t.y - my else if (my > t.y + t.height) my - (t.y + t.height) else 0.0;
+                const d = dx * dx + dy * dy;
+                if (best.* == null or d < best_dist.*) {
+                    best.* = node;
+                    best_dist.* = d;
+                }
+            }
+            for (node.children.items) |child| {
+                self.findNearestSelectableText(child, best, best_dist);
+            }
+        }
+
+        fn resolveDragFocusNode(self: *Self, root: *Node(MessageT)) ?*Node(MessageT) {
+            if (self.findSelectableTextAtCursor(root)) |n| return n;
+            var best: ?*Node(MessageT) = null;
+            var best_dist: f32 = 0.0;
+            self.findNearestSelectableText(root, &best, &best_dist);
+            return best;
+        }
+
+        fn appendSelectionSpanText(
+            alloc: std.mem.Allocator,
+            node: *Node(MessageT),
+            span: OrderedSpan,
+            counter: *u32,
+            buf: *std.ArrayList(u8),
+        ) !void {
+            if (node.payload == .text) {
+                const o = counter.*;
+                counter.* += 1;
+                if (o >= span.start_order and o <= span.end_order) {
+                    const content = node.payload.text.content;
+                    var s: usize = 0;
+                    var e: usize = content.len;
+                    if (o == span.start_order) s = @min(span.start_off, content.len);
+                    if (o == span.end_order) e = @min(span.end_off, content.len);
+                    if (e > s) {
+                        if (buf.items.len > 0) try buf.append(alloc, '\n');
+                        try buf.appendSlice(alloc, content[s..e]);
+                    }
+                }
+            }
+            for (node.children.items) |child| {
+                try appendSelectionSpanText(alloc, child, span, counter, buf);
+            }
+        }
+
+        fn copySelectionToClipboard(self: *Self, root: *Node(MessageT)) void {
+            const span = self.orderedSpan(root) orelse return;
+            var buf: std.ArrayList(u8) = .empty;
+            defer buf.deinit(self.allocator);
+            var counter: u32 = 0;
+            appendSelectionSpanText(self.allocator, root, span, &counter, &buf) catch return;
+            if (buf.items.len == 0) return;
+            const c_str = self.allocator.dupeZ(u8, buf.items) catch return;
+            defer self.allocator.free(c_str);
+            self.setClipboard(c_str);
+        }
+
         fn deleteSelectedRange(self: *Self, node: *Node(MessageT)) bool {
             const edit = editableTextRef(node) orelse return false;
 
@@ -1042,28 +1226,19 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             }
 
             if ((action == glfw.Press or action == glfw.Repeat)) {
-                if (self.selected_text_node) |node| {
-                    if (node.payload == .text) {
-                        if (is_ctrl and key == glfw.KeyC) {
-                            if (node.text_selection) |sel| {
-                                const start = @min(sel.anchor, sel.focus);
-                                const end = @max(sel.anchor, sel.focus);
-                                if (start != end) {
-                                    const selected = node.payload.text.content[start..end];
-                                    const c_str = self.allocator.dupeZ(u8, selected) catch return;
-                                    defer self.allocator.free(c_str);
-                                    self.setClipboard(c_str);
-                                }
-                            }
-                            return;
-                        } else if (is_ctrl and key == glfw.KeyA) {
-                            const len = node.payload.text.content.len;
-                            if (len > 0) {
-                                node.text_selection = TextSelection{ .anchor = 0, .focus = len };
-                                self.paint_requested = true;
-                            }
-                            return;
+                if (self.selection_anchor) |anchor| {
+                    if (is_ctrl and key == glfw.KeyC) {
+                        self.copySelectionToClipboard(root);
+                        return;
+                    } else if (is_ctrl and key == glfw.KeyA) {
+                        const len = anchor.node.payload.text.content.len;
+                        if (len > 0) {
+                            self.selection_anchor = .{ .node = anchor.node, .offset = 0 };
+                            self.selection_focus = .{ .node = anchor.node, .offset = len };
+                            self.applyTextSelectionSpan(root);
+                            self.paint_requested = true;
                         }
+                        return;
                     }
                 }
             }
