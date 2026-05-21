@@ -12,6 +12,8 @@ examples/overlay/thirdparty/
 src/thirdparty/ffmpeg_windows_x64/
 src/thirdparty/ffmpeg_linux_x64/
 
+# Use the installed Vulkan SDK / -Dshaderc-sdk on Windows instead of vendoring DLLs.
+src/thirdparty/shaderc_windows_x64/
 src/thirdparty/shaderc_*/lib/
 
 # Audio player example library — user-provided files at run time. Match

@@ -8,6 +8,10 @@ fn applyWindowsCImportWorkarounds(root_module: *std.Build.Module) void {
     root_module.addCMacro("__STDC_WANT_SECURE_LIB__", "0");
 }
 
+fn lazyPath(b: *std.Build, path: []const u8) std.Build.LazyPath {
+    return if (std.fs.path.isAbsolute(path)) .{ .cwd_relative = path } else b.path(path);
+}
+
 const ExampleTarget = struct {
     name: []const u8,
     path: []const u8,
@@ -37,6 +41,7 @@ pub fn build(b: *std.Build) void {
     build_options.addOption(bool, "power_dry_run", power_dry_run);
     const build_options_module = build_options.createModule();
     var ffmpeg_bin_install: ?*std.Build.Step.InstallDir = null;
+    var shaderc_bin_install: ?*std.Build.Step.InstallDir = null;
 
     // Dependencies
     const zglfw_dep = b.dependency("zglfw", .{ .target = target, .optimize = optimize });
@@ -145,12 +150,15 @@ pub fn build(b: *std.Build) void {
     ramiel_mod.linkSystemLibrary("swresample", .{ .use_pkg_config = .no });
 
     const shaderc_base_path = switch (target.result.os.tag) {
-        .windows => "src/thirdparty/shaderc_windows_x64",
+        .windows => b.option([]const u8, "shaderc-sdk", "Path to a Shaderc/Vulkan SDK root on Windows (defaults to VULKAN_SDK or VK_SDK_PATH).") orelse
+            b.graph.environ_map.get("VULKAN_SDK") orelse
+            b.graph.environ_map.get("VK_SDK_PATH") orelse
+            "src/thirdparty/shaderc_windows_x64",
         .linux => "src/thirdparty/shaderc_linux_x64",
         else => @panic("Unsupported OS for libshaderc integration"),
     };
-    ramiel_mod.addSystemIncludePath(b.path(b.fmt("{s}/include", .{shaderc_base_path})));
-    ramiel_mod.addLibraryPath(b.path(b.fmt("{s}/lib", .{shaderc_base_path})));
+    ramiel_mod.addSystemIncludePath(lazyPath(b, b.pathJoin(&.{ shaderc_base_path, "include" })));
+    ramiel_mod.addLibraryPath(lazyPath(b, b.pathJoin(&.{ shaderc_base_path, "lib" })));
     ramiel_mod.linkSystemLibrary("shaderc_shared", .{ .use_pkg_config = .no });
 
     switch (target.result.os.tag) {
@@ -170,7 +178,7 @@ pub fn build(b: *std.Build) void {
             });
             b.getInstallStep().dependOn(&install_ffmpeg_lib.step);
             const install_shaderc_lib = b.addInstallDirectory(.{
-                .source_dir = b.path(b.fmt("{s}/lib", .{shaderc_base_path})),
+                .source_dir = lazyPath(b, b.pathJoin(&.{ shaderc_base_path, "lib" })),
                 .install_dir = .lib,
                 .install_subdir = "",
             });
@@ -187,6 +195,14 @@ pub fn build(b: *std.Build) void {
             });
             b.getInstallStep().dependOn(&install_ffmpeg_bin.step);
             ffmpeg_bin_install = install_ffmpeg_bin;
+
+            const install_shaderc_bin = b.addInstallDirectory(.{
+                .source_dir = lazyPath(b, b.pathJoin(&.{ shaderc_base_path, "bin" })),
+                .install_dir = .bin,
+                .install_subdir = "",
+            });
+            b.getInstallStep().dependOn(&install_shaderc_bin.step);
+            shaderc_bin_install = install_shaderc_bin;
         },
         else => {},
     }
@@ -196,11 +212,21 @@ pub fn build(b: *std.Build) void {
             builder: *std.Build,
             run_cmd: *std.Build.Step.Run,
             ffmpeg_install: ?*std.Build.Step.InstallDir,
+            shaderc_install: ?*std.Build.Step.InstallDir,
             is_win: bool,
         ) void {
             if (is_win) {
-                const install = ffmpeg_install orelse return;
-                run_cmd.step.dependOn(&install.step);
+                var needs_install_bin = false;
+                if (ffmpeg_install) |install| {
+                    run_cmd.step.dependOn(&install.step);
+                    needs_install_bin = true;
+                }
+                if (shaderc_install) |install| {
+                    run_cmd.step.dependOn(&install.step);
+                    needs_install_bin = true;
+                }
+                if (!needs_install_bin) return;
+
                 const env = run_cmd.getEnvMap();
                 const current_path = env.get("PATH") orelse "";
                 const install_bin = builder.getInstallPath(.bin, "");
@@ -326,7 +352,7 @@ pub fn build(b: *std.Build) void {
 
     const run_cmd = b.addRunArtifact(main_exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    bindRunEnvironment(b, run_cmd, ffmpeg_bin_install, is_windows);
+    bindRunEnvironment(b, run_cmd, ffmpeg_bin_install, shaderc_bin_install, is_windows);
     if (b.args) |args| run_cmd.addArgs(args);
     b.step("run", "Run the app").dependOn(&run_cmd.step);
 
@@ -389,7 +415,7 @@ pub fn build(b: *std.Build) void {
         const kebab = std.mem.replaceOwned(u8, b.allocator, ex.name, "_", "-") catch @panic("OOM");
         if (!(hot_reload and ex.hot_reloadable)) {
             const run_ex_cmd = b.addRunArtifact(ex_exe);
-            bindRunEnvironment(b, run_ex_cmd, ffmpeg_bin_install, is_windows);
+            bindRunEnvironment(b, run_ex_cmd, ffmpeg_bin_install, shaderc_bin_install, is_windows);
             if (b.args) |args| run_ex_cmd.addArgs(args);
             b.step(b.fmt("run-{s}", .{kebab}), b.fmt("Run the {s} example", .{ex.name})).dependOn(&run_ex_cmd.step);
         }
@@ -451,7 +477,7 @@ pub fn build(b: *std.Build) void {
             const run_host = b.addRunArtifact(host_exe);
             run_host.step.dependOn(&install_app_lib.step);
             run_host.step.dependOn(&install_host.step);
-            bindRunEnvironment(b, run_host, ffmpeg_bin_install, is_windows);
+            bindRunEnvironment(b, run_host, ffmpeg_bin_install, shaderc_bin_install, is_windows);
             run_host.addArgs(&.{
                 "--lib",          b.getInstallPath(if (is_windows) .bin else .lib, lib_basename),
                 "--watch",        ex_dir,
