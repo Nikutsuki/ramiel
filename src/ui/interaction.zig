@@ -762,13 +762,16 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                         self.ensureTextAreaCursorVisible(target);
                         self.layout_requested = true;
                     } else if (target.payload == .text) {
-                        const tn = self.findTextNode(target) orelse target;
-                        const idx = self.resolveSpatialIndex(target);
-                        clearSelectionVisuals(root);
-                        self.selection_anchor = .{ .node = tn, .offset = idx };
-                        self.selection_focus = .{ .node = tn, .offset = idx };
-                        self.applyTextSelectionSpan(root);
-                        self.paint_requested = true;
+                        if (self.resolveTextSelectionPointAtCursor(target)) |point| {
+                            clearSelectionVisuals(root);
+                            self.selection_anchor = point;
+                            self.selection_focus = point;
+                            self.applyTextSelectionSpan(root);
+                            self.paint_requested = true;
+                        } else if (self.selection_anchor != null) {
+                            self.clearTextSelection(root);
+                            self.paint_requested = true;
+                        }
                     } else {
                         if (self.selection_anchor != null) {
                             self.clearTextSelection(root);
@@ -813,14 +816,13 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                 }
 
                 if (self.selection_anchor != null) {
-                    if (self.resolveDragFocusNode(root)) |tn| {
-                        const idx = self.resolveSpatialIndex(tn);
+                    if (self.resolveTextSelectionPointAtCursor(root)) |point| {
                         const changed = if (self.selection_focus) |f|
-                            f.node != tn or f.offset != idx
+                            f.node != point.node or f.offset != point.offset
                         else
                             true;
                         if (changed) {
-                            self.selection_focus = .{ .node = tn, .offset = idx };
+                            self.selection_focus = point;
                             self.applyTextSelectionSpan(root);
                             self.paint_requested = true;
                         }
@@ -1067,7 +1069,61 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             applySelectionSpanWalk(root, span.start_order, span.start_off, span.end_order, span.end_off, &counter);
         }
 
-        fn findSelectableTextAtCursor(self: *Self, node: *Node(MessageT)) ?*Node(MessageT) {
+        fn resolveSelectableTextIndexAtCursor(self: *Self, tn: *Node(MessageT)) ?usize {
+            if (tn.payload != .text) return null;
+
+            const metrics = tn.layout_result.text_cache.metrics;
+            if (metrics.len == 0) return null;
+
+            const padding = tn.style.padding;
+            const border = tn.style.border;
+            const inset_left = padding.left + @max(0.0, border.left.width);
+            const inset_top = padding.top + @max(0.0, border.top.width);
+            const local_x = @as(f32, @floatCast(self.mouse_x)) - (tn.layout_result.x + inset_left);
+            const local_y = @as(f32, @floatCast(self.mouse_y)) - (tn.layout_result.y + inset_top);
+
+            var found_line = false;
+            var line_min_x: f32 = 0.0;
+            var line_max_x: f32 = 0.0;
+            var line_start: usize = 0;
+            var line_end: usize = 0;
+
+            for (metrics) |m| {
+                if (local_y >= m.y and local_y < m.y + m.height) {
+                    const glyph_min_x = m.x;
+                    const glyph_max_x = m.x + m.width;
+                    if (!found_line) {
+                        found_line = true;
+                        line_min_x = glyph_min_x;
+                        line_max_x = glyph_max_x;
+                        line_start = m.byte_offset;
+                        line_end = m.byte_offset + m.byte_length;
+                    } else {
+                        line_min_x = @min(line_min_x, glyph_min_x);
+                        line_max_x = @max(line_max_x, glyph_max_x);
+                        line_start = @min(line_start, m.byte_offset);
+                        line_end = @max(line_end, m.byte_offset + m.byte_length);
+                    }
+                }
+            }
+
+            if (!found_line) return null;
+
+            const content_len = tn.payload.text.content.len;
+            if (local_x <= line_min_x) return @min(line_start, content_len);
+            if (local_x >= line_max_x) return @min(line_end, content_len);
+            for (metrics) |m| {
+                if (local_y >= m.y and local_y < m.y + m.height) {
+                    const midpoint = m.x + (m.width / 2.0);
+                    if (local_x < midpoint) return @min(m.byte_offset, content_len);
+                    if (local_x <= m.x + m.width) return @min(m.byte_offset + m.byte_length, content_len);
+                }
+            }
+
+            return @min(line_end, content_len);
+        }
+
+        fn resolveTextSelectionPointAtCursor(self: *Self, node: *Node(MessageT)) ?SelectionPoint {
             if (node.style.display == .none) return null;
             const t = node.getTransformedRect();
             const mx: f32 = @floatCast(self.mouse_x);
@@ -1075,43 +1131,16 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             const inside = mx >= t.x and mx <= t.x + t.width and my >= t.y and my <= t.y + t.height;
             if (node.clipsChildren() and !inside) return null;
 
-            var result: ?*Node(MessageT) = if (node.payload == .text and inside) node else null;
-            for (node.children.items) |child| {
-                if (self.findSelectableTextAtCursor(child)) |r| result = r;
-            }
-            return result;
-        }
-
-        fn findNearestSelectableText(
-            self: *Self,
-            node: *Node(MessageT),
-            best: *?*Node(MessageT),
-            best_dist: *f32,
-        ) void {
-            if (node.style.display == .none) return;
-            if (node.payload == .text) {
-                const t = node.getTransformedRect();
-                const mx: f32 = @floatCast(self.mouse_x);
-                const my: f32 = @floatCast(self.mouse_y);
-                const dx: f32 = if (mx < t.x) t.x - mx else if (mx > t.x + t.width) mx - (t.x + t.width) else 0.0;
-                const dy: f32 = if (my < t.y) t.y - my else if (my > t.y + t.height) my - (t.y + t.height) else 0.0;
-                const d = dx * dx + dy * dy;
-                if (best.* == null or d < best_dist.*) {
-                    best.* = node;
-                    best_dist.* = d;
+            var result: ?SelectionPoint = null;
+            if (node.payload == .text and inside) {
+                if (self.resolveSelectableTextIndexAtCursor(node)) |idx| {
+                    result = .{ .node = node, .offset = idx };
                 }
             }
             for (node.children.items) |child| {
-                self.findNearestSelectableText(child, best, best_dist);
+                if (self.resolveTextSelectionPointAtCursor(child)) |r| result = r;
             }
-        }
-
-        fn resolveDragFocusNode(self: *Self, root: *Node(MessageT)) ?*Node(MessageT) {
-            if (self.findSelectableTextAtCursor(root)) |n| return n;
-            var best: ?*Node(MessageT) = null;
-            var best_dist: f32 = 0.0;
-            self.findNearestSelectableText(root, &best, &best_dist);
-            return best;
+            return result;
         }
 
         fn appendSelectionSpanText(
