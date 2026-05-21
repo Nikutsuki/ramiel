@@ -405,11 +405,21 @@ pub const Engine = struct {
     }
 
     fn recordCanvasUploads(self: *Engine, cb: vk.CommandBuffer, frame_index: usize, canvases: []const *Canvas) !void {
+        const time: f32 = @floatCast(self.surface.timeSeconds());
+        const frame_no: u32 = @intCast(self.frame_counter & 0xffffffff);
         for (canvases) |canvas| {
+            if (canvas.fragment) |backing| {
+                backing.record(&self.core, cb, frame_index, time, frame_no);
+                continue;
+            }
+            if (canvas.compute) |backing| {
+                backing.record(&self.core, cb, frame_index, time, frame_no);
+                continue;
+            }
             if (!canvas.is_dirty) continue;
 
-            try canvas.gpu_texture.copyShadowToStaging(frame_index, canvas.getRawPixels());
-            canvas.gpu_texture.recordUpload(frame_index, self.core.vkd, cb);
+            try canvas.gpu_texture.?.copyShadowToStaging(frame_index, canvas.getRawPixels());
+            canvas.gpu_texture.?.recordUpload(frame_index, self.core.vkd, cb);
             canvas.is_dirty = false;
         }
     }

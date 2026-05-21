@@ -29,6 +29,9 @@ const ImageFallbackState = @import("ui/node.zig").RenderPayload.ImageFallbackSta
 const AnimatedState = @import("renderer/image_animation.zig").AnimatedState;
 const Canvas = @import("renderer/canvas.zig").Canvas;
 const PixelBuffer = @import("renderer/pixel_buffer.zig").PixelBuffer;
+const shader_compiler = @import("renderer/shader_compiler.zig");
+const compute_canvas = @import("renderer/vulkan/compute_canvas.zig");
+const fragment_canvas = @import("renderer/vulkan/fragment_canvas.zig");
 const IconRegistry = @import("renderer/icon/registry.zig").IconRegistry;
 const IconId = @import("renderer/icon/id.zig").IconId;
 const core_assets = @import("ui/core_assets.zig");
@@ -251,6 +254,104 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
             try self.canvases.append(self.allocator, canvas);
             return canvas;
+        }
+
+        pub const ComputeInputImage = @import("renderer/canvas.zig").ComputeInputImage;
+
+        pub fn createComputeCanvasSpirv(self: *Self, width: u32, height: u32, spirv: []const u32, input_image: ?ComputeInputImage) !*Canvas {
+            const canvas = try Canvas.initCompute(
+                self.allocator,
+                &self.engine.core,
+                &self.engine.resources.texture_registry,
+                width,
+                height,
+                spirv,
+                input_image,
+            );
+            errdefer canvas.deinit(&self.engine.core, &self.engine.resources.texture_registry);
+
+            try self.canvases.append(self.allocator, canvas);
+            return canvas;
+        }
+
+        pub fn createComputeCanvas(self: *Self, width: u32, height: u32, glsl_source: []const u8, input_image: ?ComputeInputImage) !*Canvas {
+            var compiler = try shader_compiler.Compiler.init();
+            defer compiler.deinit();
+
+            var diagnostic: []u8 = &.{};
+            const spirv = compiler.compile(self.allocator, glsl_source, .compute, "compute_canvas", &diagnostic) catch |err| {
+                if (diagnostic.len > 0) {
+                    std.log.err("compute canvas shader compilation failed:\n{s}", .{diagnostic});
+                    self.allocator.free(diagnostic);
+                }
+                return err;
+            };
+            defer self.allocator.free(spirv);
+
+            return self.createComputeCanvasSpirv(width, height, spirv, input_image);
+        }
+
+        pub fn createShaderCanvas(self: *Self, width: u32, height: u32, fragment_glsl: []const u8, input_image: ?ComputeInputImage) !*Canvas {
+            var compiler = try shader_compiler.Compiler.init();
+            defer compiler.deinit();
+
+            var diagnostic: []u8 = &.{};
+            const vert_spirv = compiler.compile(self.allocator, fragment_canvas.fullscreen_vertex_glsl, .vertex, "fullscreen.vert", null) catch |err| return err;
+            defer self.allocator.free(vert_spirv);
+
+            const frag_spirv = compiler.compile(self.allocator, fragment_glsl, .fragment, "shader_canvas", &diagnostic) catch |err| {
+                if (diagnostic.len > 0) {
+                    std.log.err("shader canvas fragment compilation failed:\n{s}", .{diagnostic});
+                    self.allocator.free(diagnostic);
+                }
+                return err;
+            };
+            defer self.allocator.free(frag_spirv);
+
+            const canvas = try Canvas.initFragment(
+                self.allocator,
+                &self.engine.core,
+                &self.engine.resources.texture_registry,
+                width,
+                height,
+                vert_spirv,
+                frag_spirv,
+                input_image,
+            );
+            errdefer canvas.deinit(&self.engine.core, &self.engine.resources.texture_registry);
+
+            try self.canvases.append(self.allocator, canvas);
+            return canvas;
+        }
+
+        pub fn resizeShaderCanvas(self: *Self, canvas: *Canvas, width: u32, height: u32) !void {
+            const backing = canvas.fragment orelse return;
+            if (width == backing.width and height == backing.height) return;
+            self.engine.core.vkd.deviceWaitIdle(self.engine.core.logical_device) catch {};
+            try backing.resize(&self.engine.core, &self.engine.resources.texture_registry, width, height);
+            canvas.width = width;
+            canvas.height = height;
+        }
+
+        pub fn runComputeFilter(self: *Self, glsl_source: []const u8, width: u32, height: u32, input_pixels: []const u8, output_pixels: []u8, params: []const [4]f32) !void {
+            var compiler = try shader_compiler.Compiler.init();
+            defer compiler.deinit();
+
+            var diagnostic: []u8 = &.{};
+            const spirv = compiler.compile(self.allocator, glsl_source, .compute, "compute_filter", &diagnostic) catch |err| {
+                if (diagnostic.len > 0) {
+                    std.log.err("compute filter shader compilation failed:\n{s}", .{diagnostic});
+                    self.allocator.free(diagnostic);
+                }
+                return err;
+            };
+            defer self.allocator.free(spirv);
+
+            var uniforms = compute_canvas.Uniforms{};
+            const n = @min(params.len, uniforms.user.len);
+            for (0..n) |i| uniforms.user[i] = params[i];
+
+            try compute_canvas.runFilterOnce(&self.engine.core, spirv, width, height, input_pixels, output_pixels, uniforms);
         }
 
         pub fn updateTheme(self: *Self, theme: Theme) void {

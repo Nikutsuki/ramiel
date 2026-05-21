@@ -1,0 +1,21 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(rgba8, set = 0, binding = 0) uniform image2D dst;
+layout(set = 0, binding = 1) uniform Uniforms {
+    vec2 resolution;
+    float time;
+    float delta;
+    uint frame;
+    vec4 user[8];
+} u;
+layout(set = 0, binding = 2) uniform sampler2D src;
+
+void main() {
+    ivec2 ip = ivec2(gl_GlobalInvocationID.xy);
+    if (ip.x >= int(u.resolution.x) || ip.y >= int(u.resolution.y)) return;
+    vec2 uv = (vec2(ip) + 0.5) / u.resolution;
+
+    vec3 col = texture(src, uv).rgb;
+
+    imageStore(dst, ip, vec4(col, 1.0));
+}

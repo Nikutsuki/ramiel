@@ -23,6 +23,10 @@ const CommandMap = std.StaticStringMap(CmdDef).initComptime(.{
     .{ "sort", CmdDef{ .kind = .pixel_sort_h, .p1_default = 128.0, .p2_default = 1.0, .status = "Previewing: Pixel Sort" } },
     .{ "restore", CmdDef{ .kind = .restore, .p1_default = 1.0, .status = "Previewing: Restore" } },
     .{ "aberration", CmdDef{ .kind = .chromatic_aberration, .p1_default = 2.0, .p2_default = 0.0, .status = "Previewing: Chromatic Aberration" } },
+    .{ "gpugray", CmdDef{ .kind = .gpu_grayscale, .status = "GPU: Grayscale" } },
+    .{ "gpuinvert", CmdDef{ .kind = .gpu_invert, .status = "GPU: Invert" } },
+    .{ "gpuedge", CmdDef{ .kind = .gpu_edge, .status = "GPU: Edge" } },
+    .{ "gpuemboss", CmdDef{ .kind = .gpu_emboss, .status = "GPU: Emboss" } },
 });
 
 var g_dialog_io: std.Io = std.Options.debug_io;
@@ -266,6 +270,17 @@ pub fn update(ctx: anytype, state: *core.AppState, msg: core.AppMessage) core.Up
         .execute_active_filter => {
             const base = state.editor.base_buffer orelse return .none;
             const kind = state.editor.active_filter orelse return .none;
+            if (filters.isGpuFilter(kind)) {
+                const canvas = state.runtime.preview_canvas orelse return .none;
+                if (canvas.getRawPixels().len != base.pixels.len) return .none;
+                app.runComputeFilter(filters.gpuShaderSource(kind), base.width, base.height, base.pixels, canvas.getRawPixels(), &.{}) catch |err| {
+                    state.editor.setStatus("GPU filter failed: {s}", .{@errorName(err)});
+                    return .repaint;
+                };
+                canvas.markDirty();
+                syncPreviewEditorFromCanvas(state) catch {};
+                return .repaint;
+            }
             const meta = filters.getFilterMeta(kind);
             var aux_buffer: ?[]const u8 = null;
             if (kind == .restore) {

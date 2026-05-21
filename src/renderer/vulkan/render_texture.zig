@@ -14,7 +14,7 @@ pub const RenderTexture = struct {
     extent: vk.Extent2D,
 
     pub fn init(
-        core: *Core,
+        core: *const Core,
         extent: vk.Extent2D,
         format: vk.Format,
         samples: vk.SampleCountFlags,
@@ -119,7 +119,7 @@ pub const RenderTexture = struct {
         };
     }
 
-    pub fn deinit(self: *RenderTexture, core: *Core) void {
+    pub fn deinit(self: *RenderTexture, core: *const Core) void {
         core.vkd.destroySampler(core.logical_device, self.sampler, null);
         core.vkd.destroyImageView(core.logical_device, self.view, null);
         tracy.free(.{ .ptr = @ptrCast(self.allocation) });

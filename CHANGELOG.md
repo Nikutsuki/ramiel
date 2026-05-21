@@ -3,6 +3,21 @@
 ## [Unreleased]
 
 ### Added
+- User GPU shaders, compiled from GLSL to SPIR-V at runtime via vendored
+  libshaderc (`ramiel.ShaderCompiler` / `ShaderStage`). Three `Application`
+  entry points, all reusing one uniform ABI (`resolution`, `time`, `delta`,
+  `frame`, `user[8]`):
+  - `createComputeCanvas` — compute shader writes a storage image displayed
+    as a `Canvas`; optional input image at `binding 2`.
+  - `runComputeFilter` — one-shot compute pixels-in/pixels-out with readback.
+  - `createShaderCanvas` — fragment shader rendered to an offscreen texture
+    (library supplies the fullscreen-triangle vertex shader); `resizeShaderCanvas`
+    re-targets it to the window.
+  - `Canvas` gains compute and fragment backings alongside the CPU pixel buffer.
+  - libshaderc vendored per platform under `src/thirdparty/shaderc_<platform>/`,
+    linked like FFmpeg. Docs: `docs/user/gpu-shaders.md`.
+  - Examples: `shader_canvas`, `shader_background`; GPU filters added to
+    `canvas_app` next to the CPU ones.
 - Native Linux backend (X11 / XWayland).
   - `configureAsOverlay` via `_NET_WM_STATE_SKIP_TASKBAR / SKIP_PAGER / ABOVE`.
   - `registerGlobalHotkey` via `XGrabKey` on a dedicated X11 connection +

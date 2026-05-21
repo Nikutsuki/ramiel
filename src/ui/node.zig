@@ -1029,7 +1029,7 @@ pub fn Node(comptime MessageT: type) type {
                             .{ uv0_x, uv0_y },
                             .{ uv1_x, uv1_y },
                             colorWithOpacity(canvas_payload.tint, combined_opacity),
-                            canvas_payload.target.gpu_texture.tex_id,
+                            canvas_payload.target.texId(),
                             effect_flags,
                             params,
                             rotation,

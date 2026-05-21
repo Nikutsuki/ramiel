@@ -82,6 +82,15 @@ Canvas:
 - `createCanvasFromBuffer(PixelBuffer) !*Canvas`
 - `destroyCanvas(*Canvas)`
 
+GPU shaders (see [GPU shaders](gpu-shaders.md)):
+
+- `createComputeCanvas(w, h, glsl, ?input) !*Canvas` / `createComputeCanvasSpirv(w, h, spirv, ?input)`
+- `createShaderCanvas(w, h, fragment_glsl, ?input) !*Canvas`
+- `runComputeFilter(glsl, w, h, in_pixels, out_pixels, params) !void`
+- `resizeShaderCanvas(*Canvas, w, h) !void`
+- `Canvas.setParam(index, [4]f32)`
+- `ShaderCompiler` / `ShaderStage`
+
 DevTools (`-Ddevtools=true`):
 
 - `setDevToolsActive(bool)` / `toggleDevTools()` / `setDevToolsTab(DevToolsTab)`
@@ -184,6 +193,7 @@ Builder proxy: `Builder(MessageT)` — methods `slider`, `checkbox`, `radio`, `r
 ## Renderer-adjacent
 
 - `Canvas`, `PixelBuffer`, `renderer.PixelBuffer`
+- `ShaderCompiler`, `ShaderStage` — runtime GLSL -> SPIR-V
 - `IconRegistry`, `IconId`, `hashIconId`
 - `ImageIngressBudget` — backpressure knobs.
 - `stb` — image decode glue.

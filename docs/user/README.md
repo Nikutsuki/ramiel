@@ -19,12 +19,13 @@ For library consumers building apps with `ramiel`.
 13. [Video](video.md)
 14. [Plot](plot.md)
 15. [Canvas and custom rendering](canvas-and-custom-rendering.md)
-16. [Performance](performance.md)
-17. [Platform overlay and hotkeys](platform-overlay-and-hotkeys.md)
-18. [Linux notes](linux-notes.md)
-19. [Extending components](extending-components.md)
-20. [Best practices](best-practices.md)
-21. [API reference](api-reference.md)
+16. [GPU shaders](gpu-shaders.md) — runtime GLSL compute/fragment shaders
+17. [Performance](performance.md)
+18. [Platform overlay and hotkeys](platform-overlay-and-hotkeys.md)
+19. [Linux notes](linux-notes.md)
+20. [Extending components](extending-components.md)
+21. [Best practices](best-practices.md)
+22. [API reference](api-reference.md)
 
 ## Examples
 
@@ -33,12 +34,14 @@ For library consumers building apps with `ramiel`.
 | `examples/animation/` | Style transitions + explicit `registerAnimation` entries |
 | `examples/audio_player/` | AudioEngine + spectrum analyzer + waveform peaks + bare-mode plot |
 | `examples/box_sizing/` | Minimal app shape; `border_box` vs `content_box` |
-| `examples/canvas_app/` | Canvas + worker pool + image filters |
+| `examples/canvas_app/` | Canvas + worker pool + CPU and GPU image filters |
 | `examples/components_showcase/` | Slider/checkbox/radio/dropdown/color picker/icon |
 | `examples/discord_client/` | Full app: themed UI, virtual list, async images, gateway |
 | `examples/file_explorer/` | Tree component, lazy loading, drag/drop, nav history |
 | `examples/overlay/` | Transparent topmost window + global hotkey toggle |
 | `examples/plot/` | Line / bar / scatter, follow mode, keyboard reset |
+| `examples/shader_canvas/` | Runtime compute shaders cycling image filters |
+| `examples/shader_background/` | Fragment-shader background that resizes with the window |
 | `examples/pointer_capture/` | Drag + pointer capture + cursor lock |
 | `examples/tree/` | Minimal tree component usage |
 | `examples/video_player/` | Video subsystem + `videoPlayer` component |

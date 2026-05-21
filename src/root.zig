@@ -45,6 +45,8 @@ pub const bench_prefetch = @import("ui/bench_prefetch.zig");
 pub const ImageIngressBudget = @import("renderer/image_ingress.zig").ImageIngressBudget;
 pub const Canvas = @import("renderer/canvas.zig").Canvas;
 pub const PixelBuffer = @import("renderer/pixel_buffer.zig").PixelBuffer;
+pub const ShaderCompiler = @import("renderer/shader_compiler.zig").Compiler;
+pub const ShaderStage = @import("renderer/shader_compiler.zig").Stage;
 pub const IconRegistry = @import("renderer/icon/registry.zig").IconRegistry;
 pub const IconId = @import("renderer/icon/id.zig").IconId;
 pub const hashIconId = @import("renderer/icon/id.zig").hashId;
@@ -173,6 +175,7 @@ test {
     _ = @import("ui/components/plot.zig");
     _ = @import("animation/easing.zig");
     _ = @import("audio/spectrum.zig");
+    _ = @import("renderer/shader_compiler.zig");
 }
 
 test "declareIds scopes stable ids by namespace" {

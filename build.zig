@@ -144,6 +144,15 @@ pub fn build(b: *std.Build) void {
     ramiel_mod.linkSystemLibrary("avutil", .{ .use_pkg_config = .no });
     ramiel_mod.linkSystemLibrary("swresample", .{ .use_pkg_config = .no });
 
+    const shaderc_base_path = switch (target.result.os.tag) {
+        .windows => "src/thirdparty/shaderc_windows_x64",
+        .linux => "src/thirdparty/shaderc_linux_x64",
+        else => @panic("Unsupported OS for libshaderc integration"),
+    };
+    ramiel_mod.addSystemIncludePath(b.path(b.fmt("{s}/include", .{shaderc_base_path})));
+    ramiel_mod.addLibraryPath(b.path(b.fmt("{s}/lib", .{shaderc_base_path})));
+    ramiel_mod.linkSystemLibrary("shaderc_shared", .{ .use_pkg_config = .no });
+
     switch (target.result.os.tag) {
         .macos => {
             ramiel_mod.linkFramework("CoreAudio", .{});
@@ -160,6 +169,12 @@ pub fn build(b: *std.Build) void {
                 .install_subdir = "",
             });
             b.getInstallStep().dependOn(&install_ffmpeg_lib.step);
+            const install_shaderc_lib = b.addInstallDirectory(.{
+                .source_dir = b.path(b.fmt("{s}/lib", .{shaderc_base_path})),
+                .install_dir = .lib,
+                .install_subdir = "",
+            });
+            b.getInstallStep().dependOn(&install_shaderc_lib.step);
         },
         .windows => {
             ramiel_mod.linkSystemLibrary("bcrypt", .{});
@@ -194,13 +209,14 @@ pub fn build(b: *std.Build) void {
                     builder.fmt("{s}{c}{s}", .{ install_bin, std.fs.path.delimiter, current_path }),
                 ) catch @panic("OOM");
             } else {
-                // Linux: add FFmpeg lib dir to LD_LIBRARY_PATH for runtime
+                // Linux: add FFmpeg + libshaderc lib dirs to LD_LIBRARY_PATH for runtime
                 const env = run_cmd.getEnvMap();
                 const current_ld = env.get("LD_LIBRARY_PATH") orelse "";
                 const ffmpeg_lib = builder.pathJoin(&.{ "src/thirdparty/ffmpeg_linux_x64/lib" });
+                const shaderc_lib = builder.pathJoin(&.{ "src/thirdparty/shaderc_linux_x64/lib" });
                 env.put(
                     "LD_LIBRARY_PATH",
-                    builder.fmt("{s}{c}{s}", .{ ffmpeg_lib, std.fs.path.delimiter, current_ld }),
+                    builder.fmt("{s}{c}{s}{c}{s}", .{ ffmpeg_lib, std.fs.path.delimiter, shaderc_lib, std.fs.path.delimiter, current_ld }),
                 ) catch @panic("OOM");
             }
         }
@@ -329,6 +345,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "animation", .path = "examples/animation/main.zig" },
         .{ .name = "overlay", .path = "examples/overlay/main.zig", .requires_shell32 = true },
         .{ .name = "canvas_app", .path = "examples/canvas_app/main.zig" },
+        .{ .name = "shader_canvas", .path = "examples/shader_canvas/main.zig" },
+        .{ .name = "shader_background", .path = "examples/shader_background/main.zig" },
         .{ .name = "pointer_capture", .path = "examples/pointer_capture/main.zig", .hot_reloadable = true },
         .{ .name = "managed", .path = "examples/managed/main.zig", .hot_reloadable = true },
         .{ .name = "components_showcase", .path = "examples/components_showcase/main.zig" },

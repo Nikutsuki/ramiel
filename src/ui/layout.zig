@@ -2118,7 +2118,7 @@ const PanicTextLayouter = struct {
         _: anytype,
         _: []const u8,
         _: f32,
-    ) struct { width: f32, height: f32, metrics: []TextLayoutMetric } {
+    ) struct { width: f32, height: f32, metrics: []TextLayoutMetric, is_bitmap: bool = false } {
         @panic("PanicTextLayouter.measureText called - layout tests must not use text nodes");
     }
 };
@@ -2130,7 +2130,7 @@ const FixedTextLayouter = struct {
         _: anytype,
         text: []const u8,
         _: f32,
-    ) struct { width: f32, height: f32, metrics: []TextLayoutMetric } {
+    ) struct { width: f32, height: f32, metrics: []TextLayoutMetric, is_bitmap: bool = false } {
         return .{
             .width = @as(f32, @floatFromInt(text.len)) * 8.0,
             .height = 16.0,
@@ -2151,7 +2151,7 @@ const OptionTrackingTextLayouter = struct {
         _: anytype,
         text: []const u8,
         options: anytype,
-    ) struct { width: f32, height: f32, metrics: []TextLayoutMetric } {
+    ) struct { width: f32, height: f32, metrics: []TextLayoutMetric, is_bitmap: bool = false } {
         self.last_max_width = options.max_width;
         self.last_wrap = options.wrap;
         self.last_ellipsis = options.ellipsis;

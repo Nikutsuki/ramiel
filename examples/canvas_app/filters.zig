@@ -18,7 +18,28 @@ pub const FilterKind = enum {
     mask_contrast,
     mask_edge,
     restore,
+    gpu_grayscale,
+    gpu_invert,
+    gpu_edge,
+    gpu_emboss,
 };
+
+pub fn isGpuFilter(kind: FilterKind) bool {
+    return switch (kind) {
+        .gpu_grayscale, .gpu_invert, .gpu_edge, .gpu_emboss => true,
+        else => false,
+    };
+}
+
+pub fn gpuShaderSource(kind: FilterKind) []const u8 {
+    return switch (kind) {
+        .gpu_grayscale => @embedFile("shaders/grayscale.comp"),
+        .gpu_invert => @embedFile("shaders/invert.comp"),
+        .gpu_edge => @embedFile("shaders/edge.comp"),
+        .gpu_emboss => @embedFile("shaders/emboss.comp"),
+        else => "",
+    };
+}
 
 pub const FilterContext = struct {
     width: u32,
@@ -50,7 +71,12 @@ pub fn getFilter(kind: FilterKind) FilterFn {
         .mask_contrast => applyMaskContrast,
         .mask_edge => applyMaskEdge,
         .restore => applyRestore,
+        .gpu_grayscale, .gpu_invert, .gpu_edge, .gpu_emboss => applyGpuPassthrough,
     };
+}
+
+fn applyGpuPassthrough(ctx: FilterContext) void {
+    @memcpy(ctx.output, ctx.input);
 }
 
 pub const ParamType = enum { slider, radio, palette_editor };
@@ -175,6 +201,10 @@ pub fn getFilterMeta(kind: FilterKind) FilterMeta {
                 .{ .name = "History Layer", .kind = .slider, .min = 0.0, .max = 1.0 },
             },
         },
+        .gpu_grayscale => .{ .name = "GPU Grayscale", .params = &.{} },
+        .gpu_invert => .{ .name = "GPU Invert", .params = &.{} },
+        .gpu_edge => .{ .name = "GPU Edge", .params = &.{} },
+        .gpu_emboss => .{ .name = "GPU Emboss", .params = &.{} },
     };
 }
 
