@@ -85,6 +85,8 @@ pub const hotreload = struct {
     pub const abiHash = abi.abiHash;
     pub const Coordinator = @import("hotreload/coordinator.zig").Coordinator;
     pub const Watcher = @import("hotreload/watcher.zig").Watcher;
+    pub const Options = @import("hotreload/host.zig").Options;
+    pub const runHost = @import("hotreload/host.zig").runHost;
     pub const snapshot = @import("hotreload/snapshot.zig");
     pub const dynlib = @import("hotreload/dynlib.zig");
 };

@@ -45,15 +45,15 @@
             .hash = "vulkan-0.0.0-r7Ytx99oAwDmJu0XtvukW_bSYnAv1PpbPO9ZFwsjcPPO",
         },
         .harfbuzz = .{
-            .url = "git+https://github.com/Nikutsuki/zig-build-harfbuzz.git#84e144f288b31677a5b4dba7703ef125d052d15b",
+            .url = "https://github.com/Nikutsuki/zig-build-harfbuzz/archive/84e144f288b31677a5b4dba7703ef125d052d15b.tar.gz",
             .hash = "harfbuzz-0.1.0-CYvr2TSRbQCegO1jl8s-BBeK_yMoBEZbztZBPr1Vr6Dz",
         },
         .freetype = .{
-            .url = "git+https://github.com/Nikutsuki/zig-build-freetype.git#94317bdb8eccc06317065fa1670434684c2346d5",
+            .url = "https://github.com/Nikutsuki/zig-build-freetype/archive/94317bdb8eccc06317065fa1670434684c2346d5.tar.gz",
             .hash = "freetype-0.1.0-l52536WTqwCXX25T-GMvp0N5ZwtUQGJbC3YICI3X5eux",
         },
         .msdfgen = .{
-            .url = "git+https://github.com/Chlumsky/msdfgen.git#82f847a9e0f7336a6a6a5f7e70b3f45d92c3b0d5",
+            .url = "https://github.com/Chlumsky/msdfgen/archive/82f847a9e0f7336a6a6a5f7e70b3f45d92c3b0d5.tar.gz",
             .hash = "N-V-__8AAHWeBwAv8KG0FiDsMdRWwnO79gQGZ07D-0Td-hWB",
         },
         .tracy = .{
@@ -73,7 +73,7 @@
             .hash = "zbench-0.13.0-YTdc7xVBAQCCMC-IdLLuotBeiNNNm8k9Pi2V4VYqrwfI",
         },
         .wayland = .{
-            .url = "git+https://codeberg.org/ifreund/zig-wayland.git#589aaf7c213159547d774ef8e6491f0045c511d5",
+            .url = "https://github.com/ifreund/zig-wayland/archive/589aaf7c213159547d774ef8e6491f0045c511d5.tar.gz",
             .hash = "wayland-0.7.0-dev-lQa1krn7AQCMUzT3J6gWyukl3L3kbMtCZy9djQemUYA-",
         },
     },

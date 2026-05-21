@@ -386,10 +386,13 @@ pub fn build(b: *std.Build) void {
         }
         b.installArtifact(ex_exe);
 
-        const run_ex_cmd = b.addRunArtifact(ex_exe);
-        bindRunEnvironment(b, run_ex_cmd, ffmpeg_bin_install, is_windows);
-        if (b.args) |args| run_ex_cmd.addArgs(args);
-        b.step(b.fmt("run-{s}", .{std.mem.replaceOwned(u8, b.allocator, ex.name, "_", "-") catch @panic("OOM")}), b.fmt("Run the {s} example", .{ex.name})).dependOn(&run_ex_cmd.step);
+        const kebab = std.mem.replaceOwned(u8, b.allocator, ex.name, "_", "-") catch @panic("OOM");
+        if (!(hot_reload and ex.hot_reloadable)) {
+            const run_ex_cmd = b.addRunArtifact(ex_exe);
+            bindRunEnvironment(b, run_ex_cmd, ffmpeg_bin_install, is_windows);
+            if (b.args) |args| run_ex_cmd.addArgs(args);
+            b.step(b.fmt("run-{s}", .{kebab}), b.fmt("Run the {s} example", .{ex.name})).dependOn(&run_ex_cmd.step);
+        }
 
         if (hot_reload and ex.hot_reloadable) {
             const ex_dir = std.fs.path.dirname(ex.path).?;
@@ -429,8 +432,14 @@ pub fn build(b: *std.Build) void {
             else
                 b.fmt("lib{s}.so", .{lib_name});
 
-            const kebab = std.mem.replaceOwned(u8, b.allocator, ex.name, "_", "-") catch @panic("OOM");
             const hot_target = b.fmt("hot-{s}", .{kebab});
+            const hot_lib_target = b.fmt("hot-{s}-lib", .{kebab});
+
+            const build_lib_step = b.step(
+                hot_lib_target,
+                b.fmt("Build the {s} hot-reload lib only", .{ex.name}),
+            );
+            build_lib_step.dependOn(&install_app_lib.step);
 
             const build_host_step = b.step(
                 hot_target,
@@ -446,12 +455,16 @@ pub fn build(b: *std.Build) void {
             run_host.addArgs(&.{
                 "--lib",          b.getInstallPath(if (is_windows) .bin else .lib, lib_basename),
                 "--watch",        ex_dir,
-                "--build-target", hot_target,
+                "--build-target", hot_lib_target,
             });
             if (b.args) |args| run_host.addArgs(args);
             b.step(
-                b.fmt("run-{s}-host", .{kebab}),
+                b.fmt("run-{s}", .{kebab}),
                 b.fmt("Run the {s} example with hot reload", .{ex.name}),
+            ).dependOn(&run_host.step);
+            b.step(
+                b.fmt("run-{s}-host", .{kebab}),
+                b.fmt("Run the {s} hot-reload host", .{ex.name}),
             ).dependOn(&run_host.step);
         }
     }

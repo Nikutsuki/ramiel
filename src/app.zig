@@ -67,6 +67,8 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         cross_thread_queue: std.ArrayList(InteractionMessage(MessageType)),
         file_dialog_task: ?std.Io.Future(void) = null,
         file_dialog_done: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+        file_dialog_result_mutex: std.Io.Mutex = .init,
+        file_dialog_result: ?[]const u8 = null,
         video_poll_hz: f64 = 60.0,
         backend_key_handler: ?*const fn (key: u32, state: u32) void = null,
 
@@ -113,10 +115,18 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
         pub const FileDialogCallback = *const fn (path: ?[]const u8) MessageType;
 
+        const FileDialogCompletion = union(enum) {
+            callback: FileDialogCallback,
+            message: MessageType,
+        };
+
+        const FileDialogKind = enum { file, folder };
+
         const FileDialogTaskArgs = struct {
             self: *Self,
+            kind: FileDialogKind,
             filter_list: ?[:0]const u8,
-            callback: FileDialogCallback,
+            completion: FileDialogCompletion,
         };
 
         pub fn init(
@@ -377,7 +387,12 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             }
         }
 
-        pub fn openFileDialog(self: *Self, filter_list: ?[:0]const u8, callback: FileDialogCallback) void {
+        fn beginFileDialog(
+            self: *Self,
+            kind: FileDialogKind,
+            filter_list: ?[:0]const u8,
+            completion: FileDialogCompletion,
+        ) void {
             // Reap a finished prior task if one is sitting around.
             self.reapFileDialogIfDone();
             if (self.file_dialog_task != null) {
@@ -388,31 +403,38 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             self.file_dialog_done.store(false, .release);
             self.file_dialog_task = self.io.concurrent(fileDialogWorker, .{.{
                 .self = self,
+                .kind = kind,
                 .filter_list = filter_list,
-                .callback = callback,
+                .completion = completion,
             }}) catch |err| {
-                std.log.err("Failed to spawn concurrent file dialog task: {s}", .{@errorName(err)});
-                self.postMessageId(callback(null));
+                std.log.err("Failed to spawn file dialog task: {s}", .{@errorName(err)});
+                self.completeFileDialog(completion, null);
+                self.file_dialog_done.store(true, .release);
                 return;
             };
         }
 
+        pub fn openFileDialog(self: *Self, filter_list: ?[:0]const u8, callback: FileDialogCallback) void {
+            self.beginFileDialog(.file, filter_list, .{ .callback = callback });
+        }
+
+        /// Opens a native file dialog and posts `completion_msg` when it closes.
+        /// The selected path is stored on the app; consume it with
+        /// `takeFileDialogResult()` in the reducer that handles `completion_msg`.
+        /// This avoids storing a result callback pointer in hot-reloadable app code.
+        pub fn openFileDialogMessage(self: *Self, filter_list: ?[:0]const u8, completion_msg: MessageType) void {
+            self.beginFileDialog(.file, filter_list, .{ .message = completion_msg });
+        }
+
         pub fn openFolderDialog(self: *Self, callback: FileDialogCallback) void {
-            self.reapFileDialogIfDone();
-            if (self.file_dialog_task != null) {
-                std.log.warn("File dialog task already in progress.", .{});
-                return;
-            }
-            self.file_dialog_done.store(false, .release);
-            self.file_dialog_task = self.io.concurrent(folderDialogWorker, .{.{
-                .self = self,
-                .filter_list = null,
-                .callback = callback,
-            }}) catch |err| {
-                std.log.err("Failed to spawn concurrent folder dialog task: {s}", .{@errorName(err)});
-                self.postMessageId(callback(null));
-                return;
-            };
+            self.beginFileDialog(.folder, null, .{ .callback = callback });
+        }
+
+        /// Opens a native folder dialog and posts `completion_msg` when it closes.
+        /// The selected path is stored on the app; consume it with
+        /// `takeFileDialogResult()` in the reducer that handles `completion_msg`.
+        pub fn openFolderDialogMessage(self: *Self, completion_msg: MessageType) void {
+            self.beginFileDialog(.folder, null, .{ .message = completion_msg });
         }
 
         fn reapFileDialogIfDone(self: *Self) void {
@@ -429,46 +451,62 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             return self.file_dialog_task != null;
         }
 
+        fn setFileDialogResult(self: *Self, path: ?[]const u8) void {
+            self.file_dialog_result_mutex.lockUncancelable(self.io);
+            defer self.file_dialog_result_mutex.unlock(self.io);
+            if (self.file_dialog_result) |old| self.allocator.free(old);
+            self.file_dialog_result = path;
+        }
+
+        /// Takes ownership of the last path produced by `openFileDialogMessage` or
+        /// `openFolderDialogMessage`. The caller must free the returned slice with
+        /// the app allocator, or transfer ownership into app state.
+        pub fn takeFileDialogResult(self: *Self) ?[]const u8 {
+            self.file_dialog_result_mutex.lockUncancelable(self.io);
+            defer self.file_dialog_result_mutex.unlock(self.io);
+            const result = self.file_dialog_result;
+            self.file_dialog_result = null;
+            return result;
+        }
+
+        fn completeFileDialog(self: *Self, completion: FileDialogCompletion, path: ?[]const u8) void {
+            switch (completion) {
+                .callback => |callback| self.postMessageId(callback(path)),
+                .message => |message| {
+                    self.setFileDialogResult(path);
+                    self.postMessageId(message);
+                },
+            }
+        }
+
         fn fileDialogWorker(args: FileDialogTaskArgs) void {
             const self = args.self;
 
-            const maybe_raw_path = nfd.openFileDialog(args.filter_list, null) catch |err| {
-                std.log.err("NFD openFileDialog failed: {s}", .{@errorName(err)});
-                self.postMessageId(args.callback(null));
-                self.file_dialog_done.store(true, .release);
-                return;
+            const maybe_raw_path = switch (args.kind) {
+                .file => nfd.openFileDialog(args.filter_list, null) catch |err| {
+                    std.log.err("NFD openFileDialog failed: {s}", .{@errorName(err)});
+                    self.completeFileDialog(args.completion, null);
+                    self.file_dialog_done.store(true, .release);
+                    return;
+                },
+                .folder => nfd.openFolderDialog(null) catch |err| {
+                    std.log.err("NFD openFolderDialog failed: {s}", .{@errorName(err)});
+                    self.completeFileDialog(args.completion, null);
+                    self.file_dialog_done.store(true, .release);
+                    return;
+                },
             };
 
             var final_path: ?[]const u8 = null;
             if (maybe_raw_path) |raw_path| {
                 defer nfd.freePath(raw_path);
                 final_path = self.allocator.dupe(u8, raw_path) catch |err| blk: {
-                    std.log.err("Failed to duplicate selected file path: {s}", .{@errorName(err)});
+                    std.log.err("Failed to duplicate selected dialog path: {s}", .{@errorName(err)});
                     break :blk null;
                 };
             }
 
-            self.postMessageId(args.callback(final_path));
-            self.file_dialog_done.store(true, .release);
-        }
-
-        fn folderDialogWorker(args: FileDialogTaskArgs) void {
-            const self = args.self;
-            const maybe_raw_path = nfd.openFolderDialog(null) catch |err| {
-                std.log.err("NFD openFolderDialog failed: {s}", .{@errorName(err)});
-                self.postMessageId(args.callback(null));
-                self.file_dialog_done.store(true, .release);
-                return;
-            };
-            var final_path: ?[]const u8 = null;
-            if (maybe_raw_path) |raw_path| {
-                defer nfd.freePath(raw_path);
-                final_path = self.allocator.dupe(u8, raw_path) catch |err| blk: {
-                    std.log.err("Failed to duplicate selected folder path: {s}", .{@errorName(err)});
-                    break :blk null;
-                };
-            }
-            self.postMessageId(args.callback(final_path));
+            self.completeFileDialog(args.completion, final_path);
             self.file_dialog_done.store(true, .release);
         }
 
@@ -1021,6 +1059,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 self.cross_thread_queue.items,
             );
             self.cross_thread_queue.deinit(self.allocator);
+            if (self.file_dialog_result) |path| self.allocator.free(path);
             if (self.reload_error) |e| self.allocator.free(e);
             self.ui.deinit();
             self.batcher.deinit();

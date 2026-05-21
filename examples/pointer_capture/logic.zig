@@ -59,7 +59,7 @@ pub fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             tw.justify_center,
             tw.items_center,
             tw.gap_px(16.0),
-            tw.bg_value(.{ 0.08, 0.09, 1.0, 1.0 }),
+            tw.bg_value(.{ 0.08, 0.09, 0.2, 1.0 }),
         }),
         .children = &.{
             try ui.ux().text(.{

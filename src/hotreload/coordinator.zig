@@ -1,5 +1,6 @@
 //! Host-side reload coordinator: owns the live `.so` and performs the same-process swap.
 const std = @import("std");
+const builtin = @import("builtin");
 const abi = @import("abi.zig");
 const dynlib = @import("dynlib.zig");
 const snapshot = @import("snapshot.zig");
@@ -252,7 +253,11 @@ pub fn Coordinator(comptime App: type) type {
             };
             defer self.allocator.free(json);
 
-            const tmp = std.fmt.allocPrint(self.allocator, "/tmp/ramiel-hotreload-{d}.json", .{std.c.getpid()}) catch return;
+            const pid: u64 = switch (builtin.os.tag) {
+                .windows => std.os.windows.GetCurrentProcessId(),
+                else => @intCast(std.c.getpid()),
+            };
+            const tmp = std.fmt.allocPrint(self.allocator, "ramiel-hotreload-{d}.json", .{pid}) catch return;
             defer self.allocator.free(tmp);
             std.Io.Dir.cwd().writeFile(self.io, .{ .sub_path = tmp, .data = json }) catch |err| {
                 std.log.err("hotreload: failed to write snapshot: {s}; keeping current build", .{@errorName(err)});
