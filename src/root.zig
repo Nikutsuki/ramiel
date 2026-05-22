@@ -178,6 +178,7 @@ test {
     _ = @import("animation/easing.zig");
     _ = @import("audio/spectrum.zig");
     _ = @import("renderer/shader_compiler.zig");
+    _ = @import("devtools/state.zig");
 }
 
 test "declareIds scopes stable ids by namespace" {

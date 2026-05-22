@@ -10,6 +10,7 @@ const Node = @import("ui/node.zig").Node;
 pub const InteractionMessage = @import("ui/types.zig").InteractionMessage;
 const DevToolsState = @import("devtools/state.zig").DevToolsState;
 const DevToolsTab = @import("devtools/state.zig").DevToolsTab;
+const devtools_tree_scroll_id = @import("devtools/state.zig").tree_scroll_id;
 const buildDevToolsPanel = @import("devtools/ui.zig").buildDevToolsPanel;
 const win_mod = @import("window/window.zig");
 const platform = @import("platform/backend.zig");
@@ -957,6 +958,11 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 timeout = 0.0;
             }
 
+            if (self.devtools_state.is_active and self.devtools_state.active_tab == .profiler) {
+                const devtools_timeout = 1.0 / 60.0;
+                timeout = if (timeout) |t| @min(t, devtools_timeout) else devtools_timeout;
+            }
+
             return timeout;
         }
         fn resolveTexId(self: *Self, source: []const u8) u32 {
@@ -1307,14 +1313,23 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                     last_fb = current_fb;
                 }
 
+                self.ui.interaction_registry.picking = self.devtools_state.pick_mode;
                 self.ui.interaction_registry.updateInputSnapshot(self.backend.pointerInputSnapshot());
                 self.ui.interaction_registry.processInteractionsWithBackend(self.ui.root, &self.backend, current_time);
                 self.backend.drainQueuedInputEvents(MessageType, self.ui.root, &self.ui.interaction_registry, self.backend_key_handler);
                 self.ui.interaction_registry.drainExternalMessages();
-                self.devtools_state.syncInteractionTargets(
-                    self.ui.interaction_registry.hovered_node,
-                    self.ui.interaction_registry.focused_node,
-                );
+                if (self.devtools_state.pick_mode) {
+                    self.devtools_state.pickHover(self.ui.interaction_registry.hovered_node);
+                    if (self.ui.interaction_registry.mouse_just_pressed) {
+                        self.devtools_state.commitPick(self.ui.interaction_registry.hovered_node);
+                    }
+                    self.ui.requestPaint();
+                } else {
+                    self.devtools_state.syncInteractionTargets(
+                        self.ui.interaction_registry.hovered_node,
+                        self.ui.interaction_registry.focused_node,
+                    );
+                }
 
                 self.cross_thread_mutex.lockUncancelable(self.io);
                 for (self.cross_thread_queue.items) |msg| {
@@ -1361,6 +1376,16 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 if (self.devtools_state.consumeRebuildRequest() and self.build_fn != null) {
                     needs_rebuild = true;
                 }
+                if (self.devtools_state.is_active) {
+                    self.devtools_state.captureTreeMetrics(self.ui.root);
+                    if (self.devtools_state.consumeHighlightChange()) self.ui.requestPaint();
+                    // Only the Profiler tab needs a steady cadence (live FPS graph).
+                    // Other tabs stay event-driven so an idle window does not render.
+                    if (self.devtools_state.active_tab == .profiler) {
+                        self.ui.requestPaint();
+                        if (self.build_fn != null) needs_rebuild = true;
+                    }
+                }
                 if (self.ui.interaction_registry.rebuild_requested) {
                     needs_rebuild = true;
                     self.ui.interaction_registry.rebuild_requested = false;
@@ -1377,6 +1402,12 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
                 if (needs_rebuild) {
                     if (self.build_fn) |build| {
+                        // Apply overrides to the live tree first so the DevTools
+                        // overlay (Computed panel) reads the just-edited style this
+                        // frame instead of lagging one edit behind.
+                        if (self.devtools_state.is_active) {
+                            self.devtools_state.applyOverrides(self.ui.root);
+                        }
                         self.ui.building = true;
                         self.ui.use_arena = true;
                         self.ui.has_animated_images = false;
@@ -1387,6 +1418,19 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                         self.ui.use_arena = false;
                         self.ui.building = false;
                         try self.ui.reconcile(new_root);
+                        if (self.devtools_state.is_active) {
+                            self.devtools_state.applyOverrides(self.ui.root);
+                            self.ui.requestLayout();
+                            self.ui.requestPaint();
+                            if (self.devtools_state.scroll_to_selected) {
+                                if (self.ui.getById(devtools_tree_scroll_id)) |scroll_node| {
+                                    if (self.devtools_state.computeTreeScroll(self.ui.root)) |y| {
+                                        scroll_node.scroll_y = y;
+                                    }
+                                }
+                                self.devtools_state.scroll_to_selected = false;
+                            }
+                        }
                     }
                 }
 
@@ -1441,6 +1485,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                     );
                     try self.ui.render(&self.batcher, &self.font_system.text_layouter, current_time_f32);
                     if (self.devtools_state.is_active) {
+                        self.devtools_state.captureGraphicsMetrics(&self.batcher);
                         try self.devtools_state.renderHighlights(&self.batcher, self.ui.root);
                     }
 
@@ -1483,6 +1528,9 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             const app: *Self = @ptrCast(@alignCast(ptr));
             if (key == glfw.KeyF12 and action == glfw.Press) {
                 app.toggleDevTools();
+            }
+            if (key == glfw.KeyEscape and action == glfw.Press and app.devtools_state.pick_mode) {
+                app.devtools_state.togglePickMode();
             }
             if (key == glfw.KeyF5 and action == glfw.Press) {
                 if (app.reload_hook) |hook| hook.request();

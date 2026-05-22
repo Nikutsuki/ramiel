@@ -89,6 +89,11 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         layout_requested: bool = false,
         paint_requested: bool = false,
 
+        /// DevTools element-picker mode. When set, the hit-test still runs (so
+        /// `hovered_node` tracks the cursor) but no events are dispatched to the app,
+        /// so clicking selects an element instead of triggering its behavior.
+        picking: bool = false,
+
         const SelectionPoint = struct {
             node: *Node(MessageT),
             offset: usize,
@@ -673,6 +678,11 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
             if (self.active_drag_node == null) {
                 _ = self.hitTest(root);
+            }
+
+            if (self.picking) {
+                if (win) |w| w.setCursor(.crosshair);
+                return;
             }
 
             // Build current hover chain: walk parents from hovered_node up to root,
