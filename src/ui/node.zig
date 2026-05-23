@@ -136,6 +136,15 @@ pub fn Node(comptime MessageT: type) type {
         is_focused: bool = false,
         is_hovered: bool = false,
         lock_pointer_on_drag: bool = false,
+        /// Marks this node as a custom input widget that owns its own
+        /// keyboard/text handling. When the focused node has this flag set,
+        /// the framework skips default Tab focus-traversal and the
+        /// tree-walking Ctrl+C / Ctrl+A clipboard path. When set on any
+        /// ancestor of a click target, the framework also skips initiating
+        /// its visual text selection on `.text` payloads in the subtree —
+        /// so the widget can drive its own selection model from raw
+        /// pointer events.
+        claims_input: bool = false,
 
         hover_anim: ?HoverAnim = null,
 

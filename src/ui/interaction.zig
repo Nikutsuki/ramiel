@@ -146,6 +146,14 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             };
         }
 
+        fn hasClaimsInputAncestor(node: *Node(MessageT)) bool {
+            var n: ?*Node(MessageT) = node;
+            while (n) |cur| : (n = cur.parent) {
+                if (cur.claims_input) return true;
+            }
+            return false;
+        }
+
         fn prevUtf8Boundary(bytes: []const u8, cursor_index: usize) usize {
             if (cursor_index == 0) return 0;
             var next_idx = cursor_index - 1;
@@ -738,7 +746,17 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                         }
                     }
 
-                    if (!target.is_focusable) {
+                    // Resolve the node that should take focus: the hit node if
+                    // it is focusable, else its nearest focusable ancestor. This
+                    // keeps focus on a focusable container (e.g. an editor
+                    // surface) when the click lands on a non-focusable child
+                    // (text, etc.) instead of dropping focus entirely.
+                    var focus_target: ?*Node(MessageT) = target;
+                    while (focus_target) |ft| : (focus_target = ft.parent) {
+                        if (ft.is_focusable) break;
+                    }
+
+                    if (focus_target == null) {
                         if (self.focused_node) |prev| {
                             prev.is_focused = false;
                             if (editableTextRef(prev)) |edit| {
@@ -749,12 +767,12 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                         self.focused_node = null;
                     }
 
-                    if (target.is_focusable) {
+                    if (focus_target) |target_node| {
                         if (self.focused_node) |prev_focus| {
-                            if (prev_focus != target) prev_focus.is_focused = false;
+                            if (prev_focus != target_node) prev_focus.is_focused = false;
                         }
-                        self.focused_node = target;
-                        target.is_focused = true;
+                        self.focused_node = target_node;
+                        target_node.is_focused = true;
 
                         if (self.selection_anchor != null) {
                             self.clearTextSelection(root);
@@ -771,7 +789,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                         self.updateTextAreaNavigationX(target);
                         self.ensureTextAreaCursorVisible(target);
                         self.layout_requested = true;
-                    } else if (target.payload == .text) {
+                    } else if (target.payload == .text and !hasClaimsInputAncestor(target)) {
                         if (self.resolveTextSelectionPointAtCursor(target)) |point| {
                             clearSelectionVisuals(root);
                             self.selection_anchor = point;
@@ -1260,8 +1278,11 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             }
 
             if (key == glfw.KeyTab and action == glfw.Press) {
-                self.traverseFocus(root);
-                return;
+                const claimed = if (self.focused_node) |f| f.claims_input else false;
+                if (!claimed) {
+                    self.traverseFocus(root);
+                    return;
+                }
             }
 
             if ((action == glfw.Press or action == glfw.Repeat)) {
@@ -1439,7 +1460,10 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                     }
 
                     if (node.hasEventBinding(.key_down)) {
-                        self.dispatchNodeEvent(node, .key_down, .{ .key = .{ .key = key, .action = action, .mods = 0 } });
+                        // Forward real modifier state (GLFW mod bits: shift=0x1,
+                        // ctrl=0x2) so handlers can bind chords like ctrl+z.
+                        const dispatch_mods: i32 = (if (is_shift) @as(i32, 0x0001) else 0) | (if (is_ctrl) @as(i32, 0x0002) else 0);
+                        self.dispatchNodeEvent(node, .key_down, .{ .key = .{ .key = key, .action = action, .mods = dispatch_mods } });
                     }
                 }
             }
