@@ -1542,6 +1542,11 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
         fn onChar(ptr: *anyopaque, codepoint: u21) void {
             const app: *Self = @ptrCast(@alignCast(ptr));
+            const ctrl_down = app.backend.isKeyDown(glfw.KeyLeftControl) or app.backend.isKeyDown(glfw.KeyRightControl);
+            const alt_down = app.backend.isKeyDown(glfw.KeyLeftAlt) or app.backend.isKeyDown(glfw.KeyRightAlt);
+            const super_down = app.backend.isKeyDown(glfw.KeyLeftSuper) or app.backend.isKeyDown(glfw.KeyRightSuper);
+            const altgr = ctrl_down and alt_down;
+            if (super_down or ((ctrl_down or alt_down) and !altgr)) return;
             app.ui.interaction_registry.pushChar(codepoint);
         }
 

@@ -1062,9 +1062,9 @@ fn clearInteractionRefsInSubtree(comptime MessageT: type, ctx: *UIContext(Messag
         ctx.interaction_registry.active_drag_node = null;
         ctx.interaction_registry.active_drag_axis = .None;
     }
-    // Hover chains (prev + current) hold raw node pointers across frames; if a
-    // hovered node is freed by reconcile, those chains would dereference freed
-    // memory in diffHoverChain. Strip the doomed pointer from both.
+    if (ctx.interaction_registry.click_press_target == node) {
+        ctx.interaction_registry.click_press_target = null;
+    }
     removeFromChain(MessageT, &ctx.interaction_registry.prev_hover_chain, node);
     removeFromChain(MessageT, &ctx.interaction_registry.hover_chain, node);
     for (node.children.items) |child| {

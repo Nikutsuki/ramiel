@@ -508,44 +508,56 @@ pub fn Node(comptime MessageT: type) type {
                 const bdr = self.style.border;
                 const otl = self.style.outline;
 
-                const bdr_top = colorWithOpacity(bdr.top.color, combined_opacity);
-                const bdr_right = colorWithOpacity(bdr.right.color, combined_opacity);
-                const bdr_bottom = colorWithOpacity(bdr.bottom.color, combined_opacity);
-                const bdr_left = colorWithOpacity(bdr.left.color, combined_opacity);
+                const can_skip_sdf = bg[3] > 0 and
+                    !self.style.corner_radius.hasAny() and
+                    !bdr.hasAny() and
+                    !otl.hasAny() and
+                    backdrop_blur == 0.0 and
+                    element_blur == 0.0 and
+                    rotation == 0.0;
 
-                const otl_top = colorWithOpacity(otl.top.color, combined_opacity);
-                const otl_right = colorWithOpacity(otl.right.color, combined_opacity);
-                const otl_bottom = colorWithOpacity(otl.bottom.color, combined_opacity);
-                const otl_left = colorWithOpacity(otl.left.color, combined_opacity);
+                if (can_skip_sdf) {
+                    try batcher.addRect(abs_x, abs_y, w, h, bg, 0, 0, .{ 0, 0, 0, 0 });
+                } else {
+                    const bdr_top = colorWithOpacity(bdr.top.color, combined_opacity);
+                    const bdr_right = colorWithOpacity(bdr.right.color, combined_opacity);
+                    const bdr_bottom = colorWithOpacity(bdr.bottom.color, combined_opacity);
+                    const bdr_left = colorWithOpacity(bdr.left.color, combined_opacity);
 
-                try batcher.addRoundedRect(
-                    abs_x,
-                    abs_y,
-                    w,
-                    h,
-                    bg,
-                    .{
-                        .radii = self.style.corner_radius.toArray(),
-                        .softness = self.style.corner_softness,
-                        .border_widths = bdr.widths(),
-                        .border_colors = .{
-                            packColor(bdr_top),
-                            packColor(bdr_right),
-                            packColor(bdr_bottom),
-                            packColor(bdr_left),
+                    const otl_top = colorWithOpacity(otl.top.color, combined_opacity);
+                    const otl_right = colorWithOpacity(otl.right.color, combined_opacity);
+                    const otl_bottom = colorWithOpacity(otl.bottom.color, combined_opacity);
+                    const otl_left = colorWithOpacity(otl.left.color, combined_opacity);
+
+                    try batcher.addRoundedRect(
+                        abs_x,
+                        abs_y,
+                        w,
+                        h,
+                        bg,
+                        .{
+                            .radii = self.style.corner_radius.toArray(),
+                            .softness = self.style.corner_softness,
+                            .border_widths = bdr.widths(),
+                            .border_colors = .{
+                                packColor(bdr_top),
+                                packColor(bdr_right),
+                                packColor(bdr_bottom),
+                                packColor(bdr_left),
+                            },
+                            .outline_widths = otl.widths(),
+                            .outline_colors = .{
+                                packColor(otl_top),
+                                packColor(otl_right),
+                                packColor(otl_bottom),
+                                packColor(otl_left),
+                            },
+                            .backdrop_blur = backdrop_blur,
+                            .element_blur = element_blur,
                         },
-                        .outline_widths = otl.widths(),
-                        .outline_colors = .{
-                            packColor(otl_top),
-                            packColor(otl_right),
-                            packColor(otl_bottom),
-                            packColor(otl_left),
-                        },
-                        .backdrop_blur = backdrop_blur,
-                        .element_blur = element_blur,
-                    },
-                    rotation,
-                );
+                        rotation,
+                    );
+                }
             }
 
             switch (self.payload) {
