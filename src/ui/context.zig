@@ -1115,8 +1115,33 @@ inline fn prefetchNodeIfEnabled(comptime MessageT: type, nodes: []const *Node(Me
     @prefetch(nodes[idx + 1], .{});
 }
 
+fn childListHasIds(comptime MessageT: type, nodes: []const *Node(MessageT)) bool {
+    for (nodes) |node| {
+        if (node.id != null) return true;
+    }
+    return false;
+}
+
+fn reconcileEqualAnonymousChildren(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *Node(MessageT), desc: *Node(MessageT)) std.mem.Allocator.Error!bool {
+    if (retained.children.items.len != desc.children.items.len) return false;
+    if (childListHasIds(MessageT, retained.children.items) or childListHasIds(MessageT, desc.children.items)) return false;
+
+    for (retained.children.items, desc.children.items) |ret_child, desc_child| {
+        if (std.meta.activeTag(ret_child.payload) != std.meta.activeTag(desc_child.payload)) return false;
+    }
+
+    for (retained.children.items, desc.children.items, 0..) |ret_child, desc_child, i| {
+        prefetchNodeIfEnabled(MessageT, desc.children.items, i);
+        ret_child.parent = retained;
+        try reconcileNode(MessageT, ctx, ret_child, desc_child);
+    }
+    return true;
+}
+
 fn reconcileChildren(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *Node(MessageT), desc: *Node(MessageT)) std.mem.Allocator.Error!void {
     const ret_count = retained.children.items.len;
+
+    if (try reconcileEqualAnonymousChildren(MessageT, ctx, retained, desc)) return;
 
     var retained_id_map = std.AutoHashMap(NodeId, usize).init(ctx.gpa);
     defer retained_id_map.deinit();
@@ -1224,27 +1249,94 @@ fn reconcileNode(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *
     try reconcileChildren(MessageT, ctx, retained, desc);
 }
 
+fn borderWidthsChanged(a: layout.Border, b: layout.Border) bool {
+    return a.top.width != b.top.width or
+        a.right.width != b.right.width or
+        a.bottom.width != b.bottom.width or
+        a.left.width != b.left.width;
+}
+
+fn isAutoSize(size: layout.Size) bool {
+    return switch (size) {
+        .Auto => true,
+        else => false,
+    };
+}
+
+fn stretchedInsetAffectsSize(old: layout.Style, new: layout.Style) bool {
+    const width_stretched = (isAutoSize(old.width) or isAutoSize(new.width)) and
+        ((old.left != null and old.right != null) or (new.left != null and new.right != null));
+    const height_stretched = (isAutoSize(old.height) or isAutoSize(new.height)) and
+        ((old.top != null and old.bottom != null) or (new.top != null and new.bottom != null));
+
+    return (width_stretched and (old.left != new.left or old.right != new.right)) or
+        (height_stretched and (old.top != new.top or old.bottom != new.bottom));
+}
+
+fn styleChangeAffectsSize(old: layout.Style, new: layout.Style) bool {
+    if (old.display != new.display) return true;
+    if (old.position != new.position) return true;
+    if (old.direction != new.direction) return true;
+    if (old.flex_wrap != new.flex_wrap) return true;
+    if (old.align_items != new.align_items) return true;
+    if (old.align_self != new.align_self) return true;
+    if (old.justify_content != new.justify_content) return true;
+    if (old.flex_grow != new.flex_grow or old.flex_shrink != new.flex_shrink or old.gap != new.gap) return true;
+
+    if (old.grid_columns != new.grid_columns) return true;
+    if (!std.meta.eql(old.grid_template_columns, new.grid_template_columns)) return true;
+    if (!std.meta.eql(old.grid_template_rows, new.grid_template_rows)) return true;
+    if (!std.meta.eql(old.grid_auto_rows, new.grid_auto_rows)) return true;
+    if (old.grid_column_start != new.grid_column_start or old.grid_row_start != new.grid_row_start) return true;
+    if (old.grid_column_span != new.grid_column_span or old.grid_row_span != new.grid_row_span) return true;
+
+    if (old.box_sizing != new.box_sizing) return true;
+    if (!std.meta.eql(old.width, new.width) or !std.meta.eql(old.height, new.height)) return true;
+    if (!std.meta.eql(old.min_width, new.min_width) or !std.meta.eql(old.max_width, new.max_width)) return true;
+    if (!std.meta.eql(old.min_height, new.min_height) or !std.meta.eql(old.max_height, new.max_height)) return true;
+    if (!std.meta.eql(old.padding, new.padding) or !std.meta.eql(old.margin, new.margin)) return true;
+    if (old.overflow_x != new.overflow_x or old.overflow_y != new.overflow_y) return true;
+    if (old.scrollbar_width != new.scrollbar_width or old.scrollbar_min_height != new.scrollbar_min_height) return true;
+    if (borderWidthsChanged(old.border, new.border) or borderWidthsChanged(old.outline, new.outline)) return true;
+    if (stretchedInsetAffectsSize(old, new)) return true;
+
+    if (!std.meta.eql(old.font_family, new.font_family)) return true;
+    if (old.font_weight != new.font_weight or old.font_style != new.font_style) return true;
+    if (old.font_size != new.font_size or old.line_height != new.line_height) return true;
+    if (old.white_space != new.white_space or old.text_overflow != new.text_overflow) return true;
+
+    return false;
+}
+
+fn styleChangeAffectsPosition(old: layout.Style, new: layout.Style) bool {
+    if (old.top != new.top or old.right != new.right or old.bottom != new.bottom or old.left != new.left) return true;
+    if (!std.meta.eql(old.transform, new.transform)) return true;
+    if (old.anchor_id != new.anchor_id) return true;
+    return false;
+}
+
+fn markStyleDirty(comptime MessageT: type, ctx: *UIContext(MessageT), node: *Node(MessageT), old: layout.Style, new: layout.Style) void {
+    if (styleChangeAffectsSize(old, new)) {
+        node.markSizeDirty();
+    } else if (styleChangeAffectsPosition(old, new)) {
+        node.markPositionDirty();
+    }
+    ctx.requestPaint();
+}
+
 fn patchStyle(comptime MessageT: type, ctx: *UIContext(MessageT), node: *Node(MessageT), new_style: *const layout.Style) void {
     const preserved_hover_blend = node.style._hover_blend;
     const old = node.style;
-
-    const id = node.id orelse {
-        node.style = new_style.*;
-        node.style._hover_blend = preserved_hover_blend;
-        // Anonymous nodes also need relayout on style change (e.g. absolute left/top).
-        if (!std.meta.eql(old, node.style)) node.markSizeDirty();
-        return;
-    };
-
     const tr = new_style.transition;
 
     node.style = new_style.*;
     node.style._hover_blend = preserved_hover_blend;
 
-    if (!std.meta.eql(old, new_style.*)) {
-        node.markSizeDirty();
+    if (!std.meta.eql(old, node.style)) {
+        markStyleDirty(MessageT, ctx, node, old, node.style);
     }
 
+    const id = node.id orelse return;
     if (!tr.property.hasAny()) return; // No transitions defined.
 
     const ct = ctx.current_time;
@@ -1341,4 +1433,60 @@ test "text resolves explicit default font" {
     defer node.deinit();
 
     try std.testing.expectEqual(&font, node.payload.text.font);
+}
+
+fn cleanStyleTestNode() Node(u32) {
+    var node = Node(u32).init();
+    node.allocator = std.testing.allocator;
+    node.id = 1;
+    node.flags = .{ .position = false, .size = false, .content = false };
+    return node;
+}
+
+test "patchStyle keeps paint-only changes out of layout dirtiness" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+    ui.paint_dirty = false;
+
+    var node = cleanStyleTestNode();
+    var next = node.style;
+    next.text_color = .{ 0.2, 0.3, 0.4, 1.0 };
+
+    patchStyle(u32, &ui, &node, &next);
+
+    try std.testing.expect(!node.flags.content);
+    try std.testing.expect(!node.flags.size);
+    try std.testing.expect(!node.flags.position);
+    try std.testing.expect(ui.paint_dirty);
+}
+
+test "patchStyle marks position-only changes without dirtying size" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    var node = cleanStyleTestNode();
+    node.style.position = .absolute;
+    var next = node.style;
+    next.top = 12.0;
+
+    patchStyle(u32, &ui, &node, &next);
+
+    try std.testing.expect(!node.flags.content);
+    try std.testing.expect(!node.flags.size);
+    try std.testing.expect(node.flags.position);
+}
+
+test "patchStyle marks metric-affecting text style changes dirty" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    var node = cleanStyleTestNode();
+    var next = node.style;
+    next.font_size = 24.0;
+
+    patchStyle(u32, &ui, &node, &next);
+
+    try std.testing.expect(!node.flags.content);
+    try std.testing.expect(node.flags.size);
+    try std.testing.expect(node.flags.position);
 }
