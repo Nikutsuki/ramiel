@@ -9,11 +9,16 @@ const uix = @import("ui/uix.zig");
 const components = @import("ui/components/root.zig");
 const runtime_mod = @import("runtime.zig");
 const FontSource = @import("renderer/font/font_registry.zig").FontSource;
+const FamilySources = @import("renderer/font/font_system.zig").FamilySources;
 const AppBackendConfig = @import("platform/backend.zig").AppBackendConfig;
 
 pub const FontSpec = struct {
     name: []const u8 = "JetBrains Mono",
+    /// Used when `family` is null; otherwise ignored.
     source: FontSource,
+    /// When set, loads every non-null variant; bold/italic/bold_italic
+    /// requests resolve to real faces instead of falling back to regular.
+    family: ?FamilySources = null,
     base_resolution: u32 = 32,
 };
 
@@ -60,7 +65,11 @@ fn windowConfig(comptime RunSpec: type) AppBackendConfig {
 fn applyRunSpecBeforeSetup(comptime RunSpec: type, app: anytype) !void {
     if (@hasDecl(RunSpec, "default_font")) {
         const spec = RunSpec.default_font;
-        _ = try app.loadDefaultFont(spec.name, spec.source, spec.base_resolution);
+        if (spec.family) |sources| {
+            _ = try app.loadDefaultFontFamily(spec.name, sources, spec.base_resolution);
+        } else {
+            _ = try app.loadDefaultFont(spec.name, spec.source, spec.base_resolution);
+        }
     }
     if (@hasDecl(RunSpec, "AssetEnum") != @hasDecl(RunSpec, "asset_manifest")) {
         @compileError("RunSpec must declare both AssetEnum and asset_manifest, or neither");

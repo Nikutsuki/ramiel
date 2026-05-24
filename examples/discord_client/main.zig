@@ -59,7 +59,7 @@ pub fn main(init: std.process.Init) !void {
 
     app.tick_fn = updater.tick;
 
-    app.state.font_data = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    app.state.font_data = try app.loadDefaultFontFamily("JetBrains Mono", lib.assets.jetbrainsMonoSources(), 32);
     try app.loadIconSvgFromMemory(
         @intFromEnum(core.IconIds.add),
         add_icon_svg,

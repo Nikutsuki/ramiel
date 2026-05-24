@@ -244,7 +244,7 @@ fn buildTabButton(
         .pointer_events = .none,
         .font_size = sz_label,
         .text_color = if (active) col_text_bright else col_text_dim,
-        .font_weight = if (active) 0.7 else 0.55,
+        .font_weight = if (active) layout.FontWeight.bold else layout.FontWeight.medium,
     }));
 
     const handler = switch (tab) {
@@ -351,7 +351,7 @@ fn buildBreadcrumb(
             .pointer_events = .none,
             .font_size = sz_label,
             .text_color = if (is_last) .{ 0.05, 0.05, 0.08, 1.0 } else col_text,
-            .font_weight = 0.6,
+            .font_weight = layout.FontWeight.semibold,
         }));
         try bindSelect(MessageT, allocator, chip, node);
         try bar.addChild(chip);
@@ -418,7 +418,7 @@ fn buildTreeRow(
         .pointer_events = .none,
         .font_size = sz_label,
         .text_color = if (is_selected) .{ 0.05, 0.05, 0.08, 1.0 } else col_text,
-        .font_weight = 0.6,
+        .font_weight = layout.FontWeight.semibold,
     }));
 
     if (target_node.id) |id| {
@@ -514,7 +514,7 @@ fn nestBox(
         .pointer_events = .none,
         .font_size = 9.0,
         .text_color = col_text_bright,
-        .font_weight = 0.6,
+        .font_weight = layout.FontWeight.semibold,
     }));
 
     try box.addChild(try valueText(MessageT, allocator, font, top));
@@ -695,7 +695,7 @@ fn editButton(
         .pointer_events = .none,
         .font_size = sz_value,
         .text_color = col_text_bright,
-        .font_weight = 0.7,
+        .font_weight = layout.FontWeight.bold,
     }));
     try bindClick(MessageT, allocator, btn, @ptrCast(@constCast(state)), onEdit(MessageT, action));
     return btn;
@@ -756,7 +756,7 @@ fn buildProfilerTab(
         .pointer_events = .none,
         .font_size = sz_big,
         .text_color = fpsColor(stats.fps),
-        .font_weight = 0.8,
+        .font_weight = layout.FontWeight.extra_bold,
     }, "{d:.0}", .{stats.fps}));
     try hero.addChild(try text(MessageT, allocator, "FPS", font, .{
         .pointer_events = .none,
@@ -925,7 +925,7 @@ fn sectionTitle(
     const node = try text(MessageT, allocator, str, font, .{
         .text_color = col_text_bright,
         .font_size = sz_title,
-        .font_weight = 0.72,
+        .font_weight = layout.FontWeight.bold,
         .pointer_events = .none,
     });
     node.style.padding = .{ .top = 6.0, .bottom = 0.0, .left = 0.0, .right = 0.0 };
@@ -969,7 +969,7 @@ fn kv(
         .pointer_events = .none,
         .font_size = sz_value,
         .text_color = col_text,
-        .font_weight = 0.62,
+        .font_weight = layout.FontWeight.semibold,
     }));
     return row;
 }

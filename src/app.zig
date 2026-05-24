@@ -23,6 +23,8 @@ const layout = @import("ui/layout.zig");
 
 const FontSource = @import("renderer/font/font_registry.zig").FontSource;
 const FontData = @import("renderer/font/font_registry.zig").FontData;
+const font_registry_mod = @import("renderer/font/font_registry.zig");
+const font_system_mod = @import("renderer/font/font_system.zig");
 const TextureId = @import("assets.zig").TextureId;
 const TextureState = @import("renderer/vulkan/texture_registry.zig").TextureState;
 const ImageIngressBudget = @import("renderer/image_ingress.zig").ImageIngressBudget;
@@ -524,11 +526,64 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
 
         pub fn setDefaultFont(self: *Self, font: *FontData) void {
             self.ui.setDefaultFont(font);
+            self.ui.setFontSystem(&self.font_system);
+        }
+
+        pub fn setDefaultFontFamily(self: *Self, family_name: []const u8) void {
+            self.ui.setDefaultFamily(family_name);
+            self.ui.setFontSystem(&self.font_system);
         }
 
         pub fn loadDefaultFont(self: *Self, name: []const u8, source: FontSource, base_resolution: u32) !*FontData {
             const font = try self.loadFont(name, source, base_resolution);
             self.setDefaultFont(font);
+            self.setDefaultFontFamily(name);
+            return font;
+        }
+
+        pub fn loadFontVariant(
+            self: *Self,
+            family_name: []const u8,
+            variant: font_registry_mod.FontVariant,
+            physical_name: []const u8,
+            source: FontSource,
+            base_resolution: u32,
+        ) !*FontData {
+            return self.font_system.loadFontVariant(
+                &self.engine.core,
+                &self.engine.resources.texture_registry,
+                family_name,
+                variant,
+                physical_name,
+                source,
+                base_resolution,
+            );
+        }
+
+        pub fn loadFontFamily(
+            self: *Self,
+            family_name: []const u8,
+            sources: font_system_mod.FamilySources,
+            base_resolution: u32,
+        ) !*FontData {
+            return self.font_system.loadFontFamily(
+                &self.engine.core,
+                &self.engine.resources.texture_registry,
+                family_name,
+                sources,
+                base_resolution,
+            );
+        }
+
+        pub fn loadDefaultFontFamily(
+            self: *Self,
+            family_name: []const u8,
+            sources: font_system_mod.FamilySources,
+            base_resolution: u32,
+        ) !*FontData {
+            const font = try self.loadFontFamily(family_name, sources, base_resolution);
+            self.setDefaultFont(font);
+            self.setDefaultFontFamily(family_name);
             return font;
         }
 

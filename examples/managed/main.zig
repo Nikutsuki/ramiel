@@ -9,6 +9,7 @@ const RunSpec = struct {
     pub const default_font: lib.FontSpec = .{
         .name = "JetBrains Mono",
         .source = .{ .memory = lib.assets.getFontData(.jetbrains_mono) },
+        .family = lib.assets.jetbrainsMonoSources(),
         .base_resolution = 20,
     };
 

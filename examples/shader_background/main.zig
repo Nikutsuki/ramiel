@@ -62,7 +62,7 @@ pub fn main(init: std.process.Init) !void {
     var app = try App.init(allocator, io, .{ .title = "shader background", .width = W, .height = H }, .{}, update);
     defer app.deinit();
 
-    app.state.font = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    app.state.font = try app.loadDefaultFontFamily("JetBrains Mono", lib.assets.jetbrainsMonoSources(), 32);
     app.state.background = try app.createShaderCanvas(W, H, swirl_glsl, null);
 
     app.setTickFn(tick, 1.0 / 60.0);

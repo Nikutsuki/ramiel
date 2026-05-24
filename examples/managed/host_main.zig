@@ -17,7 +17,7 @@ fn deinitState(state: *State) void {
 }
 
 fn afterInit(app: *App, _: std.mem.Allocator) !void {
-    app.state.runtime.font_data = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 20);
+    app.state.runtime.font_data = try app.loadDefaultFontFamily("JetBrains Mono", lib.assets.jetbrainsMonoSources(), 20);
 }
 
 pub fn main(init: std.process.Init) !void {

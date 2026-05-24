@@ -233,7 +233,7 @@ pub fn main(init: std.process.Init) !void {
 
     app.tick_fn = tick;
 
-    _ = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    _ = try app.loadDefaultFontFamily("JetBrains Mono", lib.assets.jetbrainsMonoSources(), 32);
 
     try app.setRootBuilder(build);
     try app.run();

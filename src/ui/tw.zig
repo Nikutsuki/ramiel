@@ -84,7 +84,11 @@ fn applyPartial(result: *Style, partial: anytype) void {
         if (!@hasField(Style, field.name)) {
             @compileError("Style has no field named '" ++ field.name ++ "'");
         }
-        @field(result, field.name) = @as(@TypeOf(@field(result, field.name)), @field(partial, field.name));
+        if (comptime std.mem.eql(u8, field.name, "text_decoration")) {
+            result.text_decoration = result.text_decoration.merge(@field(partial, field.name));
+        } else {
+            @field(result, field.name) = @as(@TypeOf(@field(result, field.name)), @field(partial, field.name));
+        }
     }
 }
 
@@ -327,11 +331,86 @@ pub fn text_color_value(color_value: [4]f32) struct { text_color: [4]f32 } {
     return .{ .text_color = color_value };
 }
 
-pub const font_light = .{ .font_weight = 0.3 };
-pub const font_normal = .{ .font_weight = 0.5 };
-pub const font_semibold = .{ .font_weight = 0.6 };
-pub const font_bold = .{ .font_weight = 0.7 };
-pub const font_ultra_bold = .{ .font_weight = 0.9 };
+pub const font_thin = .{ .font_weight = layout.FontWeight.thin };
+pub const font_extralight = .{ .font_weight = layout.FontWeight.extra_light };
+pub const font_light = .{ .font_weight = layout.FontWeight.light };
+pub const font_normal = .{ .font_weight = layout.FontWeight.normal };
+pub const font_medium = .{ .font_weight = layout.FontWeight.medium };
+pub const font_semibold = .{ .font_weight = layout.FontWeight.semibold };
+pub const font_bold = .{ .font_weight = layout.FontWeight.bold };
+pub const font_extrabold = .{ .font_weight = layout.FontWeight.extra_bold };
+pub const font_black = .{ .font_weight = layout.FontWeight.black };
+pub const font_ultra_bold = font_extrabold;
+
+pub const italic = .{ .font_style = layout.FontStyle.italic };
+pub const oblique = .{ .font_style = layout.FontStyle.oblique };
+pub const not_italic = .{ .font_style = layout.FontStyle.normal };
+
+pub const light_italic = .{ .font_weight = layout.FontWeight.light, .font_style = layout.FontStyle.italic };
+pub const normal_italic = .{ .font_weight = layout.FontWeight.normal, .font_style = layout.FontStyle.italic };
+pub const semibold_italic = .{ .font_weight = layout.FontWeight.semibold, .font_style = layout.FontStyle.italic };
+pub const bold_italic = .{ .font_weight = layout.FontWeight.bold, .font_style = layout.FontStyle.italic };
+
+pub fn weight(value: layout.FontWeight) struct { font_weight: layout.FontWeight } {
+    return .{ .font_weight = value };
+}
+
+pub fn font_style_value(value: layout.FontStyle) struct { font_style: layout.FontStyle } {
+    return .{ .font_style = value };
+}
+
+pub fn font_family(comptime name: []const u8) struct { font_family: ?[]const u8 } {
+    return .{ .font_family = name };
+}
+
+pub fn font_family_value(name: ?[]const u8) struct { font_family: ?[]const u8 } {
+    return .{ .font_family = name };
+}
+
+pub const underline = .{ .text_decoration = layout.TextDecoration{ .line = .{ .underline = true } } };
+pub const line_through = .{ .text_decoration = layout.TextDecoration{ .line = .{ .line_through = true } } };
+pub const overline = .{ .text_decoration = layout.TextDecoration{ .line = .{ .overline = true } } };
+pub const no_underline = .{ .text_decoration = layout.TextDecoration{} };
+pub const no_decoration = no_underline;
+
+pub const decoration_solid = .{ .text_decoration = layout.TextDecoration{ .shape = .solid } };
+pub const decoration_double = .{ .text_decoration = layout.TextDecoration{ .shape = .double } };
+pub const decoration_wavy = .{ .text_decoration = layout.TextDecoration{ .shape = .wavy } };
+pub const decoration_dotted = .{ .text_decoration = layout.TextDecoration{ .shape = .dotted } };
+pub const decoration_dashed = .{ .text_decoration = layout.TextDecoration{ .shape = .dashed } };
+
+pub fn decoration_shape(shape: layout.TextDecorationShape) struct { text_decoration: layout.TextDecoration } {
+    return .{ .text_decoration = .{ .shape = shape } };
+}
+
+pub fn decoration_color(comptime hex: []const u8) struct { text_decoration: layout.TextDecoration } {
+    return .{ .text_decoration = .{ .color = color(hex) } };
+}
+
+pub fn decoration_color_value(value: [4]f32) struct { text_decoration: layout.TextDecoration } {
+    return .{ .text_decoration = .{ .color = value } };
+}
+
+pub fn decoration_thickness(value_px: f32) struct { text_decoration: layout.TextDecoration } {
+    return .{ .text_decoration = .{ .thickness = value_px } };
+}
+
+pub fn decoration_offset(value_px: f32) struct { text_decoration: layout.TextDecoration } {
+    return .{ .text_decoration = .{ .offset = value_px } };
+}
+
+pub fn text_decoration(value: layout.TextDecoration) struct { text_decoration: layout.TextDecoration } {
+    return .{ .text_decoration = value };
+}
+
+/// Transitions both text_color and text_decoration_color.
+pub fn transition_decoration_colors(duration_ms: u32) struct { transition: layout.TransitionStyle } {
+    return .{ .transition = .{
+        .property = .{ .text_decoration_color = true, .text_color = true },
+        .duration_ms = duration_ms,
+        .timing = .ease_in_out,
+    } };
+}
 pub const whitespace_normal = .{ .white_space = layout.WhiteSpace.Normal };
 pub const whitespace_nowrap = .{ .white_space = layout.WhiteSpace.NoWrap };
 pub const text_clip = .{ .text_overflow = layout.TextOverflow.Clip };

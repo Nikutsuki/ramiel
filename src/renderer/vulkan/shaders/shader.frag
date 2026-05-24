@@ -155,6 +155,52 @@ void main() {
         baseColor.rgb *= opacity;
     }
 
+    // EFFECT_DECORATION_LINE: wavy/dotted/dashed underlines + strikes.
+    //   sdf_params = (mode, period_px, amp_px, thickness_px)
+    //   cornerRadii.xy = quad (width, height) in px
+    if ((flags & (1u << 6)) != 0u) {
+        float mode      = fragSdfParams.x;
+        float period    = max(fragSdfParams.y, 1.0);
+        float amp       = max(fragSdfParams.z, 0.0);
+        float thickness = max(fragSdfParams.w, 1.0);
+        float quad_w_px = max(fragCornerRadii.x, 1.0);
+        float quad_h_px = max(fragCornerRadii.y, 1.0);
+
+        float px = fragUV.x * quad_w_px;
+        float py = (fragUV.y - 0.5) * quad_h_px;
+
+        float half_t = thickness * 0.5;
+        float cov = 0.0;
+
+        if (mode < 0.5) {
+            // Divide by gradient length so the line stays the same visual
+            // thickness at steep slopes instead of pinching at the peaks.
+            float omega = 6.2831853 / period;
+            float phase = px * omega;
+            float wave_y = amp * sin(phase);
+            float slope = amp * omega * cos(phase);
+            float dist = abs(py - wave_y) / sqrt(1.0 + slope * slope);
+            float aa = max(fwidth(dist) * 0.5, 0.5);
+            cov = 1.0 - smoothstep(half_t - aa, half_t + aa, dist);
+        } else if (mode < 1.5) {
+            float along = mod(px, period) - period * 0.5;
+            float dist = length(vec2(along, py));
+            float aa = max(fwidth(dist) * 0.5, 0.5);
+            cov = 1.0 - smoothstep(half_t - aa, half_t + aa, dist);
+        } else {
+            float fill_w = period * 0.5;
+            float along = mod(px, period);
+            float aa_x = max(fwidth(along) * 0.5, 0.5);
+            float aa_y = max(fwidth(abs(py)) * 0.5, 0.5);
+            float dash_cov = 1.0 - smoothstep(fill_w - aa_x, fill_w + aa_x, along);
+            float thick_cov = 1.0 - smoothstep(half_t - aa_y, half_t + aa_y, abs(py));
+            cov = dash_cov * thick_cov;
+        }
+
+        baseColor.a *= cov;
+        baseColor.rgb *= cov;
+    }
+
     // SDF: per-corner rounding, per-side border, per-side outline
     if ((flags & (1u << 0)) != 0u) { // EFFECT_SDF_ROUNDED
         float softness    = fragSdfParams.x;

@@ -13,6 +13,7 @@ pub const AnimatedProperty = enum {
     border_color,
     outline_color,
     shadow_color,
+    text_decoration_color,
     opacity,
     shadow_blur,
     shadow_offset,
@@ -31,6 +32,7 @@ pub const AnimatedValue = union(AnimatedProperty) {
     border_color: ColorAnim,
     outline_color: ColorAnim,
     shadow_color: ColorAnim,
+    text_decoration_color: ColorAnim,
     opacity: ScalarAnim,
     shadow_blur: ScalarAnim,
     shadow_offset: Vec2Anim,
@@ -71,6 +73,7 @@ fn targetsEqual(a: AnimatedValue, b: AnimatedValue) bool {
         .border_color => |x| std.mem.eql(f32, &x.to, &b.border_color.to),
         .outline_color => |x| std.mem.eql(f32, &x.to, &b.outline_color.to),
         .shadow_color => |x| std.mem.eql(f32, &x.to, &b.shadow_color.to),
+        .text_decoration_color => |x| std.mem.eql(f32, &x.to, &b.text_decoration_color.to),
         .corner_radius => |x| std.mem.eql(f32, &x.to, &b.corner_radius.to),
         .shadow_offset => |x| std.mem.eql(f32, &x.to, &b.shadow_offset.to),
         .translate => |x| std.mem.eql(f32, &x.to, &b.translate.to),
@@ -145,6 +148,7 @@ fn applyEntry(entry: *const AnimationEntry, style: *Style, current_time: f64) bo
             style.outline.left.color = c;
         },
         .shadow_color => |a| style.shadow_color = lerpColor(a.from, a.to, t),
+        .text_decoration_color => |a| style.text_decoration.color = lerpColor(a.from, a.to, t),
         .opacity => |a| style.opacity = lerpF(a.from, a.to, t),
         .shadow_blur => |a| style.shadow_blur = lerpF(a.from, a.to, t),
         .shadow_offset => |a| style.shadow_offset = lerpVec2(a.from, a.to, t),
@@ -298,6 +302,10 @@ fn interpolateFrom(
         .shadow_color => |a| .{ .shadow_color = .{
             .from = lerpColor(a.from, a.to, t),
             .to = new_entry.value.shadow_color.to,
+        } },
+        .text_decoration_color => |a| .{ .text_decoration_color = .{
+            .from = lerpColor(a.from, a.to, t),
+            .to = new_entry.value.text_decoration_color.to,
         } },
         .opacity => |a| .{ .opacity = .{
             .from = lerpF(a.from, a.to, t),

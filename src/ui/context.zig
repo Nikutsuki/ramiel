@@ -3,6 +3,9 @@ const Node = @import("node.zig").Node;
 const QuadBatcher = @import("../renderer/vulkan/batcher.zig").QuadBatcher;
 const TextLayouter = @import("../renderer/font/text_layouter.zig").TextLayouter;
 const FontData = @import("../renderer/font/font_registry.zig").FontData;
+const FontSystem = @import("../renderer/font/font_system.zig").FontSystem;
+const FontVariant = @import("../renderer/font/font_registry.zig").FontVariant;
+const weightAndStyleToVariant = @import("../renderer/font/font_system.zig").weightAndStyleToVariant;
 const layout = @import("layout.zig");
 const InteractionRegistry = @import("interaction.zig").InteractionRegistry;
 const NodeId = @import("types.zig").NodeId;
@@ -37,6 +40,8 @@ pub fn UIContext(comptime MessageT: type) type {
 
         active_theme: theme_lib.Theme,
         default_font: ?*FontData = null,
+        font_system: ?*FontSystem = null,
+        default_family: ?[]const u8 = null,
         needs_redraw: bool = true,
 
         id_map: std.AutoHashMap(NodeId, *Node(MessageT)),
@@ -131,8 +136,29 @@ pub fn UIContext(comptime MessageT: type) type {
             return self.default_font;
         }
 
+        pub fn setFontSystem(self: *Self, fs: *FontSystem) void {
+            self.font_system = fs;
+        }
+
+        pub fn setDefaultFamily(self: *Self, family_name: []const u8) void {
+            self.default_family = family_name;
+        }
+
         fn resolveFont(self: *Self, font: ?*FontData) !*FontData {
             return font orelse self.default_font orelse error.DefaultFontMissing;
+        }
+
+        fn resolveFontFromStyle(self: *Self, font: ?*FontData, style: *const Style) !*FontData {
+            if (font) |f| return f;
+            const default = self.default_font orelse return error.DefaultFontMissing;
+            if (style.font_weight == .normal and style.font_style == .normal and style.font_family == null) {
+                return default;
+            }
+            const fs = self.font_system orelse return default;
+            const family = style.font_family orelse self.default_family orelse return default;
+            const variant = weightAndStyleToVariant(style.font_weight, style.font_style);
+            const physical = fs.closestVariant(family, variant) orelse return default;
+            return fs.getFont(physical) orelse default;
         }
 
         fn registerNodeId(self: *@This(), node: *Node(MessageT), id: ?NodeId) !void {
@@ -428,7 +454,7 @@ pub fn UIContext(comptime MessageT: type) type {
         }
 
         pub fn text(self: *@This(), desc: TextDescriptor) !*Node(MessageT) {
-            const font = try self.resolveFont(desc.font);
+            const font = try self.resolveFontFromStyle(desc.font, &desc.style);
             const node = try self.createNode();
             try self.registerNodeId(node, desc.id);
             node.style = desc.style;
@@ -453,7 +479,7 @@ pub fn UIContext(comptime MessageT: type) type {
         }
 
         pub fn button(self: *@This(), desc: ButtonDescriptor) !*Node(MessageT) {
-            const font = try self.resolveFont(desc.font);
+            const font = try self.resolveFontFromStyle(desc.font, &desc.label_style);
             var container_style = desc.style;
 
             if (container_style.background_color[3] == 0.0) {
@@ -505,7 +531,7 @@ pub fn UIContext(comptime MessageT: type) type {
         }
 
         pub fn textInput(self: *@This(), desc: TextInputDescriptor) !*Node(MessageT) {
-            const font = try self.resolveFont(desc.font);
+            const font = try self.resolveFontFromStyle(desc.font, &desc.style);
             const node = try self.createNode();
             try self.registerNodeId(node, desc.id);
             node.style = desc.style;
@@ -533,7 +559,7 @@ pub fn UIContext(comptime MessageT: type) type {
         }
 
         pub fn textArea(self: *@This(), desc: TextAreaDescriptor) !*Node(MessageT) {
-            const font = try self.resolveFont(desc.font);
+            const font = try self.resolveFontFromStyle(desc.font, &desc.style);
             const node = try self.createNode();
             try self.registerNodeId(node, desc.id);
             node.style = desc.style;
@@ -1241,6 +1267,13 @@ fn patchStyle(comptime MessageT: type, ctx: *UIContext(MessageT), node: *Node(Me
 
     if (tr.property.shadow_color and colorChanged(old.shadow_color, new_style.shadow_color))
         ctx.animation_registry.register(.{ .node_id = id, .start_time = ct, .duration = dur, .delay = dly, .timing = tim, .value = .{ .shadow_color = .{ .from = old.shadow_color, .to = new_style.shadow_color } } }, ct) catch {};
+
+    if (tr.property.text_decoration_color) {
+        const old_dc = old.text_decoration.color orelse old.text_color;
+        const new_dc = new_style.text_decoration.color orelse new_style.text_color;
+        if (colorChanged(old_dc, new_dc))
+            ctx.animation_registry.register(.{ .node_id = id, .start_time = ct, .duration = dur, .delay = dly, .timing = tim, .value = .{ .text_decoration_color = .{ .from = old_dc, .to = new_dc } } }, ct) catch {};
+    }
 
     if (tr.property.border_color and colorChanged(old.border.top.color, new_style.border.top.color))
         ctx.animation_registry.register(.{ .node_id = id, .start_time = ct, .duration = dur, .delay = dly, .timing = tim, .value = .{ .border_color = .{ .from = old.border.top.color, .to = new_style.border.top.color } } }, ct) catch {};

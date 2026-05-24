@@ -5,7 +5,12 @@ const assets = @import("../../assets.zig");
 const EFFECT_BACKDROP_BLUR = assets.EFFECT_BACKDROP_BLUR;
 const EFFECT_ELEMENT_BLUR = assets.EFFECT_ELEMENT_BLUR;
 const EFFECT_SDF_ROUNDED = assets.EFFECT_SDF_ROUNDED;
+const EFFECT_DECORATION_LINE = assets.EFFECT_DECORATION_LINE;
 const NO_TEXTURE = assets.NO_TEXTURE;
+
+pub const DECORATION_MODE_WAVY: f32 = 0.0;
+pub const DECORATION_MODE_DOTTED: f32 = 1.0;
+pub const DECORATION_MODE_DASHED: f32 = 2.0;
 
 /// Byte order matches GLSL unpackUnorm4x8 (R in LSB).
 pub fn packColor(c: [4]f32) u32 {
@@ -293,13 +298,16 @@ pub const QuadBatcher = struct {
         const round_clip_radii = self.current_round_clip_radii;
         const base_idx: u32 = @intCast(layer.vertices.items.len);
 
-        const needs_sdf =
+        // Decoration quads stash logical width/height in corner_radii; don't
+        // let that flip them into the SDF_ROUNDED branch.
+        const skip_auto_sdf = (props.effect_flags & EFFECT_DECORATION_LINE) != 0;
+        const needs_sdf = !skip_auto_sdf and (
             props.corner_radii[0] > 0 or props.corner_radii[1] > 0 or
             props.corner_radii[2] > 0 or props.corner_radii[3] > 0 or
             props.border_widths[0] > 0 or props.border_widths[1] > 0 or
             props.border_widths[2] > 0 or props.border_widths[3] > 0 or
             props.outline_widths[0] > 0 or props.outline_widths[1] > 0 or
-            props.outline_widths[2] > 0 or props.outline_widths[3] > 0;
+            props.outline_widths[2] > 0 or props.outline_widths[3] > 0);
         const combined_id = (if (needs_sdf) props.effect_flags | EFFECT_SDF_ROUNDED else props.effect_flags) |
             (props.tex_index & 0xFFFF);
 
@@ -520,6 +528,33 @@ pub const QuadBatcher = struct {
             .command_params = .{ style.backdrop_blur, style.element_blur, 0.0, 0.0 },
             .expansion = expansion,
             .rotation = rotation,
+        });
+    }
+
+    /// Wavy/dotted/dashed only; solid + double use `addRect` directly.
+    pub fn addDecorationLine(
+        self: *QuadBatcher,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: [4]f32,
+        mode: f32,
+        period_px: f32,
+        amp_px: f32,
+        thickness_px: f32,
+    ) !void {
+        if (width <= 0.0 or height <= 0.0 or color[3] <= 0.0) return;
+        try self.addGenericQuad(.{
+            .x = x,
+            .y = y,
+            .width = width,
+            .height = height,
+            .color = color,
+            .tex_index = NO_TEXTURE,
+            .effect_flags = EFFECT_DECORATION_LINE,
+            .corner_radii = .{ width, height, 0, 0 },
+            .sdf_params = .{ mode, period_px, amp_px, thickness_px },
         });
     }
 

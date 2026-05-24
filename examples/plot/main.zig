@@ -384,9 +384,9 @@ pub fn main(init: std.process.Init) !void {
     );
     defer app.deinit();
 
-    app.state.font_data = try app.loadDefaultFont(
+    app.state.font_data = try app.loadDefaultFontFamily(
         "JetBrains Mono",
-        .{ .memory = lib.assets.getFontData(.jetbrains_mono) },
+        lib.assets.jetbrainsMonoSources(),
         32,
     );
 

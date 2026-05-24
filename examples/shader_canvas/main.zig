@@ -109,7 +109,7 @@ pub fn main(init: std.process.Init) !void {
     var app = try App.init(allocator, io, .{ .title = "shader effects" }, .{}, update);
     defer app.deinit();
 
-    app.state.font = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    app.state.font = try app.loadDefaultFontFamily("JetBrains Mono", lib.assets.jetbrainsMonoSources(), 32);
     app.state.pixels = try genInputImage(allocator, SIZE, SIZE);
     defer allocator.free(app.state.pixels);
 

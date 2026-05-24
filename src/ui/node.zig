@@ -4,10 +4,12 @@ const QuadBatcher = batcher_mod.QuadBatcher;
 const RoundedRectStyle = batcher_mod.RoundedRectStyle;
 const packColor = batcher_mod.packColor;
 const Border = @import("layout.zig").Border;
+const msdfWeightFor = @import("layout.zig").msdfWeightFor;
 const FontData = @import("../renderer/font/font_registry.zig").FontData;
 const TextLayouter = @import("../renderer/font/text_layouter.zig").TextLayouter;
 const Style = @import("layout.zig").Style;
 const LayoutResult = @import("layout.zig").LayoutResult;
+const TextLayoutMetric = @import("layout.zig").TextLayoutMetric;
 const NodeId = @import("types.zig").NodeId;
 const assets = @import("../assets.zig");
 const EasingFunction = @import("../animation/easing.zig").EasingFunction;
@@ -378,6 +380,151 @@ pub fn Node(comptime MessageT: type) type {
             return .{ color[0], color[1], color[2], std.math.clamp(color[3] * opacity, 0.0, 1.0) };
         }
 
+        fn emitTextDecorations(
+            batcher: *QuadBatcher,
+            metrics: []const TextLayoutMetric,
+            font: *const FontData,
+            style: *const Style,
+            abs_x: f32,
+            abs_y: f32,
+            base_color: [4]f32,
+            opacity: f32,
+        ) !void {
+            const decoration = style.text_decoration;
+            if (!decoration.line.hasAny()) return;
+            if (metrics.len == 0) return;
+
+            const font_scale: f32 = if (style.font_size > 0.0)
+                style.font_size / font.base_size
+            else
+                1.0;
+            const thickness_px: f32 = if (decoration.thickness > 0)
+                decoration.thickness
+            else
+                @max(1.0, font.underline_thickness * font_scale);
+            const ascender_scaled = font.ascender * font_scale;
+            const underline_dy = -font.underline_position * font_scale + decoration.offset;
+            const strike_dy = font.strikethrough_position * font_scale + decoration.offset;
+            // + thickness_px keeps the overline below the cap line instead of
+            // half-clipping above the text node.
+            const overline_dy = -ascender_scaled + thickness_px + decoration.offset;
+
+            const deco_color = colorWithOpacity(decoration.color orelse base_color, opacity);
+
+            var line_start: usize = 0;
+            var idx: usize = 1;
+            while (idx <= metrics.len) : (idx += 1) {
+                const end_of_line = idx == metrics.len or metrics[idx].y != metrics[line_start].y;
+                if (!end_of_line) continue;
+
+                const slice = metrics[line_start..idx];
+                if (slice.len == 0) {
+                    line_start = idx;
+                    continue;
+                }
+
+                const first = slice[0];
+                const last = slice[slice.len - 1];
+                const left = first.x;
+                const right = last.x + last.width;
+                const width = right - left;
+                if (width <= 0) {
+                    line_start = idx;
+                    continue;
+                }
+                const baseline_y = first.y + ascender_scaled;
+
+                if (decoration.line.underline) {
+                    emitOneDecorationLine(batcher, abs_x + left, abs_y + baseline_y + underline_dy, width, thickness_px, deco_color, decoration.shape) catch |err| return err;
+                }
+                if (decoration.line.line_through) {
+                    emitOneDecorationLine(batcher, abs_x + left, abs_y + baseline_y + strike_dy, width, thickness_px, deco_color, decoration.shape) catch |err| return err;
+                }
+                if (decoration.line.overline) {
+                    emitOneDecorationLine(batcher, abs_x + left, abs_y + baseline_y + overline_dy, width, thickness_px, deco_color, decoration.shape) catch |err| return err;
+                }
+
+                line_start = idx;
+            }
+        }
+
+        /// Solid/double rects pixel-snap; otherwise a thin line straddles two
+        /// rows of AA and ~halves its coverage on each, vanishing visually.
+        fn emitOneDecorationLine(
+            batcher: *QuadBatcher,
+            x: f32,
+            center_y: f32,
+            width: f32,
+            thickness: f32,
+            color: [4]f32,
+            shape: @import("layout.zig").TextDecorationShape,
+        ) !void {
+            switch (shape) {
+                .solid => {
+                    const t = @max(@round(thickness), 1.0);
+                    const y0 = @round(center_y - t * 0.5);
+                    try batcher.addRect(x, y0, width, t, color, 0, 0, .{ 0, 0, 0, 0 });
+                },
+                .double => {
+                    const t = @max(@round(thickness), 1.0);
+                    const y_upper = @round(center_y - t * 1.5);
+                    const y_lower = @round(center_y + t * 0.5);
+                    try batcher.addRect(x, y_upper, width, t, color, 0, 0, .{ 0, 0, 0, 0 });
+                    try batcher.addRect(x, y_lower, width, t, color, 0, 0, .{ 0, 0, 0, 0 });
+                },
+                .wavy => {
+                    // Patterned shapes need ~1.5px to survive AA at body sizes.
+                    const t = @max(thickness, 1.5);
+                    const period = @max(t * 4.0, 6.0);
+                    const amp = @max(t * 1.2, 2.0);
+                    const quad_h = (amp + t) * 2.0;
+                    try batcher.addDecorationLine(
+                        x,
+                        center_y - quad_h * 0.5,
+                        width,
+                        quad_h,
+                        color,
+                        batcher_mod.DECORATION_MODE_WAVY,
+                        period,
+                        amp,
+                        t,
+                    );
+                },
+                .dotted => {
+                    const t = @max(thickness, 1.5);
+                    const period = @max(t * 2.4, 4.0);
+                    const quad_h = t * 2.0;
+                    try batcher.addDecorationLine(
+                        x,
+                        center_y - quad_h * 0.5,
+                        width,
+                        quad_h,
+                        color,
+                        batcher_mod.DECORATION_MODE_DOTTED,
+                        period,
+                        0.0,
+                        t,
+                    );
+                },
+                .dashed => {
+                    const t = @max(thickness, 1.5);
+                    const period = @max(t * 5.0, 8.0);
+                    const quad_h = t * 2.0;
+                    try batcher.addDecorationLine(
+                        x,
+                        center_y - quad_h * 0.5,
+                        width,
+                        quad_h,
+                        color,
+                        batcher_mod.DECORATION_MODE_DASHED,
+                        period,
+                        0.0,
+                        t,
+                    );
+                },
+            }
+        }
+
         /// Used as the placeholder color when no explicit `placeholder_color` is
         /// set on the input. Half-alpha of the active text color.
         fn mutedFallback(color: [4]f32) [4]f32 {
@@ -578,7 +725,7 @@ pub fn Node(comptime MessageT: type) type {
                         const cache = self.layout_result.text_cache;
                         const selection_color = colorWithOpacity(.{ 0.2, 0.4, 0.8, 0.5 }, combined_opacity);
                         const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
-                        const text_weight = self.style.font_weight;
+                        const text_weight = msdfWeightFor(self.style.font_weight);
 
                         if (self.text_selection) |sel| {
                             const start = @min(sel.anchor, sel.focus);
@@ -619,6 +766,17 @@ pub fn Node(comptime MessageT: type) type {
                                 glyph_corner_radii,
                             );
                         }
+
+                        try emitTextDecorations(
+                            batcher,
+                            cache.metrics,
+                            self.payload.text.font,
+                            &self.style,
+                            abs_x,
+                            abs_y,
+                            self.style.text_color,
+                            combined_opacity,
+                        );
                     }
                 },
 
@@ -663,7 +821,7 @@ pub fn Node(comptime MessageT: type) type {
                         else
                             self.style.text_color;
                         const text_color = colorWithOpacity(base_color, combined_opacity);
-                        const text_weight = self.style.font_weight;
+                        const text_weight = msdfWeightFor(self.style.font_weight);
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
@@ -683,6 +841,17 @@ pub fn Node(comptime MessageT: type) type {
                                 glyph_corner_radii,
                             );
                         }
+
+                        try emitTextDecorations(
+                            batcher,
+                            cache.metrics,
+                            ti.font,
+                            &self.style,
+                            text_x,
+                            text_y,
+                            self.style.text_color,
+                            combined_opacity,
+                        );
                     }
 
                     if (self.is_focused and !is_offscreen) {
@@ -842,7 +1011,7 @@ pub fn Node(comptime MessageT: type) type {
                         }
 
                         const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
-                        const text_weight = self.style.font_weight;
+                        const text_weight = msdfWeightFor(self.style.font_weight);
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
@@ -862,6 +1031,17 @@ pub fn Node(comptime MessageT: type) type {
                                 glyph_corner_radii,
                             );
                         }
+
+                        try emitTextDecorations(
+                            batcher,
+                            cache.metrics,
+                            ta.font,
+                            &self.style,
+                            text_x,
+                            text_y,
+                            self.style.text_color,
+                            combined_opacity,
+                        );
 
                         if (self.is_focused and !is_offscreen) {
                             var cursor_x: f32 = text_x;
@@ -920,7 +1100,7 @@ pub fn Node(comptime MessageT: type) type {
                     if (img.fallback_state != .ready and img.alt_text.len > 0 and img.alt_font != null) {
                         const cache = self.layout_result.text_cache;
                         const text_color = colorWithOpacity(self.style.text_color, combined_opacity);
-                        const text_weight = self.style.font_weight;
+                        const text_weight = msdfWeightFor(self.style.font_weight);
 
                         for (cache.metrics) |m| {
                             if (!m.is_visible) continue;
@@ -940,6 +1120,17 @@ pub fn Node(comptime MessageT: type) type {
                                 glyph_corner_radii,
                             );
                         }
+
+                        try emitTextDecorations(
+                            batcher,
+                            cache.metrics,
+                            img.alt_font.?,
+                            &self.style,
+                            abs_x,
+                            abs_y,
+                            self.style.text_color,
+                            combined_opacity,
+                        );
                     } else {
                         var effect_flags: u32 = 0;
                         if (backdrop_blur > 0.0) effect_flags |= assets.EFFECT_BACKDROP_BLUR;

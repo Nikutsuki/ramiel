@@ -32,6 +32,39 @@ pub const FontSource = union(enum) {
     path: [:0]const u8,
 };
 
+pub const FontVariant = enum(u2) {
+    regular = 0,
+    bold = 1,
+    italic = 2,
+    bold_italic = 3,
+};
+
+/// 2x2 variant table of physical font names for a logical family.
+pub const FontFamily = struct {
+    regular: ?[]const u8 = null,
+    bold: ?[]const u8 = null,
+    italic: ?[]const u8 = null,
+    bold_italic: ?[]const u8 = null,
+
+    pub fn get(self: FontFamily, variant: FontVariant) ?[]const u8 {
+        return switch (variant) {
+            .regular => self.regular,
+            .bold => self.bold,
+            .italic => self.italic,
+            .bold_italic => self.bold_italic,
+        };
+    }
+
+    pub fn set(self: *FontFamily, variant: FontVariant, name: []const u8) void {
+        switch (variant) {
+            .regular => self.regular = name,
+            .bold => self.bold = name,
+            .italic => self.italic = name,
+            .bold_italic => self.bold_italic = name,
+        }
+    }
+};
+
 pub const GlyphInfo = struct {
     uv_min: [2]f32,
     uv_max: [2]f32,
@@ -62,6 +95,13 @@ pub const FontData = struct {
     descender: f32,
     sdf_padding: f32,
     base_size: f32,
+
+    /// Below-baseline (negative) underline Y at `base_size`, from FreeType.
+    underline_position: f32 = 0,
+    underline_thickness: f32 = 1.0,
+    /// Above-baseline (negative) strikethrough Y at `base_size`; FreeType doesn't
+    /// expose this, so we use ~ -ascender * 0.3.
+    strikethrough_position: f32 = 0,
 
     /// True for fonts with embedded color bitmaps (CBDT/CBLC, sbix, Apple).
     /// Such fonts always render via the bitmap atlas as straight-alpha RGBA.
@@ -97,6 +137,9 @@ pub const FontRegistry = struct {
     ft_library: c.FT_Library,
 
     fonts: std.StringHashMap(FontData),
+    families: std.StringHashMap(FontFamily),
+    /// Slices owned by loadFontFamily for variant names; freed in deinit.
+    owned_font_names: std.ArrayList([]u8),
 
     staging_buffer: ?Buffer = null,
     staging_offset: vk.DeviceSize = 0,
@@ -110,10 +153,27 @@ pub const FontRegistry = struct {
             .allocator = allocator,
             .ft_library = ft_library,
             .fonts = std.StringHashMap(FontData).init(allocator),
+            .families = std.StringHashMap(FontFamily).init(allocator),
+            .owned_font_names = std.ArrayList([]u8).empty,
             .pending_copies = std.ArrayList(PendingCopy).empty,
             .staging_buffer = null,
             .staging_offset = 0,
         };
+    }
+
+    /// Caller-provided strings are stored by reference; must outlive the registry.
+    pub fn registerFamilyVariant(self: *FontRegistry, family_name: []const u8, variant: FontVariant, physical_name: []const u8) !void {
+        const gop = try self.families.getOrPut(family_name);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+        gop.value_ptr.set(variant, physical_name);
+    }
+
+    pub fn takeName(self: *FontRegistry, slice: []u8) !void {
+        try self.owned_font_names.append(self.allocator, slice);
+    }
+
+    pub fn getFamily(self: *FontRegistry, family_name: []const u8) ?FontFamily {
+        return self.families.get(family_name);
     }
 
     fn openFace(self: *FontRegistry, source: FontSource) !c.FT_Face {
@@ -182,6 +242,17 @@ pub const FontRegistry = struct {
         const base_size_px: f32 = if (is_color) @floatFromInt(color_strike_px) else @floatFromInt(base_resolution);
         const sdf_padding = @max(2.0, @as(f32, @floatFromInt(base_resolution)) * 0.25);
 
+        // FT underline metrics are in font units; bitmap-only/color fonts report zero.
+        const units_per_em_f: f32 = @floatFromInt(face.*.units_per_EM);
+        const font_scale: f32 = if (units_per_em_f > 0) base_size_px / units_per_em_f else 1.0;
+        const raw_underline_pos: f32 = @as(f32, @floatFromInt(face.*.underline_position)) * font_scale;
+        const raw_underline_thick: f32 = @as(f32, @floatFromInt(face.*.underline_thickness)) * font_scale;
+        const underline_position_px: f32 = if (raw_underline_pos == 0)
+            -ft_descender * 0.5
+        else
+            raw_underline_pos;
+        const underline_thickness_px: f32 = @max(1.0, raw_underline_thick);
+
         const hb_font = c.hb_ft_font_create(face, null) orelse return error.HarfBuzzFontCreationFailed;
         c.hb_ft_font_set_load_flags(hb_font, c.FT_LOAD_DEFAULT);
 
@@ -199,6 +270,8 @@ pub const FontRegistry = struct {
             descender = hb_descender;
             line_height = @max(hb_line_height, hb_ascender - hb_descender);
         }
+        // Must use post-HB ascender or the line drifts off the x-height.
+        const strikethrough_position_final: f32 = -ascender * 0.3;
 
         const atlas_width: u32 = 2048;
         const atlas_height: u32 = 2048;
@@ -237,10 +310,17 @@ pub const FontRegistry = struct {
             .sdf_padding = sdf_padding,
             .base_size = base_size_px,
 
+            .underline_position = underline_position_px,
+            .underline_thickness = underline_thickness_px,
+            .strikethrough_position = strikethrough_position_final,
+
             .is_color = is_color,
             .color_strike_px = color_strike_px,
             .color_strike_index = color_strike_index,
         });
+
+        // Family-unaware callers get a single-cell family they can resolve through.
+        try self.registerFamilyVariant(name, .regular, name);
     }
 
     pub fn ensureGlyph(self: *FontRegistry, core: *const Core, font_data: *FontData, glyph_index: u32) !void {
@@ -503,6 +583,9 @@ pub const FontRegistry = struct {
             entry.value_ptr.deinit(core);
         }
         self.fonts.deinit();
+        self.families.deinit();
+        for (self.owned_font_names.items) |slice| self.allocator.free(slice);
+        self.owned_font_names.deinit(self.allocator);
 
         if (self.staging_buffer) |*buf| {
             buf.deinit(core);

@@ -512,7 +512,7 @@ pub fn main(init: std.process.Init) !void {
         onOverlayHotkey,
     );
 
-    app.state.font = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    app.state.font = try app.loadDefaultFontFamily("JetBrains Mono", lib.assets.jetbrainsMonoSources(), 32);
 
     app.state.search = everything.SearchSubsystem.init(allocator, .{
         .max_results = @intCast(MAX_UI_RESULTS),

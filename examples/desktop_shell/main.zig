@@ -1879,9 +1879,9 @@ pub fn main(init: std.process.Init) !void {
     g_app = &app;
     app.setBackendKeyHandler(onKeyCallback);
 
-    app.state.font = try app.loadDefaultFont(
+    app.state.font = try app.loadDefaultFontFamily(
         "JetBrains Mono",
-        .{ .memory = ramiel.assets.getFontData(.jetbrains_mono) },
+        ramiel.assets.jetbrainsMonoSources(),
         16,
     );
     loadEmojiFallback(&app, io);

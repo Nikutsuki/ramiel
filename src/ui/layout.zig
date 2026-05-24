@@ -167,7 +167,8 @@ pub const TransitionProperty = packed struct(u32) {
     translate: bool = false,
     scale: bool = false,
     rotate: bool = false,
-    _pad: u17 = 0,
+    text_decoration_color: bool = false,
+    _pad: u16 = 0,
 
     pub const all = TransitionProperty{
         .background_color = true,
@@ -185,6 +186,7 @@ pub const TransitionProperty = packed struct(u32) {
         .translate = true,
         .scale = true,
         .rotate = true,
+        .text_decoration_color = true,
     };
 
     pub const colors = TransitionProperty{
@@ -194,6 +196,7 @@ pub const TransitionProperty = packed struct(u32) {
         .border_color = true,
         .outline_color = true,
         .shadow_color = true,
+        .text_decoration_color = true,
     };
 
     pub const opacity_only = TransitionProperty{ .opacity = true };
@@ -290,6 +293,84 @@ pub const Border = struct {
     }
 };
 
+pub const FontWeight = enum(u16) {
+    thin = 100,
+    extra_light = 200,
+    light = 300,
+    normal = 400,
+    medium = 500,
+    semibold = 600,
+    bold = 700,
+    extra_bold = 800,
+    black = 900,
+};
+
+pub const FontStyle = enum(u8) {
+    normal,
+    italic,
+    /// No synthesized shear; resolves through the italic variant slot.
+    oblique,
+};
+
+pub const TextDecorationLine = struct {
+    underline: bool = false,
+    line_through: bool = false,
+    overline: bool = false,
+
+    pub fn hasAny(self: TextDecorationLine) bool {
+        return self.underline or self.line_through or self.overline;
+    }
+
+    pub fn merge(self: TextDecorationLine, other: TextDecorationLine) TextDecorationLine {
+        return .{
+            .underline = self.underline or other.underline,
+            .line_through = self.line_through or other.line_through,
+            .overline = self.overline or other.overline,
+        };
+    }
+};
+
+pub const TextDecorationShape = enum(u8) { solid, double, wavy, dotted, dashed };
+
+pub const TextDecoration = struct {
+    line: TextDecorationLine = .{},
+    shape: TextDecorationShape = .solid,
+    /// null -> inherit text_color.
+    color: ?[4]f32 = null,
+    /// 0 -> use font.underline_thickness.
+    thickness: f32 = 0,
+    offset: f32 = 0,
+
+    /// Field-by-field merge: only non-default fields on `other` overwrite.
+    /// Required so `tw.underline` and `tw.decoration_color(...)` compose
+    /// without the latter wiping the line bits.
+    pub fn merge(self: TextDecoration, other: TextDecoration) TextDecoration {
+        var out = self;
+        if (other.line.hasAny()) out.line = out.line.merge(other.line);
+        if (other.shape != .solid) out.shape = other.shape;
+        if (other.color) |c| out.color = c;
+        if (other.thickness != 0) out.thickness = other.thickness;
+        if (other.offset != 0) out.offset = other.offset;
+        return out;
+    }
+};
+
+/// Per-glyph MSDF stem-weight knob (`corner_radii[0]`). Real face does the
+/// heavy lifting; this just nudges the shader's threshold sympathetically.
+pub fn msdfWeightFor(weight: FontWeight) f32 {
+    return switch (weight) {
+        .thin => 0.3,
+        .extra_light => 0.35,
+        .light => 0.4,
+        .normal => 0.5,
+        .medium => 0.55,
+        .semibold => 0.6,
+        .bold => 0.7,
+        .extra_bold => 0.78,
+        .black => 0.85,
+    };
+}
+
 pub const Spacing = struct {
     top: f32 = 0,
     right: f32 = 0,
@@ -377,11 +458,15 @@ pub const Style = struct {
     shadow_blur: f32 = 0,
 
     text_color: [4]f32 = .{ 1, 1, 1, 1 },
-    font_weight: f32 = 0.7,
+    /// null -> UIContext's default family.
+    font_family: ?[]const u8 = null,
+    font_weight: FontWeight = .normal,
+    font_style: FontStyle = .normal,
     font_size: f32 = 16.0,
     white_space: WhiteSpace = .Normal,
     text_overflow: TextOverflow = .Clip,
     line_height: f32 = 0.0,
+    text_decoration: TextDecoration = .{},
 
     object_fit: ObjectFit = .fill,
 
@@ -397,7 +482,11 @@ pub const Style = struct {
             const partial = @field(partials, tuple_field.name);
             inline for (@typeInfo(@TypeOf(partial)).@"struct".fields) |style_field| {
                 if (@hasField(Style, style_field.name)) {
-                    @field(result, style_field.name) = @field(partial, style_field.name);
+                    if (comptime std.mem.eql(u8, style_field.name, "text_decoration")) {
+                        result.text_decoration = result.text_decoration.merge(@field(partial, style_field.name));
+                    } else {
+                        @field(result, style_field.name) = @field(partial, style_field.name);
+                    }
                 } else {
                     @compileError("Style has no field named '" ++ style_field.name ++ "'");
                 }
@@ -2237,6 +2326,57 @@ fn makeTextInputNode(alloc: std.mem.Allocator, style: Style, content: []const u8
     }
 
     return node;
+}
+
+test "TextDecoration.merge: line bits OR together" {
+    const a = TextDecoration{ .line = .{ .underline = true } };
+    const b = TextDecoration{ .line = .{ .line_through = true } };
+    const out = a.merge(b);
+    try testing.expect(out.line.underline);
+    try testing.expect(out.line.line_through);
+    try testing.expect(!out.line.overline);
+}
+
+test "TextDecoration.merge: non-default fields win" {
+    const a = TextDecoration{ .line = .{ .underline = true } };
+    const b = TextDecoration{
+        .shape = .wavy,
+        .color = .{ 1, 0, 0, 1 },
+        .thickness = 3,
+    };
+    const out = a.merge(b);
+    try testing.expect(out.line.underline);
+    try testing.expectEqual(TextDecorationShape.wavy, out.shape);
+    try testing.expectEqualSlices(f32, &.{ 1, 0, 0, 1 }, &out.color.?);
+    try testing.expectApproxEqAbs(@as(f32, 3), out.thickness, 0.001);
+}
+
+test "Style.mix: text_decoration deep-merges across partials" {
+    const underline_partial = .{ .text_decoration = TextDecoration{ .line = .{ .underline = true } } };
+    const wavy_partial = .{ .text_decoration = TextDecoration{ .shape = .wavy } };
+    const red_partial = .{ .text_decoration = TextDecoration{ .color = .{ 1, 0, 0, 1 } } };
+    const merged = Style.mix(.{ underline_partial, wavy_partial, red_partial });
+    try testing.expect(merged.text_decoration.line.underline);
+    try testing.expectEqual(TextDecorationShape.wavy, merged.text_decoration.shape);
+    try testing.expect(merged.text_decoration.color != null);
+}
+
+test "tw.style: text_decoration deep-merges across helpers" {
+    // tw.style and Style.mix both need the deep-merge carve-out; this guards
+    // the path apps actually take (tw.style flat-overwrote before the fix).
+    const tw = @import("tw.zig");
+    const a = tw.style(.{ tw.underline, tw.decoration_color_value(.{ 1, 0, 0, 1 }) });
+    try testing.expect(a.text_decoration.line.underline);
+    try testing.expect(a.text_decoration.color != null);
+
+    const b = tw.style(.{ tw.line_through, tw.decoration_thickness(2.0) });
+    try testing.expect(b.text_decoration.line.line_through);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), b.text_decoration.thickness, 0.001);
+
+    const c = tw.style(.{ tw.underline, tw.line_through, tw.overline, tw.decoration_color_value(.{ 0.5, 0.5, 0.5, 1 }) });
+    try testing.expect(c.text_decoration.line.underline);
+    try testing.expect(c.text_decoration.line.line_through);
+    try testing.expect(c.text_decoration.line.overline);
 }
 
 test "measureNode: single node with exact size" {

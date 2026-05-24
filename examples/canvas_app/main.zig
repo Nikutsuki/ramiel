@@ -32,7 +32,7 @@ pub fn main(init: std.process.Init) !void {
     state.editor = EditorState.init(allocator);
     defer state.editor.deinit();
 
-    _ = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 32);
+    _ = try app.loadDefaultFontFamily("JetBrains Mono", lib.assets.jetbrainsMonoSources(), 32);
     state.runtime.font_data = try app.loadFont("Minecraft", .{ .path = "examples/canvas_app/ui/fonts/Minecraft.ttf" }, 32);
 
     const worker = try worker_pool.FilterWorkerPool.init(allocator, &app);

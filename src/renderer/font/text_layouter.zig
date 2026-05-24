@@ -13,9 +13,9 @@ const EFFECT_MSDF_TEXT = assets.EFFECT_MSDF_TEXT;
 const EFFECT_BITMAP_TEXT = assets.EFFECT_BITMAP_TEXT;
 const EFFECT_COLOR_GLYPH = assets.EFFECT_COLOR_GLYPH;
 
-/// Below this effective pixel size, glyphs render via the FreeType-hinted bitmap atlas.
-/// At or above, they render via MSDF.
-pub const BITMAP_THRESHOLD_PX: f32 = 18.0;
+/// Sizes below this use the FreeType-hinted bitmap atlas; at/above goes MSDF.
+/// 22 keeps common body sizes (16-20) sharp via hinted bitmaps.
+pub const BITMAP_THRESHOLD_PX: f32 = 22.0;
 
 fn snapPixel(value: f32) f32 {
     return @round(value);

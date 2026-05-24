@@ -66,7 +66,7 @@ pub fn main(init: std.process.Init) !void {
 
     try app.loadStaticAssets(core.AppAssets, asset_manifest);
 
-    app.state.font_data = try app.loadDefaultFont("JetBrains Mono", .{ .memory = lib.assets.getFontData(.jetbrains_mono) }, 14);
+    app.state.font_data = try app.loadDefaultFontFamily("JetBrains Mono", lib.assets.jetbrainsMonoSources(), 14);
 
     app.setShortcutHandler(core.AppState, &app.state, letterShortcut);
 

@@ -381,6 +381,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "file_explorer", .path = "examples/file_explorer/main.zig" },
         .{ .name = "plot", .path = "examples/plot/main.zig" },
         .{ .name = "audio_player", .path = "examples/audio_player/main.zig" },
+        .{ .name = "typography", .path = "examples/typography/main.zig" },
         .{ .name = "desktop_shell", .path = "examples/desktop_shell/main.zig", .requires_wayland = true },
     };
 
