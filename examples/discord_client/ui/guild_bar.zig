@@ -22,7 +22,7 @@ fn guildButton(
     const active_bg = if (selected) accent else idle_bg;
     const radius: f32 = if (selected) 16.0 else 24.0;
 
-    const indicator = try ux.div(.{
+    const indicator = try ux.divAny(.{
         .class = .{
             tw.w(if (selected) 4.0 else 0.0),
             tw.h(if (selected) 38.0 else 0.0),
@@ -43,7 +43,7 @@ fn guildButton(
             .alt_font = font,
         })
     else
-        try ux.text(.{
+        try ux.textAny(.{
             .content = guildInitial(label),
             .font = font,
             .class = .{
@@ -55,7 +55,7 @@ fn guildButton(
 
     const msg: core.AppMsg = if (index) |i| .{ .guild_click = i } else .{ .open_dms = {} };
 
-    return try ux.div(.{
+    return try ux.divAny(.{
         .id = core.components.deriveChildId(core.NodeIds.guild_virtual_list, key),
         .class = .{
             tw.w_full,
@@ -70,7 +70,7 @@ fn guildButton(
         .on_hover_exit = if (index) |i| core.AppMsg{ .guild_hover_exit = i } else core.AppMsg{ .server_bar_hover_exit = {} },
         .children = .{
             indicator,
-            try ux.div(.{
+            try ux.divAny(.{
                 .class = .{
                     tw.w(48.0),
                     tw.h(48.0),
@@ -98,7 +98,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
     var children = try ux.keyed(core.NodeIds.guild_virtual_list, state.guilds.items.len + 3);
     try children.append("home", try guildButton(ui, font, null, "home", state.selected_guild_id == null, "DM", null));
 
-    try children.append("divider", try ux.div(.{
+    try children.append("divider", try ux.divAny(.{
         .class = .{
             tw.w(32.0),
             tw.h(2.0),
@@ -121,7 +121,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
         ));
     }
 
-    return try ux.div(.{
+    return try ux.divAny(.{
         .id = core.NodeIds.guild_bar_shell,
         .class = .{
             tw.w(72.0),
@@ -130,7 +130,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
             tw.items_center,
             tw.py(3),
             tw.bg("#14171cff"),
-            tw.border_r(1.0,  "#050508ff"),
+            tw.border_r(1.0, "#050508ff"),
             tw.overflow_y_scroll,
         },
         .children = children.slice(),

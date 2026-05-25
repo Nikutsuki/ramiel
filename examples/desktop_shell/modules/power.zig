@@ -1,5 +1,4 @@
 const std = @import("std");
-const build_options = @import("build_options");
 
 pub const Action = enum {
     lock,
@@ -32,26 +31,10 @@ pub const Action = enum {
             .logout => &.{ "hyprctl", "dispatch", "exit" },
         };
     }
-
-    fn cmdString(self: Action) []const u8 {
-        return switch (self) {
-            .lock => "hyprlock",
-            .suspend_ => "systemctl suspend",
-            .reboot => "systemctl reboot",
-            .shutdown => "systemctl poweroff",
-            .logout => "hyprctl dispatch exit",
-        };
-    }
 };
 
-/// Run a power action. With -Dpower-dry-run=true, the command is logged
-/// instead of executed; otherwise it is spawned detached.
+/// Run a power action as a detached child process.
 pub fn run(io: std.Io, action: Action) void {
-    if (build_options.power_dry_run) {
-        std.log.info("[power dry-run] {s}", .{action.cmdString()});
-        return;
-    }
-
     const child = std.process.spawn(io, .{
         .argv = action.argv(),
         .stdin = .ignore,

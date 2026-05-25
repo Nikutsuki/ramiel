@@ -73,14 +73,14 @@ fn rebuildCanvas(app: *App) !void {
 
 fn build(ui: *UI, state: *const State) anyerror!*Node {
     const ux = ui.ux();
-    return ux.div(.{
+    return ux.divAny(.{
         .class = .{ tw.w_full, tw.h_full, tw.flex_col, tw.items_center, tw.justify_center, tw.bg_value(BG) },
         .children = &.{
-            try ux.text(.{ .class = .{ tw.text_lg, tw.text_color_value(FG) }, .content = effects[state.effect].name, .font = state.font }),
+            try ux.textAny(.{ .class = .{ tw.text_lg, tw.text_color_value(FG) }, .content = effects[state.effect].name, .font = state.font }),
             if (state.canvas) |canvas|
-                try ux.canvas(.{ .class = .{ tw.w(SIZE_F), tw.h(SIZE_F), tw.rounded(12) }, .target = canvas })
+                try ux.canvasAny(.{ .class = .{ tw.w(SIZE_F), tw.h(SIZE_F), tw.rounded(12) }, .target = canvas })
             else
-                try ux.div(.{ .class = .{ tw.w(SIZE_F), tw.h(SIZE_F) } }),
+                try ux.divAny(.{ .class = .{ tw.w(SIZE_F), tw.h(SIZE_F) } }),
         },
     });
 }

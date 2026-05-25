@@ -18,7 +18,7 @@ pub fn build(
 
     if (state.editor.active_filter) |filter| {
         const meta = filters.getFilterMeta(filter);
-        try param_children.append(allocator, try ux.text(.{
+        try param_children.append(allocator, try ux.textAny(.{
             .content = meta.name,
             .font = font,
             .class = .{ tw.text_main, tw.mb(2) },
@@ -31,7 +31,7 @@ pub fn build(
                 .slider => {
                     const current_val = state.editor.filter_params[param_idx];
                     const label_text = try std.fmt.allocPrint(ui.build_arena.allocator(), "{s}: {d:.1}", .{ param_def.name, current_val });
-                    try param_children.append(allocator, try ux.text(.{ .content = label_text, .font = font, .class = tw.text_main }));
+                    try param_children.append(allocator, try ux.textAny(.{ .content = label_text, .font = font, .class = tw.text_main }));
 
                     var normalized = if (@abs(param_def.max - param_def.min) > 0.0001)
                         (current_val - param_def.min) / (param_def.max - param_def.min)
@@ -51,7 +51,7 @@ pub fn build(
                     }));
                 },
                 .radio => {
-                    try param_children.append(allocator, try ux.text(.{ .content = param_def.name, .font = font, .class = tw.text_main }));
+                    try param_children.append(allocator, try ux.textAny(.{ .content = param_def.name, .font = font, .class = tw.text_main }));
                     const options = param_def.options orelse &.{};
                     var active_index: usize = @as(usize, @intFromFloat(@max(0.0, state.editor.filter_params[param_idx])));
                     if (core.isMaskFilter(filter) and param_idx == 0) {
@@ -71,7 +71,7 @@ pub fn build(
                     }));
                 },
                 .palette_editor => {
-                    try param_children.append(allocator, try ux.text(.{ .content = param_def.name, .font = font, .class = tw.text_main }));
+                    try param_children.append(allocator, try ux.textAny(.{ .content = param_def.name, .font = font, .class = tw.text_main }));
 
                     var swatches = try ux.keyed(core.NodeIds.palette_swatches, state.editor.dither_palette_hsv.items.len);
                     for (state.editor.dither_palette_hsv.items, 0..) |hsv, i| {
@@ -92,15 +92,15 @@ pub fn build(
                             .on_click = .{ .palette_select = i },
                         }));
                     }
-                    try param_children.append(allocator, try ux.div(.{
+                    try param_children.append(allocator, try ux.divAny(.{
                         .class = .{ tw.flex_row, tw.gap_px(6.0), tw.flex_wrap },
                         .children = swatches.slice(),
                     }));
 
-                    try param_children.append(allocator, try ux.div(.{
+                    try param_children.append(allocator, try ux.divAny(.{
                         .class = .{ tw.flex_row, tw.gap(2), tw.mt(1.5) },
                         .children = .{
-                            try ux.button(.{
+                            try ux.buttonAny(.{
                                 .label = "+ Add",
                                 .font = font,
                                 .class = .{
@@ -112,7 +112,7 @@ pub fn build(
                                 .label_class = tw.text_inverse,
                                 .on_click = .{ .palette_add = {} },
                             }),
-                            try ux.button(.{
+                            try ux.buttonAny(.{
                                 .label = "- Remove",
                                 .font = font,
                                 .class = .{
@@ -147,17 +147,17 @@ pub fn build(
                     }
                 },
             }
-            try param_children.append(allocator, try ux.div(.{ .class = tw.h(8.0) }));
+            try param_children.append(allocator, try ux.divAny(.{ .class = tw.h(8.0) }));
         }
     } else {
-        try param_children.append(allocator, try ux.text(.{
+        try param_children.append(allocator, try ux.textAny(.{
             .content = "No active filter",
             .font = font,
             .class = tw.text_muted,
         }));
     }
 
-    return try ux.div(.{
+    return try ux.divAny(.{
         .class = .{
             tw.flex_col,
             tw.w(250),

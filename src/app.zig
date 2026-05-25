@@ -874,14 +874,17 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         }
 
         pub fn setDevToolsActive(self: *Self, active: bool) void {
+            if (!build_options.devtools) return;
             self.devtools_state.setActive(active);
         }
 
         pub fn toggleDevTools(self: *Self) void {
+            if (!build_options.devtools) return;
             self.devtools_state.toggle();
         }
 
         pub fn setDevToolsTab(self: *Self, tab: DevToolsTab) void {
+            if (!build_options.devtools) return;
             self.devtools_state.setTab(tab);
         }
 
@@ -890,6 +893,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         }
 
         fn appendDevToolsOverlay(self: *Self, root: *Node(MessageType)) !void {
+            if (!build_options.devtools) return;
             const font = self.font_system.getFont("JetBrains Mono") orelse {
                 if (!self.devtools_missing_font_warned) {
                     self.devtools_missing_font_warned = true;

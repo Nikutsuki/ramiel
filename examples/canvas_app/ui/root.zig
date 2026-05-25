@@ -17,7 +17,7 @@ pub fn build(
     var root_children = try ux.keyed(core.NodeIds.root_children, 4);
 
     try root_children.append("top_bar", try top_bar.build(allocator, ui, state, font));
-    try root_children.append("workspace", try ux.div(.{
+    try root_children.append("workspace", try ux.divAny(.{
         .class = .{
             tw.flex_row,
             tw.w_full,
@@ -39,7 +39,7 @@ pub fn build(
         try root_children.append("help", try overlays.buildHelp(ui, font));
     }
 
-    return try ux.div(.{
+    return try ux.divAny(.{
         .class = .{
             tw.size_screen,
             tw.flex_col,

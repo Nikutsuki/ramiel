@@ -259,7 +259,7 @@ fn buildBrowseEntry(
     var hover_bg = if (is_selected) tokens.action_hover else tokens.action_default;
     hover_bg[3] = if (is_selected) 0.95 else 0.9;
 
-    return try ux.button(.{
+    return try ux.buttonAny(.{
         .label = label,
         .font = font,
         .class = .{
@@ -742,7 +742,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
 
     const browse_items = if (browsing_dms) state.dms.items else state.channels.items;
     const browser_list_node = if (browse_items.len == 0)
-        try ux.text(.{
+        try ux.textAny(.{
             .content = "Nothing to show yet.",
             .font = font,
             .class = .{ tw.text_muted, tw.text(12), tw.px(2) },
@@ -770,7 +770,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
     };
 
     const message_list_node = if (state.messages.items.len == 0)
-        try ux.text(.{
+        try ux.textAny(.{
             .content = "No messages loaded.",
             .font = font,
             .class = .{ tw.text_muted, tw.text(12) },
@@ -796,7 +796,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
         });
     };
 
-    const dm_button = try ux.button(.{
+    const dm_button = try ux.buttonAny(.{
         .label = if (browsing_dms) "DMs" else "Open DMs",
         .font = font,
         .class = .{
@@ -812,7 +812,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
         .on_click = .{ .open_dms = {} },
     });
 
-    const theme_button = try ux.button(.{
+    const theme_button = try ux.buttonAny(.{
         .label = "Theme",
         .font = font,
         .class = .{
@@ -844,7 +844,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
         .fallback_state = .ready,
     });
 
-    return try ux.div(.{
+    return try ux.divAny(.{
         .class = .{
             tw.w_full,
             tw.grow_1,
@@ -852,7 +852,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
             tw.bg("#2e3038ff"),
         },
         .children = .{
-            try ux.div(.{
+            try ux.divAny(.{
                 .class = .{
                     tw.w_full,
                     tw.h(48.0),
@@ -864,20 +864,20 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
                     tw.border_b(1.0, "#1a1c21ff"),
                 },
                 .children = .{
-                    try ux.text(.{
+                    try ux.textAny(.{
                         .content = scope_title,
                         .font = font,
                         .class = .{ tw.text_main, tw.text(14) },
                     }),
-                    try ux.div(.{ .class = tw.grow_1 }),
+                    try ux.divAny(.{ .class = tw.grow_1 }),
                     theme_button,
                     dm_button,
                 },
             }),
-            try ux.div(.{
+            try ux.divAny(.{
                 .class = .{ tw.w_full, tw.grow_1, tw.flex_row },
                 .children = .{
-                    try ux.div(.{
+                    try ux.divAny(.{
                         .class = .{
                             tw.w(240.0),
                             tw.h_full,
@@ -888,18 +888,18 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
                             tw.bg("#212429ff"),
                         },
                         .children = .{
-                            try ux.text(.{
+                            try ux.textAny(.{
                                 .content = browser_title,
                                 .font = font,
                                 .class = .{ tw.text_color("#d1d6e6ff"), tw.text(12), tw.px(2) },
                             }),
-                            try ux.div(.{
+                            try ux.divAny(.{
                                 .class = .{ tw.w_full, tw.grow_1, tw.flex_col, tw.gap(1.5) },
                                 .children = .{browser_list_node},
                             }),
                         },
                     }),
-                    try ux.div(.{
+                    try ux.divAny(.{
                         .class = .{
                             tw.w_full,
                             tw.h_full,
@@ -908,7 +908,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
                             tw.bg("#2e3038ff"),
                         },
                         .children = .{
-                            try ux.div(.{
+                            try ux.divAny(.{
                                 .class = .{
                                     tw.w_full,
                                     tw.h(44.0),
@@ -920,24 +920,24 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
                                 },
                                 .children = .{
                                     add_icon,
-                                    try ux.text(.{
+                                    try ux.textAny(.{
                                         .content = active_channel_text,
                                         .font = font,
                                         .class = .{ tw.text_main, tw.text(13) },
                                     }),
-                                    try ux.div(.{ .class = tw.grow_1 }),
-                                    try ux.text(.{
+                                    try ux.divAny(.{ .class = tw.grow_1 }),
+                                    try ux.textAny(.{
                                         .content = status_line,
                                         .font = font,
                                         .class = .{ tw.text_muted, tw.text(11) },
                                     }),
                                 },
                             }),
-                            try ux.div(.{
+                            try ux.divAny(.{
                                 .class = .{ tw.w_full, tw.grow_1, tw.flex_col, tw.gap(2), tw.px(4), tw.py(3) },
                                 .children = .{message_list_node},
                             }),
-                            try ux.div(.{
+                            try ux.divAny(.{
                                 .class = .{
                                     tw.w_full,
                                     tw.h(72.0),
@@ -948,7 +948,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
                                     tw.pb(3),
                                 },
                                 .children = .{
-                                    try ux.textArea(.{
+                                    try ux.textAreaAny(.{
                                         .id = core.NodeIds.input,
                                         .font = font,
                                         .class = .{
@@ -964,7 +964,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
                                         },
                                         .on_key_down = .{ .input_key = {} },
                                     }),
-                                    try ux.button(.{
+                                    try ux.buttonAny(.{
                                         .id = core.NodeIds.send_button,
                                         .label = "Send",
                                         .font = font,

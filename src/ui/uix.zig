@@ -10,6 +10,7 @@ const types = @import("types.zig");
 const NodeId = types.NodeId;
 const RenderPayload = node_mod.RenderPayload;
 const AnimatedState = @import("../renderer/image_animation.zig").AnimatedState;
+const Canvas = @import("../renderer/canvas.zig").Canvas;
 const paint_context = @import("paint_context.zig");
 
 pub const Key = struct {
@@ -98,6 +99,230 @@ pub fn scopedBuilder(
     return .init(ui);
 }
 
+pub fn ContainerOptionsFor(comptime MessageT: type) type {
+    return struct {
+        id: ?NodeId = null,
+        style: layout.Style = .{},
+        children: []const ?*Node(MessageT) = &.{},
+        events: []const types.EventBinding(MessageT) = &.{},
+        on_click: ?MessageT = null,
+        on_pointer_down: ?MessageT = null,
+        on_pointer_up: ?MessageT = null,
+        on_drag: ?MessageT = null,
+        on_hover_enter: ?MessageT = null,
+        on_hover_exit: ?MessageT = null,
+        on_key_down: ?MessageT = null,
+        on_key_up: ?MessageT = null,
+        on_text_input: ?MessageT = null,
+        on_scroll: ?MessageT = null,
+        on_context_menu: ?MessageT = null,
+        on_pointer_move: ?MessageT = null,
+    };
+}
+
+pub fn TextOptionsFor(comptime MessageT: type) type {
+    return struct {
+        id: ?NodeId = null,
+        style: layout.Style = .{},
+        content: []const u8,
+        font: ?*FontData = null,
+        max_width: f32 = 0.0,
+        events: []const types.EventBinding(MessageT) = &.{},
+        on_click: ?MessageT = null,
+        on_pointer_down: ?MessageT = null,
+        on_pointer_up: ?MessageT = null,
+        on_drag: ?MessageT = null,
+        on_hover_enter: ?MessageT = null,
+        on_hover_exit: ?MessageT = null,
+        on_key_down: ?MessageT = null,
+        on_key_up: ?MessageT = null,
+        on_text_input: ?MessageT = null,
+        on_scroll: ?MessageT = null,
+        on_context_menu: ?MessageT = null,
+        on_pointer_move: ?MessageT = null,
+    };
+}
+
+pub fn ButtonOptionsFor(comptime MessageT: type) type {
+    return struct {
+        id: ?NodeId = null,
+        style: layout.Style = .{},
+        label: []const u8,
+        font: ?*FontData = null,
+        label_max_width: f32 = 0.0,
+        label_style: layout.Style = .{},
+        events: []const types.EventBinding(MessageT) = &.{},
+        on_click: ?MessageT = null,
+        on_pointer_down: ?MessageT = null,
+        on_pointer_up: ?MessageT = null,
+        on_drag: ?MessageT = null,
+        on_hover_enter: ?MessageT = null,
+        on_hover_exit: ?MessageT = null,
+        on_key_down: ?MessageT = null,
+        on_key_up: ?MessageT = null,
+        on_text_input: ?MessageT = null,
+        on_scroll: ?MessageT = null,
+        on_context_menu: ?MessageT = null,
+        on_pointer_move: ?MessageT = null,
+    };
+}
+
+pub fn AsyncImageOptionsFor(comptime MessageT: type) type {
+    return struct {
+        id: ?NodeId = null,
+        style: layout.Style = .{},
+        source: []const u8,
+        tint: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+        intrinsic_size: [2]f32 = .{ 0.0, 0.0 },
+        custom_params: [4]f32 = .{ 0.0, 0.0, 0.0, 0.0 },
+        alt_text: []const u8 = "",
+        alt_font: ?*FontData = null,
+        children: []const ?*Node(MessageT) = &.{},
+        events: []const types.EventBinding(MessageT) = &.{},
+        on_click: ?MessageT = null,
+        on_pointer_down: ?MessageT = null,
+        on_pointer_up: ?MessageT = null,
+        on_drag: ?MessageT = null,
+        on_hover_enter: ?MessageT = null,
+        on_hover_exit: ?MessageT = null,
+        on_key_down: ?MessageT = null,
+        on_key_up: ?MessageT = null,
+        on_text_input: ?MessageT = null,
+        on_scroll: ?MessageT = null,
+        on_context_menu: ?MessageT = null,
+        on_pointer_move: ?MessageT = null,
+    };
+}
+
+pub fn CustomPaintOptionsFor(comptime MessageT: type) type {
+    return struct {
+        id: ?NodeId = null,
+        style: layout.Style = .{},
+        paint_fn: paint_context.PaintFn,
+        userdata: ?*const anyopaque = null,
+        revision: u64 = 0,
+        children: []const ?*Node(MessageT) = &.{},
+        events: []const types.EventBinding(MessageT) = &.{},
+        on_click: ?MessageT = null,
+        on_pointer_down: ?MessageT = null,
+        on_pointer_up: ?MessageT = null,
+        on_drag: ?MessageT = null,
+        on_hover_enter: ?MessageT = null,
+        on_hover_exit: ?MessageT = null,
+        on_key_down: ?MessageT = null,
+        on_key_up: ?MessageT = null,
+        on_text_input: ?MessageT = null,
+        on_scroll: ?MessageT = null,
+        on_context_menu: ?MessageT = null,
+        on_pointer_move: ?MessageT = null,
+    };
+}
+
+pub fn ImageOptionsFor(comptime MessageT: type) type {
+    return struct {
+        id: ?NodeId = null,
+        style: layout.Style = .{},
+        tex_id: u32,
+        tint: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+        intrinsic_size: [2]f32 = .{ 0.0, 0.0 },
+        custom_params: [4]f32 = .{ 0.0, 0.0, 0.0, 0.0 },
+        alt_text: []const u8 = "",
+        alt_font: ?*FontData = null,
+        fallback_state: RenderPayload.ImageFallbackState = .ready,
+        animation: ?*const AnimatedState = null,
+        start_time: f64 = 0.0,
+        children: []const ?*Node(MessageT) = &.{},
+        events: []const types.EventBinding(MessageT) = &.{},
+        on_click: ?MessageT = null,
+        on_pointer_down: ?MessageT = null,
+        on_pointer_up: ?MessageT = null,
+        on_drag: ?MessageT = null,
+        on_hover_enter: ?MessageT = null,
+        on_hover_exit: ?MessageT = null,
+        on_key_down: ?MessageT = null,
+        on_key_up: ?MessageT = null,
+        on_text_input: ?MessageT = null,
+        on_scroll: ?MessageT = null,
+        on_context_menu: ?MessageT = null,
+        on_pointer_move: ?MessageT = null,
+    };
+}
+
+pub fn CanvasOptionsFor(comptime MessageT: type) type {
+    return struct {
+        id: ?NodeId = null,
+        style: layout.Style = .{},
+        target: *Canvas,
+        tint: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
+        custom_params: [4]f32 = .{ 0.0, 0.0, 0.0, 0.0 },
+        pan_x: f32 = 0.0,
+        pan_y: f32 = 0.0,
+        zoom: f32 = 1.0,
+        children: []const ?*Node(MessageT) = &.{},
+        events: []const types.EventBinding(MessageT) = &.{},
+        on_click: ?MessageT = null,
+        on_pointer_down: ?MessageT = null,
+        on_pointer_up: ?MessageT = null,
+        on_drag: ?MessageT = null,
+        on_hover_enter: ?MessageT = null,
+        on_hover_exit: ?MessageT = null,
+        on_key_down: ?MessageT = null,
+        on_key_up: ?MessageT = null,
+        on_text_input: ?MessageT = null,
+        on_scroll: ?MessageT = null,
+        on_context_menu: ?MessageT = null,
+        on_pointer_move: ?MessageT = null,
+    };
+}
+
+pub fn TextInputOptionsFor(comptime MessageT: type) type {
+    return struct {
+        id: ?NodeId = null,
+        style: layout.Style = .{},
+        font: ?*FontData = null,
+        max_width: f32 = 0.0,
+        initial_text: []const u8 = "",
+        placeholder: []const u8 = "",
+        placeholder_color: ?[4]f32 = null,
+        events: []const types.EventBinding(MessageT) = &.{},
+        on_click: ?MessageT = null,
+        on_pointer_down: ?MessageT = null,
+        on_pointer_up: ?MessageT = null,
+        on_drag: ?MessageT = null,
+        on_hover_enter: ?MessageT = null,
+        on_hover_exit: ?MessageT = null,
+        on_key_down: ?MessageT = null,
+        on_key_up: ?MessageT = null,
+        on_text_input: ?MessageT = null,
+        on_scroll: ?MessageT = null,
+        on_context_menu: ?MessageT = null,
+        on_pointer_move: ?MessageT = null,
+    };
+}
+
+pub fn TextAreaOptionsFor(comptime MessageT: type) type {
+    return struct {
+        id: ?NodeId = null,
+        style: layout.Style = .{},
+        font: ?*FontData = null,
+        max_width: f32 = 0.0,
+        initial_text: []const u8 = "",
+        events: []const types.EventBinding(MessageT) = &.{},
+        on_click: ?MessageT = null,
+        on_pointer_down: ?MessageT = null,
+        on_pointer_up: ?MessageT = null,
+        on_drag: ?MessageT = null,
+        on_hover_enter: ?MessageT = null,
+        on_hover_exit: ?MessageT = null,
+        on_key_down: ?MessageT = null,
+        on_key_up: ?MessageT = null,
+        on_text_input: ?MessageT = null,
+        on_scroll: ?MessageT = null,
+        on_context_menu: ?MessageT = null,
+        on_pointer_move: ?MessageT = null,
+    };
+}
+
 pub fn Builder(comptime MessageT: type) type {
     return struct {
         ui: *UIContext(MessageT),
@@ -105,12 +330,39 @@ pub fn Builder(comptime MessageT: type) type {
         const Self = @This();
         const AppNode = Node(MessageT);
         const EventBinding = types.EventBinding(MessageT);
+        pub const DivOptions = ContainerOptionsFor(MessageT);
+        pub const PortalOptions = ContainerOptionsFor(MessageT);
+        pub const TextOptions = TextOptionsFor(MessageT);
+        pub const ButtonOptions = ButtonOptionsFor(MessageT);
+        pub const AsyncImageOptions = AsyncImageOptionsFor(MessageT);
+        pub const CustomPaintOptions = CustomPaintOptionsFor(MessageT);
+        pub const ImageOptions = ImageOptionsFor(MessageT);
+        pub const CanvasOptions = CanvasOptionsFor(MessageT);
+        pub const TextInputOptions = TextInputOptionsFor(MessageT);
+        pub const TextAreaOptions = TextAreaOptionsFor(MessageT);
 
         pub fn init(ui: *UIContext(MessageT)) Self {
             return .{ .ui = ui };
         }
 
-        pub fn div(self: Self, opts: anytype) !*AppNode {
+        pub fn style(self: Self, partials: anytype) layout.Style {
+            return tw.applyTheme(.{}, self.ui.active_theme.tokens, partials);
+        }
+
+        pub fn applyStyle(self: Self, base: layout.Style, partials: anytype) layout.Style {
+            return tw.applyTheme(base, self.ui.active_theme.tokens, partials);
+        }
+
+        pub fn div(self: Self, opts: DivOptions) !*AppNode {
+            return self.ui.div(.{
+                .id = opts.id,
+                .style = opts.style,
+                .children = opts.children,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn divAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.div(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -119,7 +371,16 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
-        pub fn portal(self: Self, opts: anytype) !*AppNode {
+        pub fn portal(self: Self, opts: PortalOptions) !*AppNode {
+            return self.ui.portal(.{
+                .id = opts.id,
+                .style = opts.style,
+                .children = opts.children,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn portalAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.portal(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -128,7 +389,18 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
-        pub fn text(self: Self, opts: anytype) !*AppNode {
+        pub fn text(self: Self, opts: TextOptions) !*AppNode {
+            return self.ui.text(.{
+                .id = opts.id,
+                .style = opts.style,
+                .content = opts.content,
+                .font = opts.font,
+                .max_width = opts.max_width,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn textAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.text(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -139,7 +411,19 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
-        pub fn button(self: Self, opts: anytype) !*AppNode {
+        pub fn button(self: Self, opts: ButtonOptions) !*AppNode {
+            return self.ui.button(.{
+                .id = opts.id,
+                .style = opts.style,
+                .label = opts.label,
+                .font = opts.font,
+                .label_max_width = opts.label_max_width,
+                .label_style = opts.label_style,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn buttonAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.button(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -151,7 +435,22 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
-        pub fn asyncImage(self: Self, opts: anytype) !*AppNode {
+        pub fn asyncImage(self: Self, opts: AsyncImageOptions) !*AppNode {
+            return self.ui.asyncImage(.{
+                .id = opts.id,
+                .style = opts.style,
+                .source = opts.source,
+                .tint = opts.tint,
+                .intrinsic_size = opts.intrinsic_size,
+                .custom_params = opts.custom_params,
+                .alt_text = opts.alt_text,
+                .alt_font = opts.alt_font,
+                .children = opts.children,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn asyncImageAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.asyncImage(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -166,7 +465,19 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
-        pub fn customPaint(self: Self, opts: anytype) !*AppNode {
+        pub fn customPaint(self: Self, opts: CustomPaintOptions) !*AppNode {
+            return self.ui.customPaint(.{
+                .id = opts.id,
+                .style = opts.style,
+                .paint_fn = opts.paint_fn,
+                .userdata = opts.userdata,
+                .revision = opts.revision,
+                .children = opts.children,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn customPaintAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.customPaint(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -178,7 +489,25 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
-        pub fn image(self: Self, opts: anytype) !*AppNode {
+        pub fn image(self: Self, opts: ImageOptions) !*AppNode {
+            return self.ui.image(.{
+                .id = opts.id,
+                .style = opts.style,
+                .tex_id = opts.tex_id,
+                .tint = opts.tint,
+                .intrinsic_size = opts.intrinsic_size,
+                .custom_params = opts.custom_params,
+                .alt_text = opts.alt_text,
+                .alt_font = opts.alt_font,
+                .fallback_state = opts.fallback_state,
+                .animation = opts.animation,
+                .start_time = opts.start_time,
+                .children = opts.children,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn imageAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.image(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -196,7 +525,22 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
-        pub fn canvas(self: Self, opts: anytype) !*AppNode {
+        pub fn canvas(self: Self, opts: CanvasOptions) !*AppNode {
+            return self.ui.canvas(.{
+                .id = opts.id,
+                .style = opts.style,
+                .target = opts.target,
+                .tint = opts.tint,
+                .custom_params = opts.custom_params,
+                .pan_x = opts.pan_x,
+                .pan_y = opts.pan_y,
+                .zoom = opts.zoom,
+                .children = opts.children,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn canvasAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.canvas(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -211,7 +555,20 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
-        pub fn textInput(self: Self, opts: anytype) !*AppNode {
+        pub fn textInput(self: Self, opts: TextInputOptions) !*AppNode {
+            return self.ui.textInput(.{
+                .id = opts.id,
+                .style = opts.style,
+                .font = opts.font,
+                .max_width = opts.max_width,
+                .initial_text = opts.initial_text,
+                .placeholder = opts.placeholder,
+                .placeholder_color = opts.placeholder_color,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn textInputAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.textInput(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -224,7 +581,18 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
-        pub fn textArea(self: Self, opts: anytype) !*AppNode {
+        pub fn textArea(self: Self, opts: TextAreaOptions) !*AppNode {
+            return self.ui.textArea(.{
+                .id = opts.id,
+                .style = opts.style,
+                .font = opts.font,
+                .max_width = opts.max_width,
+                .initial_text = opts.initial_text,
+                .events = try self.typedEvents(opts),
+            });
+        }
+
+        pub fn textAreaAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.textArea(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
                 .style = styleFrom(self.ui, opts),
@@ -261,6 +629,17 @@ pub fn Builder(comptime MessageT: type) type {
 
         pub fn keyed(self: Self, base_id: NodeId, capacity: usize) !ScopedKeyedList(MessageT) {
             return ScopedKeyedList(MessageT).init(self.ui.build_arena.allocator(), base_id, capacity);
+        }
+
+        fn typedEvents(self: Self, opts: anytype) ![]const EventBinding {
+            const implicit_count = typedImplicitEventCount(opts);
+            if (implicit_count == 0) return opts.events;
+
+            const out = try self.ui.build_arena.allocator().alloc(EventBinding, opts.events.len + implicit_count);
+            @memcpy(out[0..opts.events.len], opts.events);
+            var index = opts.events.len;
+            appendTypedImplicitEvents(opts, out, &index);
+            return out;
         }
 
         fn childrenFrom(self: Self, opts: anytype) ![]const ?*AppNode {
@@ -713,6 +1092,25 @@ fn optionalField(opts: anytype, comptime name: []const u8, comptime T: type, def
     return default_value;
 }
 
+fn typedImplicitEventCount(opts: anytype) usize {
+    var count: usize = 0;
+    inline for (implicit_event_fields) |field| {
+        if (@hasField(@TypeOf(opts), field.name) and @field(opts, field.name) != null) count += 1;
+    }
+    return count;
+}
+
+fn appendTypedImplicitEvents(opts: anytype, out: anytype, index: *usize) void {
+    inline for (implicit_event_fields) |field| {
+        if (@hasField(@TypeOf(opts), field.name)) {
+            if (@field(opts, field.name)) |msg| {
+                out[index.*] = .{ .event = field.event_type, .msg = msg };
+                index.* += 1;
+            }
+        }
+    }
+}
+
 fn implicitEventCount(opts: anytype) usize {
     var count: usize = 0;
     inline for (implicit_event_fields) |field| {
@@ -947,14 +1345,14 @@ test "uix builder creates nodes from style classes and tuple children" {
 
     var font: FontData = undefined;
     const ux = builder(u32, &ui);
-    const child = try ux.text(.{
+    const child = try ux.textAny(.{
         .content = "hello",
         .font = &font,
         .class = .{ tw.text_lg, tw.text_muted },
         .on_click = 7,
     });
 
-    const root = try ux.div(.{
+    const root = try ux.divAny(.{
         .class = .{ tw.flex_row, tw.items_center, tw.p(2) },
         .children = .{ child, null },
     });
@@ -1022,7 +1420,10 @@ test "uix wraps async image and custom paint" {
     };
 
     const ux = builder(u32, &ui);
-    const image_node = try ux.asyncImage(.{ .source = "asset", .on_click = 1 });
+    const image_node = try ux.asyncImage(.{
+        .source = "asset",
+        .events = &.{click(u32, 1)},
+    });
     defer image_node.deinit();
     try std.testing.expectEqual(@as(u32, 42), image_node.payload.image.tex_id);
     try std.testing.expectEqual(@as(usize, 1), image_node.events.len);

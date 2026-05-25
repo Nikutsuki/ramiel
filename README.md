@@ -37,6 +37,18 @@ const dep = b.dependency("ramiel", .{ .target = target, .optimize = optimize });
 exe.root_module.addImport("ramiel", dep.module("ramiel"));
 ```
 
+For apps that want the standard Ramiel dev features, import the build helper
+from the package and let it wire the dependency, runtime library paths, hot
+reload artifacts, and `-Dtracy` / `-Ddevtools` options:
+
+```zig
+const ramiel_build = @import("ramiel").build_support;
+
+var ramiel_options = ramiel_build.standardDependencyOptions(b, target, optimize);
+const ramiel_runtime = ramiel_build.dependency(b, ramiel_options);
+exe.root_module.addImport("ramiel", ramiel_runtime.module);
+```
+
 A minimal app uses `lib.Runtime` + `app.setRootBuilder(build_fn)`. See
 `examples/canvas_app/` for the smallest non-trivial example.
 

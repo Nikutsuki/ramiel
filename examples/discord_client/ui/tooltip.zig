@@ -20,7 +20,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState, font_data: *co
         80.0;
     const tooltip_text = if (target_index < state.guilds.items.len) state.guilds.items[target_index].name else "";
 
-    return try ux.div(.{
+    return try ux.divAny(.{
         .id = core.NodeIds.tooltip,
         .style = core.Style{
             .position = .absolute,
@@ -40,7 +40,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState, font_data: *co
             },
         },
         .children = .{
-            try ux.text(.{
+            try ux.textAny(.{
                 .content = tooltip_text,
                 .font = font_data,
                 .class = .{ tw.text_main, tw.text(12) },

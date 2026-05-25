@@ -22,12 +22,12 @@ const swirl_glsl = @embedFile("shaders/swirl.frag");
 
 fn build(ui: *UI, state: *const State) anyerror!*Node {
     const ux = ui.ux();
-    const bg = state.background orelse return ux.div(.{ .class = .{ tw.w_full, tw.h_full } });
-    return ux.canvas(.{
+    const bg = state.background orelse return ux.divAny(.{ .class = .{ tw.w_full, tw.h_full } });
+    return ux.canvasAny(.{
         .class = .{ tw.w_full, tw.h_full, tw.flex_col, tw.items_center, tw.justify_center },
         .target = bg,
         .children = &.{
-            try ux.text(.{
+            try ux.textAny(.{
                 .class = .{ tw.text_lg, tw.text_color_value(.{ 1.0, 1.0, 1.0, 1.0 }) },
                 .content = "fragment shader background",
                 .font = state.font,

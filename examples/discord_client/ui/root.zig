@@ -95,7 +95,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
             var overlay_bg = tokens.bg_base;
             overlay_bg[3] = 0.8;
 
-            const preview_overlay = try ux.div(.{
+            const preview_overlay = try ux.divAny(.{
                 .class = .{
                     .{ .position = .absolute },
                     tw.w_full,
@@ -117,7 +117,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
     var container_bg = tokens.bg_base;
     container_bg[3] = 0.0;
 
-    const container = try ux.div(.{
+    const container = try ux.divAny(.{
         .class = .{
             tw.w_full,
             tw.h_full,
@@ -127,7 +127,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
         .children = try children.toOwnedSlice(build_alloc),
     });
 
-    return try ux.div(.{
+    return try ux.divAny(.{
         .class = .{
             tw.size_screen,
             tw.flex_col,

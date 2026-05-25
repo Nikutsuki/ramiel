@@ -5,7 +5,7 @@ const tw = core.tw;
 
 pub fn build(_: std.mem.Allocator, ui: *core.AppUIContext, state: *const core.AppState, font: *lib.FontData) !*core.AppNode {
     const ux = ui.ux();
-    return ux.div(.{
+    return ux.divAny(.{
         .class = .{
             tw.flex_row,
             tw.w_full,
@@ -17,13 +17,13 @@ pub fn build(_: std.mem.Allocator, ui: *core.AppUIContext, state: *const core.Ap
             tw.gap(2),
         },
         .children = .{
-            try ux.text(.{
+            try ux.textAny(.{
                 .content = state.editor.status_text.items,
                 .font = font,
                 .class = tw.text_main,
             }),
-            try ux.div(.{ .class = tw.grow_1 }),
-            try ux.button(.{
+            try ux.divAny(.{ .class = tw.grow_1 }),
+            try ux.buttonAny(.{
                 .label = "Help [?]",
                 .font = font,
                 .class = .{

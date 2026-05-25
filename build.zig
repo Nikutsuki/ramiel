@@ -1,6 +1,8 @@
 const std = @import("std");
 const wayland_build = @import("wayland");
 
+pub const build_support = @import("build_support.zig");
+
 fn applyWindowsCImportWorkarounds(root_module: *std.Build.Module) void {
     root_module.addCMacro("_FORTIFY_SOURCE", "0");
     root_module.addCMacro("__MINGW_FORTIFY_LEVEL", "0");
@@ -10,6 +12,15 @@ fn applyWindowsCImportWorkarounds(root_module: *std.Build.Module) void {
 
 fn lazyPath(b: *std.Build, path: []const u8) std.Build.LazyPath {
     return if (std.fs.path.isAbsolute(path)) .{ .cwd_relative = path } else b.path(path);
+}
+
+fn pathExists(b: *std.Build, path: []const u8) bool {
+    if (std.fs.path.isAbsolute(path)) {
+        std.Io.Dir.accessAbsolute(b.graph.io, path, .{}) catch return false;
+    } else {
+        std.Io.Dir.cwd().access(b.graph.io, path, .{}) catch return false;
+    }
+    return true;
 }
 
 const ExampleTarget = struct {
@@ -30,15 +41,13 @@ pub fn build(b: *std.Build) void {
     const is_linux = target.result.os.tag == .linux;
 
     const tracy_enabled = b.option(bool, "tracy", "Build with Tracy memory allocation profiling.") orelse false;
-    const devtools_enabled = b.option(bool, "devtools", "Enable DevTools overlay on startup.") orelse false;
+    const devtools_enabled = b.option(bool, "devtools", "Enable DevTools.") orelse false;
     const requested_wayland = b.option(bool, "wayland", "Enable the native Wayland backend and Wayland-only examples (off by default).") orelse false;
     const native_wayland_enabled = requested_wayland and is_linux;
-    const power_dry_run = b.option(bool, "power-dry-run", "Print power-menu commands instead of executing them (default: false, commands are invoked).") orelse false;
     const hot_reload = b.option(bool, "hot-reload", "Build hot-reloadable examples as a swappable shared library + thin host.") orelse false;
     const build_options = b.addOptions();
     build_options.addOption(bool, "devtools", devtools_enabled);
     build_options.addOption(bool, "native_wayland", native_wayland_enabled);
-    build_options.addOption(bool, "power_dry_run", power_dry_run);
     const build_options_module = build_options.createModule();
     var ffmpeg_bin_install: ?*std.Build.Step.InstallDir = null;
     var shaderc_bin_install: ?*std.Build.Step.InstallDir = null;
@@ -196,13 +205,16 @@ pub fn build(b: *std.Build) void {
             b.getInstallStep().dependOn(&install_ffmpeg_bin.step);
             ffmpeg_bin_install = install_ffmpeg_bin;
 
-            const install_shaderc_bin = b.addInstallDirectory(.{
-                .source_dir = lazyPath(b, b.pathJoin(&.{ shaderc_base_path, "bin" })),
-                .install_dir = .bin,
-                .install_subdir = "",
-            });
-            b.getInstallStep().dependOn(&install_shaderc_bin.step);
-            shaderc_bin_install = install_shaderc_bin;
+            const shaderc_bin_path = b.pathJoin(&.{ shaderc_base_path, "bin" });
+            if (pathExists(b, shaderc_bin_path)) {
+                const install_shaderc_bin = b.addInstallDirectory(.{
+                    .source_dir = lazyPath(b, shaderc_bin_path),
+                    .install_dir = .bin,
+                    .install_subdir = "",
+                });
+                b.getInstallStep().dependOn(&install_shaderc_bin.step);
+                shaderc_bin_install = install_shaderc_bin;
+            }
         },
         else => {},
     }
@@ -238,8 +250,8 @@ pub fn build(b: *std.Build) void {
                 // Linux: add FFmpeg + libshaderc lib dirs to LD_LIBRARY_PATH for runtime
                 const env = run_cmd.getEnvMap();
                 const current_ld = env.get("LD_LIBRARY_PATH") orelse "";
-                const ffmpeg_lib = builder.pathJoin(&.{ "src/thirdparty/ffmpeg_linux_x64/lib" });
-                const shaderc_lib = builder.pathJoin(&.{ "src/thirdparty/shaderc_linux_x64/lib" });
+                const ffmpeg_lib = builder.pathJoin(&.{"src/thirdparty/ffmpeg_linux_x64/lib"});
+                const shaderc_lib = builder.pathJoin(&.{"src/thirdparty/shaderc_linux_x64/lib"});
                 env.put(
                     "LD_LIBRARY_PATH",
                     builder.fmt("{s}{c}{s}{c}{s}", .{ ffmpeg_lib, std.fs.path.delimiter, shaderc_lib, std.fs.path.delimiter, current_ld }),
