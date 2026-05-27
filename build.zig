@@ -51,6 +51,7 @@ pub fn build(b: *std.Build) void {
     const build_options_module = build_options.createModule();
     var ffmpeg_bin_install: ?*std.Build.Step.InstallDir = null;
     var shaderc_bin_install: ?*std.Build.Step.InstallDir = null;
+    var ffmpeg_patchelf_step: ?*std.Build.Step = null;
 
     // Dependencies
     const zglfw_dep = b.dependency("zglfw", .{ .target = target, .optimize = optimize });
@@ -192,6 +193,12 @@ pub fn build(b: *std.Build) void {
                 .install_subdir = "",
             });
             b.getInstallStep().dependOn(&install_shaderc_lib.step);
+
+            ffmpeg_patchelf_step = build_support.createFfmpegPatchelfStep(
+                b,
+                b.pathFromRoot(b.fmt("{s}/lib", .{ffmpeg_base_path})),
+            );
+            if (ffmpeg_patchelf_step) |step| b.getInstallStep().dependOn(step);
         },
         .windows => {
             ramiel_mod.linkSystemLibrary("bcrypt", .{});
@@ -225,8 +232,10 @@ pub fn build(b: *std.Build) void {
             run_cmd: *std.Build.Step.Run,
             ffmpeg_install: ?*std.Build.Step.InstallDir,
             shaderc_install: ?*std.Build.Step.InstallDir,
+            patchelf_step: ?*std.Build.Step,
             is_win: bool,
         ) void {
+            if (patchelf_step) |step| run_cmd.step.dependOn(step);
             if (is_win) {
                 var needs_install_bin = false;
                 if (ffmpeg_install) |install| {
@@ -364,7 +373,7 @@ pub fn build(b: *std.Build) void {
 
     const run_cmd = b.addRunArtifact(main_exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    bindRunEnvironment(b, run_cmd, ffmpeg_bin_install, shaderc_bin_install, is_windows);
+    bindRunEnvironment(b, run_cmd, ffmpeg_bin_install, shaderc_bin_install, ffmpeg_patchelf_step, is_windows);
     if (b.args) |args| run_cmd.addArgs(args);
     b.step("run", "Run the app").dependOn(&run_cmd.step);
 
@@ -428,7 +437,7 @@ pub fn build(b: *std.Build) void {
         const kebab = std.mem.replaceOwned(u8, b.allocator, ex.name, "_", "-") catch @panic("OOM");
         if (!(hot_reload and ex.hot_reloadable)) {
             const run_ex_cmd = b.addRunArtifact(ex_exe);
-            bindRunEnvironment(b, run_ex_cmd, ffmpeg_bin_install, shaderc_bin_install, is_windows);
+            bindRunEnvironment(b, run_ex_cmd, ffmpeg_bin_install, shaderc_bin_install, ffmpeg_patchelf_step, is_windows);
             if (b.args) |args| run_ex_cmd.addArgs(args);
             b.step(b.fmt("run-{s}", .{kebab}), b.fmt("Run the {s} example", .{ex.name})).dependOn(&run_ex_cmd.step);
         }
@@ -490,7 +499,7 @@ pub fn build(b: *std.Build) void {
             const run_host = b.addRunArtifact(host_exe);
             run_host.step.dependOn(&install_app_lib.step);
             run_host.step.dependOn(&install_host.step);
-            bindRunEnvironment(b, run_host, ffmpeg_bin_install, shaderc_bin_install, is_windows);
+            bindRunEnvironment(b, run_host, ffmpeg_bin_install, shaderc_bin_install, ffmpeg_patchelf_step, is_windows);
             run_host.addArgs(&.{
                 "--lib",          b.getInstallPath(if (is_windows) .bin else .lib, lib_basename),
                 "--watch",        ex_dir,

@@ -34,6 +34,7 @@
         nativeBuildInputs = with pkgs; [
           zig_0_16_0
           pkg-config
+          patchelf
           shaderc
           vulkan-tools
           wayland-scanner

@@ -1383,6 +1383,34 @@ pub fn Node(comptime MessageT: type) type {
             if (self.parent) |p| p.markPositionDirty();
         }
 
+        pub fn scrollDescendantIntoViewX(self: *@This(), child: *const Node(MessageT), padding: f32) bool {
+            const visible_w = self.layout_result.width;
+            if (visible_w <= 0.0) return false;
+
+            const visible_left = self.layout_result.x;
+            const visible_right = visible_left + visible_w;
+            const child_left = child.layout_result.x;
+            const child_right = child_left + child.layout_result.width;
+
+            var delta: f32 = 0.0;
+            if (child_left < visible_left + padding) {
+                delta = child_left - (visible_left + padding);
+            } else if (child_right > visible_right - padding) {
+                delta = child_right - (visible_right - padding);
+            } else {
+                return false;
+            }
+
+            const max_scroll = @max(0.0, self.layout_result.content_width - visible_w);
+            const new_scroll = std.math.clamp(self.scroll_x + delta, 0.0, max_scroll);
+            if (@abs(new_scroll - self.scroll_x) <= 0.01) return false;
+
+            self.scroll_x = new_scroll;
+            self.prev_desc_scroll_x = new_scroll;
+            self.markPositionDirty();
+            return true;
+        }
+
         pub fn markDirty(self: *@This()) void {
             self.markContentDirty();
         }
