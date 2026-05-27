@@ -144,13 +144,24 @@ pub fn UIContext(comptime MessageT: type) type {
             self.default_family = family_name;
         }
 
+        fn resolveDefaultFont(self: *Self) ?*FontData {
+            if (self.font_system) |fs| {
+                if (self.default_family) |family| {
+                    if (fs.closestVariant(family, .regular)) |physical| {
+                        if (fs.getFont(physical)) |font| return font;
+                    }
+                }
+            }
+            return self.default_font;
+        }
+
         fn resolveFont(self: *Self, font: ?*FontData) !*FontData {
-            return font orelse self.default_font orelse error.DefaultFontMissing;
+            return font orelse self.resolveDefaultFont() orelse error.DefaultFontMissing;
         }
 
         fn resolveFontFromStyle(self: *Self, font: ?*FontData, style: *const Style) !*FontData {
             if (font) |f| return f;
-            const default = self.default_font orelse return error.DefaultFontMissing;
+            const default = self.resolveDefaultFont() orelse return error.DefaultFontMissing;
             if (style.font_weight == .normal and style.font_style == .normal and style.font_family == null) {
                 return default;
             }
