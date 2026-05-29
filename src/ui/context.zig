@@ -19,6 +19,7 @@ const components_module = @import("components/root.zig");
 const uix_module = @import("uix.zig");
 const theme_lib = @import("../ui/theme.zig");
 const freeEventPayloads = @import("node.zig").freeEventPayloads;
+const RichTextSpan = @import("node.zig").RichTextSpan;
 
 const types = @import("types.zig");
 
@@ -301,6 +302,16 @@ pub fn UIContext(comptime MessageT: type) type {
             events: []const types.EventBinding(MessageT) = &.{},
         };
 
+        pub const RichTextDescriptor = struct {
+            id: ?NodeId = null,
+            style: Style = .{},
+            content: []const u8,
+            spans: []const RichTextSpan = &.{},
+            font: ?*FontData = null,
+            max_width: f32 = 0.0,
+            events: []const types.EventBinding(MessageT) = &.{},
+        };
+
         pub const ButtonDescriptor = struct {
             id: ?NodeId = null,
             style: Style = .{},
@@ -479,6 +490,23 @@ pub fn UIContext(comptime MessageT: type) type {
                     .max_width = desc.max_width,
                 },
             };
+            return node;
+        }
+
+        pub fn richText(self: *@This(), desc: RichTextDescriptor) !*Node(MessageT) {
+            const font = try self.resolveFontFromStyle(desc.font, &desc.style);
+            const node = try self.createNode();
+            try self.registerNodeId(node, desc.id);
+            node.style = desc.style;
+            if (desc.events.len > 0) {
+                node.events = try node.allocator.dupe(types.EventBinding(MessageT), desc.events);
+            }
+            node.payload = .{ .rich_text = .{
+                .content = try node.allocator.dupe(u8, desc.content),
+                .font = font,
+                .max_width = desc.max_width,
+                .spans = try node.allocator.dupe(RichTextSpan, desc.spans),
+            } };
             return node;
         }
 
@@ -817,6 +845,12 @@ fn promoteToGPA(comptime MessageT: type, ctx: *UIContext(MessageT), desc: *Node(
             .font = t.font,
             .max_width = t.max_width,
         } },
+        .rich_text => |rt| node.payload = .{ .rich_text = .{
+            .content = try ctx.gpa.dupe(u8, rt.content),
+            .font = rt.font,
+            .max_width = rt.max_width,
+            .spans = try ctx.gpa.dupe(RichTextSpan, rt.spans),
+        } },
         .text_input => |*ti| {
             node.payload = .{ .text_input = .{
                 .buffer = std.ArrayList(u8).empty,
@@ -868,6 +902,14 @@ fn promoteToGPA(comptime MessageT: type, ctx: *UIContext(MessageT), desc: *Node(
     return node;
 }
 
+fn richTextSpansEqual(a: []const RichTextSpan, b: []const RichTextSpan) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |lhs, rhs| {
+        if (!std.meta.eql(lhs, rhs)) return false;
+    }
+    return true;
+}
+
 fn patchPayload(comptime MessageT: type, retained: *Node(MessageT), desc: *Node(MessageT)) std.mem.Allocator.Error!void {
     const retained_tag = std.meta.activeTag(retained.payload);
     const desc_tag = std.meta.activeTag(desc.payload);
@@ -876,6 +918,10 @@ fn patchPayload(comptime MessageT: type, retained: *Node(MessageT), desc: *Node(
     if (type_changed) {
         switch (retained.payload) {
             .text => |t| retained.allocator.free(t.content),
+            .rich_text => |rt| {
+                retained.allocator.free(rt.content);
+                retained.allocator.free(rt.spans);
+            },
             .image => |img| retained.allocator.free(img.alt_text),
             .text_input => |*ti| ti.buffer.deinit(retained.allocator),
             .text_area => |*ta| ta.buffer.deinit(retained.allocator),
@@ -976,6 +1022,33 @@ fn patchPayload(comptime MessageT: type, retained: *Node(MessageT), desc: *Node(
                     .content = try retained.allocator.dupe(u8, dt.content),
                     .font = dt.font,
                     .max_width = dt.max_width,
+                } };
+            }
+        },
+        .rich_text => |*dt| {
+            if (!type_changed) {
+                const rt = &retained.payload.rich_text;
+                if (!std.mem.eql(u8, rt.content, dt.content)) {
+                    retained.allocator.free(rt.content);
+                    rt.content = try retained.allocator.dupe(u8, dt.content);
+                    retained.markContentDirty();
+                }
+                if (!richTextSpansEqual(rt.spans, dt.spans)) {
+                    retained.allocator.free(rt.spans);
+                    rt.spans = try retained.allocator.dupe(RichTextSpan, dt.spans);
+                    retained.markContentDirty();
+                }
+                if (rt.max_width != dt.max_width or rt.font != dt.font) {
+                    retained.markSizeDirty();
+                }
+                rt.font = dt.font;
+                rt.max_width = dt.max_width;
+            } else {
+                retained.payload = .{ .rich_text = .{
+                    .content = try retained.allocator.dupe(u8, dt.content),
+                    .font = dt.font,
+                    .max_width = dt.max_width,
+                    .spans = try retained.allocator.dupe(RichTextSpan, dt.spans),
                 } };
             }
         },

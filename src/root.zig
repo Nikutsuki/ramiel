@@ -83,6 +83,8 @@ pub const theme = @import("ui/theme.zig");
 pub const Theme = theme.Theme;
 pub const SemanticTokens = theme.SemanticTokens;
 pub const Palette = palette.Palette;
+pub const RichTextSpan = @import("ui/node.zig").RichTextSpan;
+pub const RichTextSpanMask = @import("ui/node.zig").RichTextSpanMask;
 
 pub const Runtime = @import("runtime.zig").Runtime;
 pub const FontSpec = @import("managed_app.zig").FontSpec;

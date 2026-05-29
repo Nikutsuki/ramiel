@@ -856,6 +856,22 @@ fn measureLeafContent(
             out_w.* = node.layout_result.text_cache.width;
             out_h.* = node.layout_result.text_cache.height;
         },
+        .rich_text => |t| {
+            const options = resolveTextMeasureOptions(node.style, t.max_width, content_w, false, false);
+            const cache = node.layout_result.text_cache;
+            const options_changed = cache.max_width != options.max_width or
+                cache.wrap != options.wrap or
+                cache.ellipsis != options.ellipsis or
+                cache.line_height != options.line_height or
+                cache.font_size != options.font_size;
+
+            if (node.flags.content or node.flags.size or options_changed) {
+                updateTextLayoutCache(node, text_layouter, t.font, t.content, options);
+            }
+
+            out_w.* = node.layout_result.text_cache.width;
+            out_h.* = node.layout_result.text_cache.height;
+        },
         .image => |img| {
             if (img.fallback_state != .ready and img.alt_text.len > 0 and img.alt_font != null) {
                 const options = resolveTextMeasureOptions(node.style, 0.0, content_w, false, false);

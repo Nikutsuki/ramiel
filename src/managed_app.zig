@@ -295,14 +295,16 @@ pub fn ManagedApp(comptime Spec: type) type {
                 global: *GlobalState,
                 runtime: *RuntimeState,
                 event_data: types.EventData,
+                event_source: ?*Node(Msg),
 
-                pub fn init(app: *App, event_data: types.EventData) @This() {
+                pub fn init(app: *App, msg_: types.InteractionMessage(Msg)) @This() {
                     return .{
                         .app = app,
                         .app_state = &app.state,
                         .global = &app.state.global,
                         .runtime = &app.state.runtime,
-                        .event_data = event_data,
+                        .event_data = msg_.data,
+                        .event_source = msg_.source,
                     };
                 }
 
@@ -360,7 +362,7 @@ pub fn ManagedApp(comptime Spec: type) type {
             if (flat_single_page_message) {
                 const route = initial_route;
                 const Page = @field(Spec.Pages, @tagName(route));
-                var ctx = UpdateContext(route).init(app, msg.data);
+                var ctx = UpdateContext(route).init(app, msg);
                 return Page.update(&ctx, &@field(app.state.pages, @tagName(route)), msg.id);
             }
             switch (msg.id) {
@@ -376,7 +378,7 @@ pub fn ManagedApp(comptime Spec: type) type {
                 inline else => |page_msg, tag| {
                     const route: Route = @field(Route, @tagName(tag));
                     const Page = @field(Spec.Pages, @tagName(tag));
-                    var ctx = UpdateContext(route).init(app, msg.data);
+                    var ctx = UpdateContext(route).init(app, msg);
                     return Page.update(&ctx, &@field(app.state.pages, @tagName(tag)), page_msg);
                 },
             }
@@ -461,12 +463,14 @@ pub fn SinglePageApp(
             app: *App,
             app_state: *StateT,
             event_data: types.EventData,
+            event_source: ?*Node(MsgT),
 
-            pub fn init(app: *App, event_data: types.EventData) @This() {
+            pub fn init(app: *App, msg: types.InteractionMessage(MsgT)) @This() {
                 return .{
                     .app = app,
                     .app_state = &app.state,
-                    .event_data = event_data,
+                    .event_data = msg.data,
+                    .event_source = msg.source,
                 };
             }
 
@@ -489,7 +493,7 @@ pub fn SinglePageApp(
         }
 
         pub fn update(app: *App, msg: types.InteractionMessage(MsgT)) UpdateAction {
-            var ctx = UpdateContext.init(app, msg.data);
+            var ctx = UpdateContext.init(app, msg);
             return update_fn(&ctx, &app.state, msg.id);
         }
 

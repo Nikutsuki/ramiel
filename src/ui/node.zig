@@ -31,6 +31,19 @@ pub const HoverAnim = struct {
     timing: EasingFunction,
 };
 
+pub const RichTextSpanMask = packed struct {
+    text_color: bool = false,
+    background_color: bool = false,
+    text_decoration: bool = false,
+};
+
+pub const RichTextSpan = struct {
+    start: usize,
+    end: usize,
+    style: Style = .{},
+    mask: RichTextSpanMask = .{},
+};
+
 pub const RenderPayload = union(enum) {
     pub const ImageFallbackState = enum { missing, decoding, ready };
     none,
@@ -85,6 +98,12 @@ pub const RenderPayload = union(enum) {
         playback: *const VideoPlayback,
         tint: [4]f32 = .{ 1.0, 1.0, 1.0, 1.0 },
         custom_params: [4]f32 = .{ 0.0, 0.0, 0.0, 0.0 },
+    },
+    rich_text: struct {
+        content: []u8,
+        font: *FontData,
+        max_width: f32,
+        spans: []RichTextSpan = &.{},
     },
 
     custom_paint: struct {
@@ -229,6 +248,10 @@ pub fn Node(comptime MessageT: type) type {
                 .image => |img| self.allocator.free(img.alt_text),
                 .text_input => |*ti| ti.buffer.deinit(self.allocator),
                 .text_area => |*ta| ta.buffer.deinit(self.allocator),
+                .rich_text => |rt| {
+                    self.allocator.free(rt.content);
+                    self.allocator.free(rt.spans);
+                },
                 else => {},
             }
 
@@ -771,6 +794,88 @@ pub fn Node(comptime MessageT: type) type {
                             batcher,
                             cache.metrics,
                             self.payload.text.font,
+                            &self.style,
+                            abs_x,
+                            abs_y,
+                            self.style.text_color,
+                            combined_opacity,
+                        );
+                    }
+                },
+
+                .rich_text => |rt| {
+                    const sc = batcher.current_scissor;
+                    const view_min_x: f32 = @floatFromInt(sc.offset.x);
+                    const view_min_y: f32 = @floatFromInt(sc.offset.y);
+                    const view_max_x: f32 = @floatFromInt(sc.offset.x + @as(i32, @intCast(sc.extent.width)));
+                    const view_max_y: f32 = @floatFromInt(sc.offset.y + @as(i32, @intCast(sc.extent.height)));
+                    const node_max_x = abs_x + w;
+                    const node_max_y = abs_y + h;
+                    const is_offscreen = node_max_x <= view_min_x or abs_x >= view_max_x or
+                        node_max_y <= view_min_y or abs_y >= view_max_y;
+
+                    if (!is_offscreen) {
+                        const cache = self.layout_result.text_cache;
+                        const selection_color = colorWithOpacity(.{ 0.2, 0.4, 0.8, 0.5 }, combined_opacity);
+                        for (rt.spans) |span| {
+                            if (!span.mask.background_color) continue;
+                            const color = colorWithOpacity(span.style.background_color, combined_opacity);
+
+                            for (cache.metrics) |m| {
+                                if (!m.is_visible or !metricIntersectsSpan(m, span)) continue;
+                                try batcher.addRect(abs_x + m.x, abs_y + m.y, m.width, m.height, color, 0, 0, .{ 0, 0, 0, 0 });
+                            }
+                        }
+
+                        if (self.text_selection) |sel| {
+                            const start = @min(sel.anchor, sel.focus);
+                            const end = @max(sel.anchor, sel.focus);
+                            if (start != end) {
+                                for (cache.metrics) |m| {
+                                    if (m.byte_offset >= start and m.byte_offset < end) {
+                                        try batcher.addRect(
+                                            abs_x + m.x,
+                                            abs_y + m.y,
+                                            m.width,
+                                            m.height,
+                                            selection_color,
+                                            0,
+                                            0,
+                                            .{ 0.0, 0.0, 0.0, 0.0 },
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        for (cache.metrics) |m| {
+                            if (!m.is_visible) continue;
+                            var effective_style = self.style;
+                            applySpanStyle(&effective_style, rt.spans, m.byte_offset);
+
+                            const combined_id: u32 = m.effect | (m.atlas_id & 0xFFFF);
+                            const text_color = colorWithOpacity(effective_style.text_color, combined_opacity);
+                            const text_weight = msdfWeightFor(effective_style.font_weight);
+                            const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
+                            const glyph_x = abs_x + m.render_x;
+                            const glyph_y = abs_y + m.render_y;
+                            try batcher.addGlyphQuad(
+                                snapPixel(glyph_x),
+                                snapPixel(glyph_y),
+                                snapSize(glyph_x, m.render_w),
+                                snapSize(glyph_y, m.render_h),
+                                m.uv_min,
+                                m.uv_max,
+                                text_color,
+                                combined_id,
+                                glyph_corner_radii,
+                            );
+                        }
+
+                        try emitTextDecorations(
+                            batcher,
+                            cache.metrics,
+                            rt.font,
                             &self.style,
                             abs_x,
                             abs_y,
@@ -1489,6 +1594,21 @@ pub fn Node(comptime MessageT: type) type {
             }
         }
     };
+}
+
+fn metricIntersectsSpan(m: TextLayoutMetric, span: RichTextSpan) bool {
+    const a0 = m.byte_offset;
+    const a1 = m.byte_offset + m.byte_length;
+    return a0 < span.end and a1 > span.start;
+}
+
+fn applySpanStyle(base: *Style, spans: []const RichTextSpan, byte_offset: usize) void {
+    for (spans) |span| {
+        if (byte_offset < span.start or byte_offset >= span.end) continue;
+        if (span.mask.text_color) base.text_color = span.style.text_color;
+        if (span.mask.background_color) base.background_color = span.style.background_color;
+        if (span.mask.text_decoration) base.text_decoration = span.style.text_decoration;
+    }
 }
 
 pub fn freeEventPayloads(comptime MessageT: type, allocator: std.mem.Allocator, events: []const types.EventBinding(MessageT)) void {

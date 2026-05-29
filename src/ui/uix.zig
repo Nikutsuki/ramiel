@@ -400,6 +400,18 @@ pub fn Builder(comptime MessageT: type) type {
             });
         }
 
+        pub fn richText(self: Self, opts: anytype) !*AppNode {
+            return self.ui.richText(.{
+                .id = optionalField(opts, "id", ?NodeId, null),
+                .style = styleFrom(self.ui, opts),
+                .content = @field(opts, "content"),
+                .spans = optionalField(opts, "spans", []const node_mod.RichTextSpan, &.{}),
+                .font = optionalField(opts, "font", ?*FontData, null),
+                .max_width = optionalField(opts, "max_width", f32, 0.0),
+                .events = try self.eventsFrom(opts),
+            });
+        }
+
         pub fn textAny(self: Self, opts: anytype) !*AppNode {
             return self.ui.text(.{
                 .id = optionalField(opts, "id", ?NodeId, null),
