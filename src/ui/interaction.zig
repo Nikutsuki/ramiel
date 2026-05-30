@@ -600,10 +600,15 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             self.hovered_node = null;
 
             const mouse_is_down = self.previous_mouse_down;
+            var suppress_click_this_frame = false;
 
             if (self.active_drag_node) |drag_node| {
                 if (mouse_is_down) {
-                    self.hovered_node = drag_node;
+                    if (self.active_drag_axis == .None and !self.pointer_locked_for_drag) {
+                        _ = self.hitTest(root);
+                    } else {
+                        self.hovered_node = drag_node;
+                    }
                     const delta_x: f32 = @floatCast(self.mouse_x - self.previous_drag_x);
                     const delta_y: f32 = @floatCast(self.mouse_y - self.previous_drag_y);
                     const total_dx = self.mouse_x - self.drag_capture_start_x;
@@ -633,8 +638,9 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                 } else {
                     const released_axis = self.active_drag_axis;
                     const had_scroll_capture = released_axis != .None;
+                    suppress_click_this_frame = self.active_drag_has_moved;
                     if (self.mouse_just_released and drag_node.hasEventBinding(.pointer_up) and
-                        (had_scroll_capture or self.active_drag_has_moved))
+                        (had_scroll_capture or drag_node.lock_pointer_on_drag))
                     {
                         self.dispatchNodeEvent(drag_node, .pointer_up, .{ .mouse = .{
                             .x = @floatCast(self.mouse_x),
@@ -707,12 +713,17 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             self.diffHoverChain(current_time);
 
             if (self.hovered_node) |hovered| {
-                if (hovered.hasEventBinding(.pointer_move)) {
-                    self.dispatchNodeEvent(hovered, .pointer_move, .{ .mouse = .{
-                        .x = @floatCast(self.mouse_x),
-                        .y = @floatCast(self.mouse_y),
-                        .mods = self.mouse_mods,
-                    } });
+                var move_target: ?*Node(MessageT) = hovered;
+                while (move_target) |n| {
+                    if (n.hasEventBinding(.pointer_move)) {
+                        self.dispatchNodeEvent(n, .pointer_move, .{ .mouse = .{
+                            .x = @floatCast(self.mouse_x),
+                            .y = @floatCast(self.mouse_y),
+                            .mods = self.mouse_mods,
+                        } });
+                        break;
+                    }
+                    move_target = n.parent;
                 }
             }
 
@@ -883,7 +894,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                 const pressed = self.click_press_target;
                 self.click_press_target = null;
                 if (pressed) |press_node| {
-                    if (!self.active_drag_has_moved and self.hovered_node != null) {
+                    if (!suppress_click_this_frame and !self.active_drag_has_moved and self.hovered_node != null) {
                         var click_target: ?*Node(MessageT) = press_node;
                         while (click_target) |n| {
                             if (n.hasEventBinding(.click)) {

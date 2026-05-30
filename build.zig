@@ -298,6 +298,7 @@ pub fn build(b: *std.Build) void {
     };
     for (shaders) |shader| {
         const cmd = b.addSystemCommand(&.{ "glslc", b.fmt("src/renderer/vulkan/shaders/{s}", .{shader.input}), "-o", b.fmt("src/renderer/vulkan/shaders/{s}", .{shader.output}) });
+        cmd.addFileInput(b.path(b.fmt("src/renderer/vulkan/shaders/{s}", .{shader.input})));
         shader_compile_step.dependOn(&cmd.step);
     }
 

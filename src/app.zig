@@ -123,7 +123,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             message: MessageType,
         };
 
-        const FileDialogKind = enum { file, folder };
+        const FileDialogKind = enum { file, folder, save };
 
         const FileDialogTaskArgs = struct {
             self: *Self,
@@ -429,6 +429,10 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             self.beginFileDialog(.file, filter_list, .{ .message = completion_msg });
         }
 
+        pub fn openSaveFileDialogMessage(self: *Self, filter_list: ?[:0]const u8, completion_msg: MessageType) void {
+            self.beginFileDialog(.save, filter_list, .{ .message = completion_msg });
+        }
+
         pub fn openFolderDialog(self: *Self, callback: FileDialogCallback) void {
             self.beginFileDialog(.folder, null, .{ .callback = callback });
         }
@@ -494,6 +498,12 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 },
                 .folder => nfd.openFolderDialog(null) catch |err| {
                     std.log.err("NFD openFolderDialog failed: {s}", .{@errorName(err)});
+                    self.completeFileDialog(args.completion, null);
+                    self.file_dialog_done.store(true, .release);
+                    return;
+                },
+                .save => nfd.saveFileDialog(args.filter_list, null) catch |err| {
+                    std.log.err("NFD saveFileDialog failed: {s}", .{@errorName(err)});
                     self.completeFileDialog(args.completion, null);
                     self.file_dialog_done.store(true, .release);
                     return;

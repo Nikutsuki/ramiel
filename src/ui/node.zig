@@ -678,16 +678,28 @@ pub fn Node(comptime MessageT: type) type {
                 const bdr = self.style.border;
                 const otl = self.style.outline;
 
-                const can_skip_sdf = bg[3] > 0 and
-                    !self.style.corner_radius.hasAny() and
-                    !bdr.hasAny() and
+                const can_skip_sdf = !self.style.corner_radius.hasAny() and
                     !otl.hasAny() and
                     backdrop_blur == 0.0 and
                     element_blur == 0.0 and
                     rotation == 0.0;
 
                 if (can_skip_sdf) {
-                    try batcher.addRect(abs_x, abs_y, w, h, bg, 0, 0, .{ 0, 0, 0, 0 });
+                    if (bg[3] > 0) try batcher.addRect(abs_x, abs_y, w, h, bg, 0, 0, .{ 0, 0, 0, 0 });
+                    if (bdr.hasAny()) {
+                        const wt = @max(0.0, bdr.top.width);
+                        const wr = @max(0.0, bdr.right.width);
+                        const wb = @max(0.0, bdr.bottom.width);
+                        const wl = @max(0.0, bdr.left.width);
+                        const ct = colorWithOpacity(bdr.top.color, combined_opacity);
+                        const cr = colorWithOpacity(bdr.right.color, combined_opacity);
+                        const cb = colorWithOpacity(bdr.bottom.color, combined_opacity);
+                        const cl = colorWithOpacity(bdr.left.color, combined_opacity);
+                        if (wt > 0 and ct[3] > 0) try batcher.addRect(abs_x, abs_y, w, wt, ct, 0, 0, .{ 0, 0, 0, 0 });
+                        if (wb > 0 and cb[3] > 0) try batcher.addRect(abs_x, abs_y + h - wb, w, wb, cb, 0, 0, .{ 0, 0, 0, 0 });
+                        if (wl > 0 and cl[3] > 0) try batcher.addRect(abs_x, abs_y, wl, h, cl, 0, 0, .{ 0, 0, 0, 0 });
+                        if (wr > 0 and cr[3] > 0) try batcher.addRect(abs_x + w - wr, abs_y, wr, h, cr, 0, 0, .{ 0, 0, 0, 0 });
+                    }
                 } else {
                     const bdr_top = colorWithOpacity(bdr.top.color, combined_opacity);
                     const bdr_right = colorWithOpacity(bdr.right.color, combined_opacity);

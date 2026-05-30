@@ -15,6 +15,23 @@ pub const CoreIcons = struct {
     pub const ArrowDropdown = hashIconId("ramiel:core:arrow_dropdown");
 };
 
+pub fn FieldTreeAdapter(comptime ItemT: type) type {
+    return struct {
+        pub fn id(item: *const ItemT) []const u8 {
+            return @field(item.*, "id");
+        }
+
+        pub fn children(item: *const ItemT) []const ItemT {
+            return @field(item.*, "children").items;
+        }
+
+        pub fn isGroup(item: *const ItemT) bool {
+            if (@hasField(ItemT, "is_group")) return @field(item.*, "is_group");
+            return children(item).len > 0;
+        }
+    };
+}
+
 pub const TreeItem = struct {
     id: []const u8,
     depth: u32,
@@ -204,8 +221,7 @@ pub fn update(
 
             if (is_ctrl) {
                 try state.toggleSelection(ci.id);
-            } else if (state.isSelected(ci.id)) {
-            } else {
+            } else if (state.isSelected(ci.id)) {} else {
                 try state.selectOnly(ci.id);
             }
         },
@@ -215,6 +231,67 @@ pub fn update(
             state.drag_pos = ds.pos;
             state.drop_target_id = null;
             state.drop_target_pos = null;
+            if (!state.isSelected(ds.id)) {
+                try state.selectOnly(ds.id);
+            }
+        },
+        .drag_over => |do| {
+            if (state.dragged_id == null) return;
+            state.drop_target_id = do.target_id;
+            state.drop_target_pos = do.drop_pos;
+            state.drag_pos = do.drag_pos;
+        },
+        .drop => {
+            state.dragged_id = null;
+            state.drag_pos = null;
+            state.drop_target_id = null;
+            state.drop_target_pos = null;
+        },
+        .tick => |is_dragging| {
+            if (state.dragged_id != null and !is_dragging) {
+                state.dragged_id = null;
+                state.drag_pos = null;
+                state.drop_target_id = null;
+                state.drop_target_pos = null;
+            }
+        },
+    }
+}
+
+pub fn updateAdapted(
+    comptime ItemT: type,
+    comptime Adapter: type,
+    state: *TreeState([]const u8),
+    items: []const ItemT,
+    msg: TreeMessage([]const u8),
+) !void {
+    switch (msg) {
+        .click => |ci| {
+            const is_ctrl = (ci.mods & 0x0002) != 0; // GLFW_MOD_CONTROL
+
+            if (!is_ctrl) {
+                if (treeFindItemByIdAdapted(ItemT, Adapter, items, ci.id)) |item| {
+                    if (Adapter.isGroup(item)) {
+                        try state.toggleExpanded(ci.id);
+                    }
+                }
+            }
+
+            if (is_ctrl) {
+                try state.toggleSelection(ci.id);
+            } else if (!state.isSelected(ci.id)) {
+                try state.selectOnly(ci.id);
+            }
+        },
+        .toggle => |id| try state.toggleExpanded(id),
+        .drag_start => |ds| {
+            state.dragged_id = ds.id;
+            state.drag_pos = ds.pos;
+            state.drop_target_id = null;
+            state.drop_target_pos = null;
+            if (!state.isSelected(ds.id)) {
+                try state.selectOnly(ds.id);
+            }
         },
         .drag_over => |do| {
             if (state.dragged_id == null) return;
@@ -452,6 +529,35 @@ pub fn buildFromSource(
     }, visuals);
 }
 
+pub fn buildFromSourceAdapted(
+    comptime MessageT: type,
+    comptime ItemT: type,
+    comptime Adapter: type,
+    ctx: *UIContext(MessageT),
+    state: *const TreeState([]const u8),
+    root_items: []const ItemT,
+    logic: TreeSourceLogic(MessageT),
+    visuals: TreeDescriptor,
+) !*Node(MessageT) {
+    const alloc = ctx.build_arena.allocator();
+    var visible_items = std.ArrayList(TreeItem).empty;
+    defer visible_items.deinit(alloc);
+
+    try flattenSourceAdapted(ItemT, Adapter, alloc, root_items, state, 0, &visible_items);
+
+    return build(MessageT, ctx, .{
+        .base_id = logic.base_id,
+        .items = visible_items.items,
+        .build_row_content = logic.build_row_content,
+        .wrap_message = logic.wrap_message,
+        .userdata = logic.userdata,
+        .dragged_item_id = state.dragged_id,
+        .drag_pos = state.drag_pos,
+        .drop_target_id = state.drop_target_id,
+        .drop_target_pos = state.drop_target_pos,
+    }, visuals);
+}
+
 fn flattenSource(
     comptime ItemT: type,
     allocator: std.mem.Allocator,
@@ -478,6 +584,43 @@ fn flattenSource(
 
         if (is_expanded) {
             try flattenSource(ItemT, allocator, children.items, state, depth + 1, out);
+        }
+    }
+}
+
+fn flattenSourceAdapted(
+    comptime ItemT: type,
+    comptime Adapter: type,
+    allocator: std.mem.Allocator,
+    items: []const ItemT,
+    state: *const TreeState([]const u8),
+    depth: u32,
+    out: *std.ArrayList(TreeItem),
+) anyerror!void {
+    for (items) |*item| {
+        const id = Adapter.id(item);
+        const is_group = Adapter.isGroup(item);
+        const is_expanded = state.isExpanded(id);
+
+        try out.append(allocator, .{
+            .id = id,
+            .depth = depth,
+            .is_group = is_group,
+            .is_expanded = is_expanded,
+            .is_selected = state.isSelected(id),
+            .can_receive_children = is_group,
+        });
+
+        if (is_group and is_expanded) {
+            try flattenSourceAdapted(
+                ItemT,
+                Adapter,
+                allocator,
+                Adapter.children(item),
+                state,
+                depth + 1,
+                out,
+            );
         }
     }
 }
@@ -875,6 +1018,19 @@ fn treeFindItemById(comptime ItemT: type, items: []const ItemT, id: []const u8) 
         if (std.mem.eql(u8, itemId(ItemT, item), id)) return item;
         const children = @field(item.*, "children");
         if (treeFindItemById(ItemT, children.items, id)) |found| return found;
+    }
+    return null;
+}
+
+fn treeFindItemByIdAdapted(
+    comptime ItemT: type,
+    comptime Adapter: type,
+    items: []const ItemT,
+    id: []const u8,
+) ?*const ItemT {
+    for (items) |*item| {
+        if (std.mem.eql(u8, Adapter.id(item), id)) return item;
+        if (treeFindItemByIdAdapted(ItemT, Adapter, Adapter.children(item), id)) |found| return found;
     }
     return null;
 }

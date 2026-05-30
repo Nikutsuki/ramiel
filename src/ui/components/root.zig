@@ -213,6 +213,29 @@ pub fn Builder(comptime MessageT: type) type {
                 visuals,
             );
         }
+
+        pub inline fn treeFromSourceAdapted(
+            self: Self,
+            comptime ItemT: type,
+            comptime Adapter: type,
+            params: struct {
+                state: *const tree_impl.TreeState([]const u8),
+                root_items: []const ItemT,
+                logic: tree_impl.TreeSourceLogic(MessageT),
+                visuals: tree_impl.TreeDescriptor = .{},
+            },
+        ) !*Node(MessageT) {
+            return tree_impl.buildFromSourceAdapted(
+                MessageT,
+                ItemT,
+                Adapter,
+                self.ui,
+                params.state,
+                params.root_items,
+                params.logic,
+                params.visuals,
+            );
+        }
     };
 }
 

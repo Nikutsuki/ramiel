@@ -229,59 +229,111 @@ void main() {
         // Outer shape coverage (handles anti-aliased edge).
         float shape_cov = 1.0 - smoothstep(0.0, sm, dist);
 
-        // Use distances to the four box lines to smoothly pick side width/colour,
-        // then apply those widths in SDF-space so border/outline follow corner arcs.
         const float eps = 1e-4;
-        vec4 line_dist = vec4(
-            abs(p.y + half_size.y), // top
-            abs(p.x - half_size.x), // right
-            abs(p.y - half_size.y), // bottom
-            abs(p.x + half_size.x)  // left
-        );
-        // Softer side falloff so border/outline carry around corners more naturally.
-        vec4 side_raw = 1.0 / (line_dist + vec4(eps));
-        vec4 side_w = side_raw / max(dot(side_raw, vec4(1.0)), eps);
-
-        // Per-side border (inside the shape, constant thickness on curves)
         vec4 bw = max(fragBorderWidths, vec4(0.0));
-        vec4 bw_mix = side_w * bw;
-        float bw_mix_sum = dot(bw_mix, vec4(1.0));
-        float border_w = dot(side_w, bw);
-
-        float inner_cov = 1.0 - smoothstep(0.0, sm, dist + border_w);
-        float border_cov = (border_w > 0.0) ? clamp(shape_cov - inner_cov, 0.0, 1.0) : 0.0;
-        vec4 border_col = (bw_mix_sum > eps)
-                ? (unpackUnorm4x8(fragBorderColors.x) * bw_mix.x +
-                    unpackUnorm4x8(fragBorderColors.y) * bw_mix.y +
-                    unpackUnorm4x8(fragBorderColors.z) * bw_mix.z +
-                    unpackUnorm4x8(fragBorderColors.w) * bw_mix.w) / bw_mix_sum
-            : vec4(0.0);
-
-        // Per-side outline (outside the shape, constant thickness on curves)
         vec4 ow = max(fragOutlineWidths, vec4(0.0));
-        vec4 ow_mix = side_w * ow;
-        float ow_mix_sum = dot(ow_mix, vec4(1.0));
-        float outline_w = dot(side_w, ow);
+        float inner_cov = shape_cov;
+        float border_cov = 0.0;
+        float outline_cov = 0.0;
+        vec4 border_col = vec4(0.0);
+        vec4 outline_col = vec4(0.0);
 
-        float outer_cov = 1.0 - smoothstep(0.0, sm, dist - outline_w);
-        float outline_cov = (outline_w > 0.0) ? clamp(outer_cov - shape_cov, 0.0, 1.0) : 0.0;
-        vec4 outline_col = (ow_mix_sum > eps)
-                ? (unpackUnorm4x8(fragOutlineColors.x) * ow_mix.x +
-                    unpackUnorm4x8(fragOutlineColors.y) * ow_mix.y +
-                    unpackUnorm4x8(fragOutlineColors.z) * ow_mix.z +
-                    unpackUnorm4x8(fragOutlineColors.w) * ow_mix.w) / ow_mix_sum
-            : vec4(0.0);
+        float element_max_radius = max(
+            max(fragCornerRadii.x, fragCornerRadii.y),
+            max(fragCornerRadii.z, fragCornerRadii.w)
+        );
 
-        // CSS box-model compositing (background-clip: border-box):
-        //   - background fills the entire SHAPE (inner_cov + border_cov region)
-        //   - border draws ON TOP of the background in the border zone
-        //   - outline draws OUTSIDE the shape; no background under it
-        // The fragment is partitioned spatially by SDF coverage; per-region
-        // colours are then mosaic-composited so AA bands don't double-count.
+        if (element_max_radius <= 0.0) {
+            vec4 inset = vec4(
+                p.y + half_size.y, // top: distance inward from top edge
+                half_size.x - p.x, // right
+                half_size.y - p.y, // bottom
+                p.x + half_size.x  // left
+            );
+
+            vec4 border_side_cov = vec4(0.0);
+            if (bw.x > 0.0) border_side_cov.x = 1.0 - smoothstep(max(bw.x - sm, 0.0), bw.x, inset.x);
+            if (bw.y > 0.0) border_side_cov.y = 1.0 - smoothstep(max(bw.y - sm, 0.0), bw.y, inset.y);
+            if (bw.z > 0.0) border_side_cov.z = 1.0 - smoothstep(max(bw.z - sm, 0.0), bw.z, inset.z);
+            if (bw.w > 0.0) border_side_cov.w = 1.0 - smoothstep(max(bw.w - sm, 0.0), bw.w, inset.w);
+            border_side_cov *= shape_cov;
+
+            border_cov = max(max(border_side_cov.x, border_side_cov.y), max(border_side_cov.z, border_side_cov.w));
+            inner_cov = clamp(shape_cov - border_cov, 0.0, 1.0);
+
+            float bw_mix_sum = dot(border_side_cov, vec4(1.0));
+            border_col = (bw_mix_sum > eps)
+                    ? (unpackUnorm4x8(fragBorderColors.x) * border_side_cov.x +
+                        unpackUnorm4x8(fragBorderColors.y) * border_side_cov.y +
+                        unpackUnorm4x8(fragBorderColors.z) * border_side_cov.z +
+                        unpackUnorm4x8(fragBorderColors.w) * border_side_cov.w) / bw_mix_sum
+                : vec4(0.0);
+
+            float span_x = 1.0 - smoothstep(0.0, sm, abs(p.x) - half_size.x);
+            float span_y = 1.0 - smoothstep(0.0, sm, abs(p.y) - half_size.y);
+            vec4 outline_side_cov = vec4(0.0);
+            if (ow.x > 0.0) outline_side_cov.x =
+                (1.0 - smoothstep(max(ow.x - sm, 0.0), ow.x, -inset.x)) *
+                (1.0 - smoothstep(0.0, sm, inset.x)) * span_x;
+            if (ow.y > 0.0) outline_side_cov.y =
+                (1.0 - smoothstep(max(ow.y - sm, 0.0), ow.y, -inset.y)) *
+                (1.0 - smoothstep(0.0, sm, inset.y)) * span_y;
+            if (ow.z > 0.0) outline_side_cov.z =
+                (1.0 - smoothstep(max(ow.z - sm, 0.0), ow.z, -inset.z)) *
+                (1.0 - smoothstep(0.0, sm, inset.z)) * span_x;
+            if (ow.w > 0.0) outline_side_cov.w =
+                (1.0 - smoothstep(max(ow.w - sm, 0.0), ow.w, -inset.w)) *
+                (1.0 - smoothstep(0.0, sm, inset.w)) * span_y;
+
+            outline_cov = max(max(outline_side_cov.x, outline_side_cov.y), max(outline_side_cov.z, outline_side_cov.w));
+            float ow_mix_sum = dot(outline_side_cov, vec4(1.0));
+            outline_col = (ow_mix_sum > eps)
+                    ? (unpackUnorm4x8(fragOutlineColors.x) * outline_side_cov.x +
+                        unpackUnorm4x8(fragOutlineColors.y) * outline_side_cov.y +
+                        unpackUnorm4x8(fragOutlineColors.z) * outline_side_cov.z +
+                        unpackUnorm4x8(fragOutlineColors.w) * outline_side_cov.w) / ow_mix_sum
+                : vec4(0.0);
+        } else {
+            vec4 line_dist = vec4(
+                abs(p.y + half_size.y), // top
+                abs(p.x - half_size.x), // right
+                abs(p.y - half_size.y), // bottom
+                abs(p.x + half_size.x)  // left
+            );
+
+            vec4 side_raw = 1.0 / (line_dist + vec4(eps));
+            vec4 side_w = side_raw / max(dot(side_raw, vec4(1.0)), eps);
+
+            vec4 bw_mix = side_w * bw;
+            float bw_mix_sum = dot(bw_mix, vec4(1.0));
+            float border_w = dot(side_w, bw);
+
+            inner_cov = 1.0 - smoothstep(0.0, sm, dist + border_w);
+            border_cov = (border_w > 0.0) ? clamp(shape_cov - inner_cov, 0.0, 1.0) : 0.0;
+            border_col = (bw_mix_sum > eps)
+                    ? (unpackUnorm4x8(fragBorderColors.x) * bw_mix.x +
+                        unpackUnorm4x8(fragBorderColors.y) * bw_mix.y +
+                        unpackUnorm4x8(fragBorderColors.z) * bw_mix.z +
+                        unpackUnorm4x8(fragBorderColors.w) * bw_mix.w) / bw_mix_sum
+                : vec4(0.0);
+
+            vec4 ow_mix = side_w * ow;
+            float ow_mix_sum = dot(ow_mix, vec4(1.0));
+            float outline_w = dot(side_w, ow);
+
+            float outer_cov = 1.0 - smoothstep(0.0, sm, dist - outline_w);
+            outline_cov = (outline_w > 0.0) ? clamp(outer_cov - shape_cov, 0.0, 1.0) : 0.0;
+            outline_col = (ow_mix_sum > eps)
+                    ? (unpackUnorm4x8(fragOutlineColors.x) * ow_mix.x +
+                        unpackUnorm4x8(fragOutlineColors.y) * ow_mix.y +
+                        unpackUnorm4x8(fragOutlineColors.z) * ow_mix.z +
+                        unpackUnorm4x8(fragOutlineColors.w) * ow_mix.w) / ow_mix_sum
+                : vec4(0.0);
+        }
+
         vec3 border_zone_rgb;
         float border_zone_a;
         {
-            // Effective colour in the border region: bg with border composited over.
             float ba = border_col.a;
             border_zone_a = baseColor.a + ba * (1.0 - baseColor.a);
             if (border_zone_a > eps) {
