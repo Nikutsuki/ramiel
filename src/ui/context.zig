@@ -807,6 +807,9 @@ fn promoteToGPA(comptime MessageT: type, ctx: *UIContext(MessageT), desc: *Node(
     node.flags = .{};
     node.is_focusable = desc.is_focusable;
     node.lock_pointer_on_drag = desc.lock_pointer_on_drag;
+    node.hit_byte_start = desc.hit_byte_start;
+    node.hit_byte_end = desc.hit_byte_end;
+    node.hit_test_kind = desc.hit_test_kind;
     node.scroll_x = desc.scroll_x;
     node.scroll_y = desc.scroll_y;
     node.prev_desc_scroll_x = desc.scroll_x;
@@ -1303,6 +1306,9 @@ fn reconcileNode(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *
     retained.clip_children = desc.clip_children;
     retained.is_focusable = desc.is_focusable;
     retained.lock_pointer_on_drag = desc.lock_pointer_on_drag;
+    retained.hit_byte_start = desc.hit_byte_start;
+    retained.hit_byte_end = desc.hit_byte_end;
+    retained.hit_test_kind = desc.hit_test_kind;
     // Only adopt scroll from descriptor when the build directive actually changed,
     // so runtime-driven scroll (overflow, scrollbar drag) survives rebuilds.
     if (desc.scroll_x != retained.prev_desc_scroll_x) {

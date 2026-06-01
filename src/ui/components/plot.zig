@@ -276,6 +276,8 @@ pub const PlotMsg = union(enum) {
     hover: ?struct { x: f64, y: f64 },
 };
 
+pub const TickFormatter = *const fn (buf: []u8, value: f64, step: f64) anyerror![]const u8;
+
 pub const PlotDescriptor = struct {
     style: layout.Style = .{},
     background_color: [4]f32 = .{ 0.05, 0.06, 0.08, 1.0 },
@@ -285,6 +287,10 @@ pub const PlotDescriptor = struct {
     target_grid_lines_y: u8 = 6,
     axis_label_style: layout.Style = .{},
     axis_font: ?*FontData = null,
+    x_tick_formatter: ?TickFormatter = null,
+    y_tick_formatter: ?TickFormatter = null,
+    x_tooltip_label: []const u8 = "x",
+    y_tooltip_label: []const u8 = "y",
     margin_left: f32 = 48.0,
     margin_bottom: f32 = 24.0,
     margin_top: f32 = 8.0,
@@ -604,6 +610,11 @@ fn formatTick(buf: []u8, value: f64, step: f64) ![]const u8 {
     const decimals_f: f64 = @max(0.0, -@floor(log_step));
     const decimals: u4 = @intFromFloat(@min(6.0, decimals_f));
     return std.fmt.bufPrint(buf, "{d:.[1]}", .{ value, decimals });
+}
+
+fn formatTickWith(formatter: ?TickFormatter, buf: []u8, value: f64, step: f64) ![]const u8 {
+    if (formatter) |f| return f(buf, value, step);
+    return formatTick(buf, value, step);
 }
 
 fn visibleRange(s: PlotSeries, x_min: f64, x_max: f64) struct { start: usize, end: usize } {
@@ -1324,7 +1335,7 @@ pub fn build(
                 var safety_x: u32 = 0;
                 while (gx <= logic.state.view_x_max and safety_x < 64) : (safety_x += 1) {
                     const buf = try arena.alloc(u8, 32);
-                    const text_slice = formatTick(buf, gx, step_x) catch "";
+                    const text_slice = formatTickWith(descriptor.x_tick_formatter, buf, gx, step_x) catch "";
                     const norm: f32 = @floatCast((gx - logic.state.view_x_min) / view_w);
                     var ts = descriptor.axis_label_style;
                     ts.position = .absolute;
@@ -1345,7 +1356,7 @@ pub fn build(
                 var safety_y: u32 = 0;
                 while (gy <= logic.state.view_y_max and safety_y < 64) : (safety_y += 1) {
                     const buf = try arena.alloc(u8, 32);
-                    const text_slice = formatTick(buf, gy, step_y) catch "";
+                    const text_slice = formatTickWith(descriptor.y_tick_formatter, buf, gy, step_y) catch "";
                     const norm: f32 = @floatCast((gy - logic.state.view_y_min) / view_h);
                     var ts = descriptor.axis_label_style;
                     ts.position = .absolute;
@@ -1428,7 +1439,16 @@ pub fn build(
         if (snap_x == null) break :blk null;
 
         const buf = try arena.alloc(u8, 64);
-        const text_slice = std.fmt.bufPrint(buf, "x: {d:.3}\ny: {d:.3}", .{ snap_x.?, snap_y.? }) catch break :blk null;
+        var x_buf: [64]u8 = undefined;
+        var y_buf: [64]u8 = undefined;
+        const x_text = formatTickWith(descriptor.x_tick_formatter, &x_buf, snap_x.?, 0.001) catch break :blk null;
+        const y_text = formatTickWith(descriptor.y_tick_formatter, &y_buf, snap_y.?, 0.001) catch break :blk null;
+        const text_slice = std.fmt.bufPrint(buf, "{s}: {s}\n{s}: {s}", .{
+            descriptor.x_tooltip_label,
+            x_text,
+            descriptor.y_tooltip_label,
+            y_text,
+        }) catch break :blk null;
 
         const text_node = try ctx.text(.{
             .style = .{

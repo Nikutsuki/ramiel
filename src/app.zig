@@ -1379,6 +1379,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 if (current_fb.width != last_fb.width or current_fb.height != last_fb.height) {
                     self.ui.root.markDirty();
                     self.ui.requestLayout();
+                    self.ui.interaction_registry.rebuild_requested = true;
                     last_fb = current_fb;
                 }
 

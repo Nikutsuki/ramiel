@@ -78,6 +78,15 @@ pub const LayoutOptions = struct {
     font_size: f32 = 0.0,
 };
 
+pub const FontFeature = struct {
+    tag: [4]u8,
+    value: u32 = 1,
+};
+
+fn featTag(s: *const [4]u8) u32 {
+    return (@as(u32, s[0]) << 24) | (@as(u32, s[1]) << 16) | (@as(u32, s[2]) << 8) | @as(u32, s[3]);
+}
+
 pub const TextLayouter = struct {
     allocator: std.mem.Allocator,
     hb_buffer: *c.hb_buffer_t,
@@ -89,6 +98,20 @@ pub const TextLayouter = struct {
     /// Back-pointer to the owning FontSystem, used for per-codepoint font
     /// fallback during measurement. Null until the first font is loaded.
     font_system: ?*FontSystem = null,
+    font_features: []const FontFeature = &.{},
+
+    fn shapeBuffer(self: *TextLayouter, hb_font: anytype) void {
+        if (self.font_features.len == 0) {
+            c.hb_shape(hb_font, self.hb_buffer, null, 0);
+            return;
+        }
+        var buf: [64]c.hb_feature_t = undefined;
+        const n = @min(self.font_features.len, buf.len);
+        for (self.font_features[0..n], 0..) |f, i| {
+            buf[i] = .{ .tag = featTag(&f.tag), .value = f.value, .start = 0, .end = std.math.maxInt(c_uint) };
+        }
+        c.hb_shape(hb_font, self.hb_buffer, &buf[0], @intCast(n));
+    }
 
     pub fn init(allocator: std.mem.Allocator) !TextLayouter {
         const hb_buffer = c.hb_buffer_create() orelse return error.HarfBuzzBufferCreationFailed;
@@ -217,7 +240,7 @@ pub const TextLayouter = struct {
             c.hb_buffer_add_utf8(self.hb_buffer, text.ptr, @intCast(text.len), @intCast(segment.start_byte), @intCast(segment.end_byte - segment.start_byte));
             c.hb_buffer_guess_segment_properties(self.hb_buffer);
 
-            c.hb_shape(font_data.hb_font, self.hb_buffer, null, 0);
+            self.shapeBuffer(font_data.hb_font);
 
             var glyph_count: u32 = 0;
             const glyph_info = c.hb_buffer_get_glyph_infos(self.hb_buffer, &glyph_count);
@@ -583,7 +606,7 @@ pub const TextLayouter = struct {
             c.hb_buffer_clear_contents(self.hb_buffer);
             c.hb_buffer_add_utf8(self.hb_buffer, text.ptr, @intCast(text.len), @intCast(segment.start), @intCast(segment.end - segment.start));
             c.hb_buffer_guess_segment_properties(self.hb_buffer);
-            c.hb_shape(seg.font.hb_font, self.hb_buffer, null, 0);
+            self.shapeBuffer(seg.font.hb_font);
 
             var glyph_count: u32 = 0;
             const glyph_info = c.hb_buffer_get_glyph_infos(self.hb_buffer, &glyph_count);

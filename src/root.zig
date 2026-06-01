@@ -11,6 +11,7 @@ pub const FontData = @import("renderer/font/font_registry.zig").FontData;
 pub const FontVariant = @import("renderer/font/font_registry.zig").FontVariant;
 pub const FontFamily = @import("renderer/font/font_registry.zig").FontFamily;
 pub const FamilySources = @import("renderer/font/font_system.zig").FamilySources;
+pub const FontFeature = @import("renderer/font/text_layouter.zig").FontFeature;
 pub const assets = @import("assets.zig");
 pub const glfw = @import("glfw");
 pub const Application = @import("app.zig").Application;

@@ -118,6 +118,8 @@ pub const TextSelection = struct {
     focus: usize,
 };
 
+pub const HitTestKind = enum(u8) { none, glyphs, atomic };
+
 pub const InvalidationState = packed struct {
     position: bool = true,
     size: bool = true,
@@ -170,6 +172,10 @@ pub fn Node(comptime MessageT: type) type {
         hover_anim: ?HoverAnim = null,
 
         text_selection: ?TextSelection = null,
+
+        hit_byte_start: u32 = 0,
+        hit_byte_end: u32 = 0,
+        hit_test_kind: HitTestKind = .none,
 
         events: []const EventBinding(MessageT) = &.{},
 

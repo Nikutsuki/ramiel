@@ -27,6 +27,7 @@ pub fn RunContext(comptime AppT: type) type {
         app: *AppT,
         allocator: std.mem.Allocator,
         io: std.Io,
+        environ_map: *std.process.Environ.Map,
     };
 }
 
@@ -404,6 +405,7 @@ pub fn ManagedApp(comptime Spec: type) type {
                 .app = &app,
                 .allocator = allocator,
                 .io = io,
+                .environ_map = init.environ_map,
             };
             var did_setup = false;
             defer if (did_setup) callShutdown(RunSpec, &ctx);
@@ -532,6 +534,7 @@ pub fn SinglePageApp(
                 .app = &app,
                 .allocator = allocator,
                 .io = io,
+                .environ_map = init.environ_map,
             };
             var did_setup = false;
             defer if (did_setup) callShutdown(RunSpec, &ctx);
