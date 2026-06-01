@@ -669,7 +669,15 @@ fn updateTextLayoutCache(node: anytype, text_layouter: anytype, font: anytype, t
     cache.font_size = options.font_size;
 
     const Layouter = layouterDeclType(@TypeOf(text_layouter));
-    const measured = if (@hasDecl(Layouter, "measureTextWithOptions"))
+    const measured = if (@hasDecl(Layouter, "measureTextCached"))
+        text_layouter.measureTextCached(node.allocator, font, text, .{
+            .max_width = options.max_width,
+            .wrap = options.wrap,
+            .ellipsis = options.ellipsis,
+            .font_size = node.style.font_size,
+            .line_height = options.line_height,
+        })
+    else if (@hasDecl(Layouter, "measureTextWithOptions"))
         text_layouter.measureTextWithOptions(node.allocator, font, text, .{
             .max_width = options.max_width,
             .wrap = options.wrap,

@@ -87,6 +87,44 @@ fn featTag(s: *const [4]u8) u32 {
     return (@as(u32, s[0]) << 24) | (@as(u32, s[1]) << 16) | (@as(u32, s[2]) << 8) | @as(u32, s[3]);
 }
 
+const MeasureCache = struct {
+    const max_entries = 8192;
+
+    const Key = struct {
+        content_hash: u64,
+        features: u64,
+        font: usize,
+        font_size: u32,
+        line_height: u32,
+        max_width: u32,
+        flags: u8,
+    };
+
+    const Entry = struct {
+        content: []u8,
+        metrics: []GlyphMetric,
+        width: f32,
+        height: f32,
+        is_bitmap: bool,
+    };
+
+    map: std.AutoHashMapUnmanaged(Key, Entry) = .empty,
+
+    fn clearEntries(self: *MeasureCache, allocator: std.mem.Allocator) void {
+        var it = self.map.iterator();
+        while (it.next()) |e| {
+            allocator.free(e.value_ptr.content);
+            allocator.free(e.value_ptr.metrics);
+        }
+        self.map.clearRetainingCapacity();
+    }
+
+    fn deinit(self: *MeasureCache, allocator: std.mem.Allocator) void {
+        self.clearEntries(allocator);
+        self.map.deinit(allocator);
+    }
+};
+
 pub const TextLayouter = struct {
     allocator: std.mem.Allocator,
     hb_buffer: *c.hb_buffer_t,
@@ -99,6 +137,7 @@ pub const TextLayouter = struct {
     /// fallback during measurement. Null until the first font is loaded.
     font_system: ?*FontSystem = null,
     font_features: []const FontFeature = &.{},
+    measure_cache: MeasureCache = .{},
 
     fn shapeBuffer(self: *TextLayouter, hb_font: anytype) void {
         if (self.font_features.len == 0) {
@@ -521,6 +560,77 @@ pub const TextLayouter = struct {
         };
     }
 
+    fn measureKey(self: *TextLayouter, font_data: *FontData, text: []const u8, options: LayoutOptions) MeasureCache.Key {
+        var fh = std.hash.Wyhash.init(0);
+        for (self.font_features) |f| {
+            fh.update(&f.tag);
+            fh.update(std.mem.asBytes(&f.value));
+        }
+        return .{
+            .content_hash = std.hash.Wyhash.hash(0, text),
+            .features = fh.final(),
+            .font = @intFromPtr(font_data),
+            .font_size = @bitCast(options.font_size),
+            .line_height = @bitCast(options.line_height),
+            .max_width = @bitCast(options.max_width),
+            .flags = @as(u8, @intFromBool(options.wrap)) | (@as(u8, @intFromBool(options.ellipsis)) << 1),
+        };
+    }
+
+    fn cacheStore(self: *TextLayouter, key: MeasureCache.Key, text: []const u8, measured: MeasureResult) void {
+        const a = self.allocator;
+        if (self.measure_cache.map.count() >= MeasureCache.max_entries and !self.measure_cache.map.contains(key)) {
+            self.measure_cache.clearEntries(a);
+        }
+        const content = a.dupe(u8, text) catch return;
+        const metrics = a.dupe(GlyphMetric, measured.metrics) catch {
+            a.free(content);
+            return;
+        };
+        const gop = self.measure_cache.map.getOrPut(a, key) catch {
+            a.free(content);
+            a.free(metrics);
+            return;
+        };
+        if (gop.found_existing) {
+            a.free(gop.value_ptr.content);
+            a.free(gop.value_ptr.metrics);
+        }
+        gop.value_ptr.* = .{
+            .content = content,
+            .metrics = metrics,
+            .width = measured.width,
+            .height = measured.height,
+            .is_bitmap = measured.is_bitmap,
+        };
+    }
+
+    pub fn measureTextCached(
+        self: *TextLayouter,
+        allocator: std.mem.Allocator,
+        font_data: *FontData,
+        text: []const u8,
+        options: LayoutOptions,
+    ) MeasureResult {
+        if (text.len == 0) return self.measureTextWithOptions(allocator, font_data, text, options);
+
+        const key = self.measureKey(font_data, text, options);
+        if (self.measure_cache.map.getPtr(key)) |e| {
+            if (std.mem.eql(u8, e.content, text)) {
+                return .{
+                    .width = e.width,
+                    .height = e.height,
+                    .is_bitmap = e.is_bitmap,
+                    .metrics = allocator.dupe(GlyphMetric, e.metrics) catch @panic("OOM while duping cached text metrics"),
+                };
+            }
+        }
+
+        const measured = self.measureTextWithOptions(allocator, font_data, text, options);
+        self.cacheStore(key, text, measured);
+        return measured;
+    }
+
     pub fn measureTextWithOptions(
         self: *TextLayouter,
         allocator: std.mem.Allocator,
@@ -832,6 +942,7 @@ pub const TextLayouter = struct {
     }
 
     pub fn deinit(self: *TextLayouter) void {
+        self.measure_cache.deinit(self.allocator);
         self.vertices.deinit(self.allocator);
         self.indices.deinit(self.allocator);
         c.hb_buffer_destroy(self.hb_buffer);
