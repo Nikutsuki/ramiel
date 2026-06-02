@@ -35,6 +35,7 @@ extern "C" int msdfgen_generate_glyph_rgba(
     if (!loaded || shape.contours.empty()) return 0;
 
     shape.normalize();
+    shape.orientContours();
     msdfgen::edgeColoringSimple(shape, 3.0);
 
     const msdfgen::Projection projection(
