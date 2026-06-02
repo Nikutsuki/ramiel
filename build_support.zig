@@ -102,7 +102,7 @@ pub const Runtime = struct {
         hot_step.dependOn(&install_host.step);
 
         const run_exe = self.b.addRunArtifact(exe);
-        run_exe.step.dependOn(self.b.getInstallStep());
+        run_exe.step.dependOn(&install_exe.step);
         self.bindRunEnvironment(run_exe);
         if (self.b.args) |args| run_exe.addArgs(args);
 
