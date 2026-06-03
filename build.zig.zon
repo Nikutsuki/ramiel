@@ -32,6 +32,10 @@
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
     .dependencies = .{
+        .ffmpeg = .{
+            .url = "git+https://github.com/Nikutsuki/ffmpeg-ramiel.git#094b94ca6fe2c3d59a5bb14b8218dc07239ba5fa",
+            .hash = "ffmpeg_ramiel-0.1.0-H33jtEpAAABskdh6jyL6r5uHFVTLtFDVRe_DfEsXVKIP",
+        },
         .glfw_zig = .{
             .url = "git+https://github.com/tiawl/glfw.zig.git#32a093cd869a0694ca2c0306680f7c7bc5dcd0b9",
             .hash = "glfw_zig-1.0.0-NrvYoyvRGQDgKTTvaAaJLZWQsL6AL5F8jGsBla2V275Y",
