@@ -17,7 +17,7 @@ pub const Runtime = struct {
     optimize: std.builtin.OptimizeMode,
     is_windows: bool,
     is_linux: bool,
-    shaderc_bin_install: ?*std.Build.Step.InstallDir = null,
+    shaderc_bin_install: ?*std.Build.Step = null,
     shaderc_linux_lib_dir: ?[]const u8 = null,
 
     pub fn addRamielImport(self: Runtime, module: *std.Build.Module) void {
@@ -27,8 +27,8 @@ pub const Runtime = struct {
     pub fn bindRunEnvironment(self: Runtime, run_cmd: *std.Build.Step.Run) void {
         const env = run_cmd.getEnvMap();
         if (self.is_windows) {
-            const install = self.shaderc_bin_install orelse return;
-            run_cmd.step.dependOn(&install.step);
+            const step = self.shaderc_bin_install orelse return;
+            run_cmd.step.dependOn(step);
 
             const current_path = env.get("PATH") orelse "";
             const install_bin = self.b.getInstallPath(.bin, "");
@@ -195,9 +195,9 @@ pub fn dependency(b: *std.Build, options: DependencyOptions) Runtime {
     };
 
     if (is_windows) {
-        runtime.shaderc_bin_install = installRuntimeDirIfExists(
+        runtime.shaderc_bin_install = installShadercDll(
             b,
-            b.pathJoin(&.{ shadercWindowsBasePath(b, dep), "bin" }),
+            shadercWindowsBasePath(b, dep),
             options.install_runtime_to_default_step,
         );
     } else if (is_linux) {
@@ -213,31 +213,20 @@ fn shadercWindowsBasePath(b: *std.Build, dep: *std.Build.Dependency) []const u8 
         dep.builder.pathFromRoot("src/thirdparty/shaderc_windows_x64");
 }
 
-fn installRuntimeDirIfExists(
+fn installShadercDll(
     b: *std.Build,
-    source_dir_path: []const u8,
+    base_path: []const u8,
     install_to_default_step: bool,
-) ?*std.Build.Step.InstallDir {
-    if (std.fs.path.isAbsolute(source_dir_path)) {
-        std.Io.Dir.accessAbsolute(b.graph.io, source_dir_path, .{}) catch return null;
+) ?*std.Build.Step {
+    const dll_path = b.pathJoin(&.{ base_path, "bin", "shaderc_shared.dll" });
+    if (std.fs.path.isAbsolute(dll_path)) {
+        std.Io.Dir.accessAbsolute(b.graph.io, dll_path, .{}) catch return null;
     } else {
-        std.Io.Dir.cwd().access(b.graph.io, source_dir_path, .{}) catch return null;
+        std.Io.Dir.cwd().access(b.graph.io, dll_path, .{}) catch return null;
     }
-    return installRuntimeDir(b, lazyPath(b, source_dir_path), install_to_default_step);
-}
-
-fn installRuntimeDir(
-    b: *std.Build,
-    source_dir: std.Build.LazyPath,
-    install_to_default_step: bool,
-) *std.Build.Step.InstallDir {
-    const install = b.addInstallDirectory(.{
-        .source_dir = source_dir,
-        .install_dir = .bin,
-        .install_subdir = "",
-    });
+    const install = b.addInstallBinFile(lazyPath(b, dll_path), "shaderc_shared.dll");
     if (install_to_default_step) b.getInstallStep().dependOn(&install.step);
-    return install;
+    return &install.step;
 }
 
 fn lazyPath(b: *std.Build, path: []const u8) std.Build.LazyPath {

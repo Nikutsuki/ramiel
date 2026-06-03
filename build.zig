@@ -61,7 +61,7 @@ pub fn build(b: *std.Build) void {
     build_options.addOption(bool, "devtools", devtools_enabled);
     build_options.addOption(bool, "native_wayland", native_wayland_enabled);
     const build_options_module = build_options.createModule();
-    var shaderc_bin_install: ?*std.Build.Step.InstallDir = null;
+    var shaderc_bin_install: ?*std.Build.Step = null;
 
     // Dependencies
     const zglfw_dep = b.dependency("zglfw", .{ .target = target, .optimize = optimize });
@@ -198,15 +198,11 @@ pub fn build(b: *std.Build) void {
             ramiel_mod.linkSystemLibrary("secur32", .{});
             ramiel_mod.linkSystemLibrary("ws2_32", .{});
 
-            const shaderc_bin_path = b.pathJoin(&.{ shaderc_base_path, "bin" });
-            if (pathExists(b, shaderc_bin_path)) {
-                const install_shaderc_bin = b.addInstallDirectory(.{
-                    .source_dir = lazyPath(b, shaderc_bin_path),
-                    .install_dir = .bin,
-                    .install_subdir = "",
-                });
-                b.getInstallStep().dependOn(&install_shaderc_bin.step);
-                shaderc_bin_install = install_shaderc_bin;
+            const shaderc_dll_path = b.pathJoin(&.{ shaderc_base_path, "bin", "shaderc_shared.dll" });
+            if (pathExists(b, shaderc_dll_path)) {
+                const install_shaderc_dll = b.addInstallBinFile(lazyPath(b, shaderc_dll_path), "shaderc_shared.dll");
+                b.getInstallStep().dependOn(&install_shaderc_dll.step);
+                shaderc_bin_install = &install_shaderc_dll.step;
             }
         },
         else => {},
@@ -216,12 +212,12 @@ pub fn build(b: *std.Build) void {
         fn apply(
             builder: *std.Build,
             run_cmd: *std.Build.Step.Run,
-            shaderc_install: ?*std.Build.Step.InstallDir,
+            shaderc_install: ?*std.Build.Step,
             is_win: bool,
         ) void {
             if (is_win) {
-                const install = shaderc_install orelse return;
-                run_cmd.step.dependOn(&install.step);
+                const step = shaderc_install orelse return;
+                run_cmd.step.dependOn(step);
 
                 const env = run_cmd.getEnvMap();
                 const current_path = env.get("PATH") orelse "";
