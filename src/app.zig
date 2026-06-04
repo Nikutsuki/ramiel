@@ -83,6 +83,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         tick_interval_s: ?f64 = null,
 
         last_frame_time: f64 = 0.0,
+        refresh_hz: f64 = 0.0,
         initial_tree_mounted: bool = false,
 
         build_fn: ?*const fn (ui: *UIContext(MessageType), state: *const StateType) anyerror!*Node(MessageType) = null,
@@ -1001,6 +1002,13 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             };
         }
 
+        fn uiFrameTimeoutSeconds(self: *Self) f64 {
+            const hz = if (self.refresh_hz > 1.0) self.refresh_hz else 120.0;
+            const period = 1.0 / hz;
+            const elapsed = self.backend.timeSeconds() - self.last_frame_time;
+            return @max(0.0, period - elapsed);
+        }
+
         fn computeWaitTimeoutSeconds(self: *Self) ?f64 {
             var timeout: ?f64 = null;
 
@@ -1009,8 +1017,11 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 timeout = std.math.clamp(frame_s, 0.001, 0.25);
             }
 
-            if (!self.ui.animation_registry.isEmpty() or self.ui.interaction_registry.hover_anim_active) {
-                const ui_timeout = 1.0 / 120.0;
+            if (!self.ui.animation_registry.isEmpty() or
+                self.ui.interaction_registry.hover_anim_active or
+                self.ui.continuous_render_requested)
+            {
+                const ui_timeout = self.uiFrameTimeoutSeconds();
                 timeout = if (timeout) |t| @min(t, ui_timeout) else ui_timeout;
             }
 
@@ -1310,6 +1321,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             try self.ui.calculateLayout(&self.font_system.text_layouter, @floatFromInt(initial_fb.width), @floatFromInt(initial_fb.height));
             var last_fb = initial_fb;
             self.last_frame_time = self.backend.timeSeconds();
+            self.refresh_hz = self.backend.primaryRefreshRateHz() orelse 0.0;
             // Wayland: waitEvents() blocks until the first surface commit.
             self.ui.requestPaint();
             var first_iteration = true;
@@ -1357,6 +1369,8 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 } else {
                     self.backend.waitEvents();
                 }
+
+                self.ui.continuous_render_requested = false;
 
                 const video_frame_ready = try self.video_manager.tick(
                     self.engine.frames.current_frame_index,

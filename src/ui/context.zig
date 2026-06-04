@@ -71,6 +71,8 @@ pub fn UIContext(comptime MessageT: type) type {
         has_animated_images: bool = false,
         min_animated_frame_ms: u32 = 0,
 
+        continuous_render_requested: bool = false,
+
         pub const PostLayoutHook = struct {
             userdata: *anyopaque,
             callback: *const fn (ctx: *UIContext(MessageT), userdata: *anyopaque) bool,
@@ -718,6 +720,10 @@ pub fn UIContext(comptime MessageT: type) type {
             self.paint_dirty = true;
         }
 
+        pub fn requestContinuousRender(self: *@This()) void {
+            self.continuous_render_requested = true;
+        }
+
         pub fn getById(self: *@This(), id: NodeId) ?*Node(MessageT) {
             return self.id_map.get(id);
         }
@@ -1305,6 +1311,7 @@ fn reconcileNode(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *
 
     retained.clip_children = desc.clip_children;
     retained.is_focusable = desc.is_focusable;
+    retained.claims_input = desc.claims_input;
     retained.lock_pointer_on_drag = desc.lock_pointer_on_drag;
     retained.hit_byte_start = desc.hit_byte_start;
     retained.hit_byte_end = desc.hit_byte_end;

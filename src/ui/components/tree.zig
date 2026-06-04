@@ -788,7 +788,6 @@ fn buildRow(
             .cursor = .pointer,
             .margin = .{ .right = 4.0 },
             .corner_radius = layout.CornerRadius.all(3.0),
-            .hover_color = withAlpha(tokens.bg_surface, 0.8),
         };
 
         const expander_events = if (toggle_msg) |msg|
