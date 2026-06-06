@@ -26,6 +26,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
         hovered_node: ?*Node(MessageT) = null,
 
+        portals: []const *Node(MessageT) = &.{},
         /// Cursor-containment chain from root → deepest hovered node, captured each
         /// frame. Used to fire hover_enter/hover_exit on every node that gained or
         /// lost containment, not only the deepest hit. Without this, an inner div
@@ -393,6 +394,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         pub fn resetForNewTree(self: *Self) void {
             self.hovered_node = null;
             self.focused_node = null;
+            self.portals = &.{};
             self.hover_chain.clearRetainingCapacity();
             self.prev_hover_chain.clearRetainingCapacity();
             self.active_drag_node = null;
@@ -1260,8 +1262,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         pub fn pushChar(self: *Self, codepoint: u21) void {
             if (self.focused_node) |node| {
                 if (editableTextRef(node)) |edit| {
-                    if (!edit.multiline and (codepoint == '\n' or codepoint == '\r')) {
-                    } else {
+                    if (!edit.multiline and (codepoint == '\n' or codepoint == '\r')) {} else {
                         _ = self.deleteSelectedRange(node);
 
                         var utf8_buf: [4]u8 = undefined;
@@ -1794,8 +1795,10 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             best: *?HitCandidate,
             render_order: *u64,
             parent_z: i32,
+            is_portal_pass: bool,
         ) void {
             if (node.style.display == .none) return;
+            if (node.payload == .portal and !is_portal_pass) return;
             const effective_z = parent_z + node.style.z_index;
 
             const mouse_x: f32 = @floatCast(self.mouse_x);
@@ -1815,7 +1818,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             }
 
             for (node.children.items) |child| {
-                self.collectHitCandidate(child, best, render_order, effective_z);
+                self.collectHitCandidate(child, best, render_order, effective_z, false);
             }
 
             if (node.getVerticalScrollbarThumbRect()) |thumb| {
@@ -1840,7 +1843,11 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         fn hitTest(self: *Self, node: *Node(MessageT)) bool {
             var best: ?HitCandidate = null;
             var render_order: u64 = 0;
-            self.collectHitCandidate(node, &best, &render_order, 0);
+            self.collectHitCandidate(node, &best, &render_order, 0, false);
+
+            for (self.portals) |portal_node| {
+                self.collectHitCandidate(portal_node, &best, &render_order, 0, true);
+            }
 
             if (best) |candidate| {
                 self.hovered_node = candidate.node;

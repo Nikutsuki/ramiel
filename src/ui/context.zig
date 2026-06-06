@@ -669,6 +669,7 @@ pub fn UIContext(comptime MessageT: type) type {
             layout.arrangeNode(self.root, 0.0, 0.0);
             self.portal_list.clearRetainingCapacity();
             try self.collectPortals(self.root);
+            self.interaction_registry.portals = self.portal_list.items;
             for (self.portal_list.items) |portal_node| {
                 layout.measureNode(portal_node, text_layouter, viewport_width, viewport_height, true);
                 layout.arrangeNode(portal_node, 0.0, 0.0);
