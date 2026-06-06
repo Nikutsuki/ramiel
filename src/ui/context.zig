@@ -32,6 +32,12 @@ pub const UpdateAction = enum {
     rebuild,
 };
 
+const FontCacheKey = struct {
+    family_hash: u64,
+    weight: layout.FontWeight,
+    style: layout.FontStyle,
+};
+
 pub fn UIContext(comptime MessageT: type) type {
     return struct {
         const Self = @This();
@@ -72,6 +78,8 @@ pub fn UIContext(comptime MessageT: type) type {
         min_animated_frame_ms: u32 = 0,
 
         continuous_render_requested: bool = false,
+
+        font_cache: std.AutoHashMapUnmanaged(FontCacheKey, *FontData) = .empty,
 
         pub const PostLayoutHook = struct {
             userdata: *anyopaque,
@@ -141,10 +149,12 @@ pub fn UIContext(comptime MessageT: type) type {
 
         pub fn setFontSystem(self: *Self, fs: *FontSystem) void {
             self.font_system = fs;
+            self.font_cache.clearRetainingCapacity();
         }
 
         pub fn setDefaultFamily(self: *Self, family_name: []const u8) void {
             self.default_family = family_name;
+            self.font_cache.clearRetainingCapacity();
         }
 
         fn resolveDefaultFont(self: *Self) ?*FontData {
@@ -168,11 +178,21 @@ pub fn UIContext(comptime MessageT: type) type {
             if (style.font_weight == .normal and style.font_style == .normal and style.font_family == null) {
                 return default;
             }
-            const fs = self.font_system orelse return default;
-            const family = style.font_family orelse self.default_family orelse return default;
-            const variant = weightAndStyleToVariant(style.font_weight, style.font_style);
-            const physical = fs.closestVariant(family, variant) orelse return default;
-            return fs.getFont(physical) orelse default;
+            const key = FontCacheKey{
+                .family_hash = if (style.font_family) |f| std.hash.Wyhash.hash(0, f) else 0,
+                .weight = style.font_weight,
+                .style = style.font_style,
+            };
+            if (self.font_cache.get(key)) |cached| return cached;
+            const resolved = blk: {
+                const fs = self.font_system orelse break :blk default;
+                const family = style.font_family orelse self.default_family orelse break :blk default;
+                const variant = weightAndStyleToVariant(style.font_weight, style.font_style);
+                const physical = fs.closestVariant(family, variant) orelse break :blk default;
+                break :blk fs.getFont(physical) orelse default;
+            };
+            self.font_cache.put(self.gpa, key, resolved) catch {};
+            return resolved;
         }
 
         fn registerNodeId(self: *@This(), node: *Node(MessageT), id: ?NodeId) !void {
@@ -796,6 +816,7 @@ pub fn UIContext(comptime MessageT: type) type {
             self.id_map.deinit();
             self.portal_list.deinit(self.gpa);
             self.post_layout_hooks.deinit(self.gpa);
+            self.font_cache.deinit(self.gpa);
             self.root.deinit();
             self.build_arena.deinit();
         }
@@ -810,6 +831,7 @@ fn promoteToGPA(comptime MessageT: type, ctx: *UIContext(MessageT), desc: *Node(
     node.style = desc.style;
     node.clip_children = desc.clip_children;
     node.id = desc.id;
+    node.child_memo_key = desc.child_memo_key;
     node.flags = .{};
     node.is_focusable = desc.is_focusable;
     node.lock_pointer_on_drag = desc.lock_pointer_on_drag;
@@ -1342,8 +1364,11 @@ fn reconcileNode(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *
         }
     }
 
+    if (desc.child_memo_key != 0 and desc.child_memo_key == retained.child_memo_key) return;
+
     try patchPayload(MessageT, retained, desc);
     try reconcileChildren(MessageT, ctx, retained, desc);
+    retained.child_memo_key = desc.child_memo_key;
 }
 
 fn borderWidthsChanged(a: layout.Border, b: layout.Border) bool {

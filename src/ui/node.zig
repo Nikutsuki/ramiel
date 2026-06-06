@@ -149,6 +149,8 @@ pub fn Node(comptime MessageT: type) type {
         payload: RenderPayload = .none,
         id: ?NodeId = null,
 
+        child_memo_key: u64 = 0,
+
         allocator: std.mem.Allocator = undefined,
         parent: ?*Node(MessageT) = null,
         children: std.ArrayList(*Node(MessageT)),

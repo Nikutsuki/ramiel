@@ -88,7 +88,7 @@ fn featTag(s: *const [4]u8) u32 {
 }
 
 const MeasureCache = struct {
-    const max_entries = 8192;
+    const max_entries = 16384;
 
     const Key = struct {
         content_hash: u64,
@@ -106,9 +106,32 @@ const MeasureCache = struct {
         width: f32,
         height: f32,
         is_bitmap: bool,
+        last_used: u64,
     };
+    tick: u64 = 0,
 
     map: std.AutoHashMapUnmanaged(Key, Entry) = .empty,
+
+    fn evictIfFull(self: *MeasureCache, a: std.mem.Allocator) void {
+        if (self.map.count() < max_entries) return;
+        var lo: u64 = std.math.maxInt(u64);
+        var hi: u64 = 0;
+        var it = self.map.iterator();
+        while (it.next()) |e| {
+            lo = @min(lo, e.value_ptr.last_used);
+            hi = @max(hi, e.value_ptr.last_used);
+        }
+        const cutoff = lo + (hi - lo) / 2;
+        var doomed = std.ArrayList(Key).empty;
+        defer doomed.deinit(a);
+        it = self.map.iterator();
+        while (it.next()) |e| if (e.value_ptr.last_used <= cutoff) (doomed.append(a, e.key_ptr.*) catch {});
+        for (doomed.items) |k| {
+            const e = self.map.fetchRemove(k).?;
+            a.free(e.value.content);
+            a.free(e.value.metrics);
+        }
+    }
 
     fn clearEntries(self: *MeasureCache, allocator: std.mem.Allocator) void {
         var it = self.map.iterator();
@@ -580,7 +603,7 @@ pub const TextLayouter = struct {
     fn cacheStore(self: *TextLayouter, key: MeasureCache.Key, text: []const u8, measured: MeasureResult) void {
         const a = self.allocator;
         if (self.measure_cache.map.count() >= MeasureCache.max_entries and !self.measure_cache.map.contains(key)) {
-            self.measure_cache.clearEntries(a);
+            self.measure_cache.evictIfFull(a);
         }
         const content = a.dupe(u8, text) catch return;
         const metrics = a.dupe(GlyphMetric, measured.metrics) catch {
@@ -602,7 +625,9 @@ pub const TextLayouter = struct {
             .width = measured.width,
             .height = measured.height,
             .is_bitmap = measured.is_bitmap,
+            .last_used = self.measure_cache.tick,
         };
+        self.measure_cache.tick += 1;
     }
 
     pub fn measureTextCached(
@@ -617,6 +642,8 @@ pub const TextLayouter = struct {
         const key = self.measureKey(font_data, text, options);
         if (self.measure_cache.map.getPtr(key)) |e| {
             if (std.mem.eql(u8, e.content, text)) {
+                e.last_used = self.measure_cache.tick;
+                self.measure_cache.tick += 1;
                 return .{
                     .width = e.width,
                     .height = e.height,
