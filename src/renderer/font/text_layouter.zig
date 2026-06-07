@@ -782,10 +782,10 @@ pub const TextLayouter = struct {
                 const is_space = cluster_in_bounds and text[cluster] == ' ';
                 const is_newline = cluster_in_bounds and text[cluster] == '\n';
 
-                const byte_length: usize = if (j + 1 < glyph_count)
-                    glyph_info[j + 1].cluster - cluster
-                else
-                    segment.end - cluster;
+                const byte_length: usize = blk: {
+                    const end_cluster: usize = if (j + 1 < glyph_count) glyph_info[j + 1].cluster else segment.end;
+                    break :blk end_cluster -| @as(usize, cluster);
+                };
 
                 if (is_newline) {
                     metrics.append(allocator, .{

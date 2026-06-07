@@ -767,6 +767,10 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             return self.engine.getImageState(name);
         }
 
+        pub fn getImageSize(self: *Self, name: []const u8) ?[2]u32 {
+            return self.engine.getImageSize(name);
+        }
+
         pub fn getResolvedImageState(self: *Self, name: []const u8) TextureState {
             const state = self.engine.getImageState(name);
             if (state == .ready) {
@@ -993,6 +997,21 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 .getResolvedState = @ptrCast(&resolveImageState),
                 .getAnimation = @ptrCast(&resolveAnimation),
             };
+            self.ui.image_loader = .{
+                .context = @ptrCast(self),
+                .loadFromDisk = @ptrCast(&loaderLoadFromDisk),
+                .getSize = @ptrCast(&loaderGetSize),
+            };
+        }
+
+        fn loaderLoadFromDisk(self: *Self, name: []const u8, path: []const u8, max_bytes: usize) void {
+            self.loadImageFromDiskAsync(name, path, max_bytes) catch |err| {
+                std.log.warn("image_loader: disk load request failed name='{s}' err={s}", .{ name, @errorName(err) });
+            };
+        }
+
+        fn loaderGetSize(self: *Self, name: []const u8) ?[2]u32 {
+            return self.getImageSize(name);
         }
 
         fn wireIconResolver(self: *Self) void {

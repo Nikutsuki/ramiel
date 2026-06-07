@@ -72,6 +72,7 @@ pub fn UIContext(comptime MessageT: type) type {
         use_arena: bool = false,
 
         image_resolver: ?ImageResolver = null,
+        image_loader: ?ImageLoader = null,
         icon_resolver: ?IconResolver = null,
 
         has_animated_images: bool = false,
@@ -91,6 +92,12 @@ pub fn UIContext(comptime MessageT: type) type {
             getTexId: *const fn (ctx: *anyopaque, source: []const u8) u32,
             getResolvedState: *const fn (ctx: *anyopaque, source: []const u8) ImageFallbackState,
             getAnimation: *const fn (ctx: *anyopaque, source: []const u8) ?*const AnimatedState,
+        };
+
+        pub const ImageLoader = struct {
+            context: *anyopaque,
+            loadFromDisk: *const fn (ctx: *anyopaque, name: []const u8, path: []const u8, max_bytes: usize) void,
+            getSize: *const fn (ctx: *anyopaque, name: []const u8) ?[2]u32,
         };
 
         pub const IconResolver = struct {
@@ -548,20 +555,9 @@ pub fn UIContext(comptime MessageT: type) type {
                 container_style.hover_color = self.active_theme.tokens.action_hover;
             }
 
-            if (!container_style.corner_radius.hasAny()) {
-                container_style.corner_radius = layout.CornerRadius.all(4.0);
-            }
-            if (container_style.padding.horizontal() == 0.0 and container_style.padding.vertical() == 0.0) {
-                container_style.padding = layout.Spacing{ .top = 8.0, .bottom = 8.0, .left = 16.0, .right = 16.0 };
-            }
             if (container_style.cursor == null) {
                 container_style.cursor = .pointer;
             }
-
-            container_style.display = .flex;
-            container_style.direction = .Row;
-            container_style.align_items = .Center;
-            container_style.justify_content = .Center;
 
             var label_style = desc.label_style;
             label_style.pointer_events = .none;

@@ -282,6 +282,10 @@ pub const Engine = struct {
         return self.resources.texture_registry.getImageState(name);
     }
 
+    pub fn getImageSize(self: *Engine, name: []const u8) ?[2]u32 {
+        return self.resources.texture_registry.getImageSize(name);
+    }
+
     pub fn setImageIngressBudget(self: *Engine, budget: ImageIngressBudget) void {
         self.image_ingress.budget = budget;
         self.resources.texture_registry.setDynamicBudgetBytes(budget.max_pending_upload_bytes);

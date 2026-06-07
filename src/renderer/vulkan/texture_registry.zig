@@ -324,6 +324,16 @@ pub const TextureRegistry = struct {
         return .missing;
     }
 
+    pub fn getImageSize(self: *TextureRegistry, name: []const u8) ?[2]u32 {
+        self.state_mutex.lockUncancelable(std.Options.debug_io);
+        defer self.state_mutex.unlock(std.Options.debug_io);
+
+        const entry = self.dynamic_entries.get(name) orelse return null;
+        if (entry.state != .ready) return null;
+        const dyn = self.dynamic_textures.getPtr(entry.id) orelse return null;
+        return .{ dyn.texture.width, dyn.texture.height };
+    }
+
     pub fn pushImageData(self: *TextureRegistry, name: []const u8, compressed_bytes: []const u8) !void {
         try self.pushImageDataWithHint(name, compressed_bytes, 0, 0);
     }
