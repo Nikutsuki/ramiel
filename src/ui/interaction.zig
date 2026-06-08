@@ -975,8 +975,11 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             else
                 0.0;
 
-            const local_x = @as(f32, @floatCast(self.mouse_x)) - (tn.layout_result.x + inset_left);
-            const raw_local_y = @as(f32, @floatCast(self.mouse_y)) - (tn.layout_result.y + inset_top) + text_scroll_y;
+            const tr = tn.getTransformedRect();
+            const s = if (tr.local_scale > 1e-6) tr.local_scale else 1.0;
+
+            const local_x = (@as(f32, @floatCast(self.mouse_x)) - tr.x) / s - inset_left;
+            const raw_local_y = (@as(f32, @floatCast(self.mouse_y)) - tr.y) / s - inset_top + text_scroll_y;
 
             const text_top: f32 = metrics[0].y;
             const last = metrics[metrics.len - 1];
@@ -1120,8 +1123,10 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             const border = tn.style.border;
             const inset_left = padding.left + @max(0.0, border.left.width);
             const inset_top = padding.top + @max(0.0, border.top.width);
-            const local_x = @as(f32, @floatCast(self.mouse_x)) - (tn.layout_result.x + inset_left);
-            const local_y = @as(f32, @floatCast(self.mouse_y)) - (tn.layout_result.y + inset_top);
+            const tr = tn.getTransformedRect();
+            const s = if (tr.local_scale > 1e-6) tr.local_scale else 1.0;
+            const local_x = (@as(f32, @floatCast(self.mouse_x)) - tr.x) / s - inset_left;
+            const local_y = (@as(f32, @floatCast(self.mouse_y)) - tr.y) / s - inset_top;
 
             var found_line = false;
             var line_min_x: f32 = 0.0;

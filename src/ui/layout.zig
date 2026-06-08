@@ -399,6 +399,7 @@ pub const Style = struct {
     z_index: i32 = 0,
     opacity: f32 = 1.0,
     transform: Transform = .{},
+    zoom_override: ?f32 = null,
     transition: TransitionStyle = .{},
     anchor_id: ?NodeId = null,
 
@@ -571,11 +572,26 @@ const AxisBounds = struct {
     max: f32,
 };
 
+pub var active_zoom: f32 = 1.0;
+
+inline fn zpx(value: f32) f32 {
+    return value * active_zoom;
+}
+
+fn scaledSpacing(s: Spacing) Spacing {
+    return .{
+        .top = s.top * active_zoom,
+        .right = s.right * active_zoom,
+        .bottom = s.bottom * active_zoom,
+        .left = s.left * active_zoom,
+    };
+}
+
 fn resolveAxisBound(size: Size, available: f32, comptime is_min: bool) f32 {
     const bounded_available = @max(0.0, available);
     return switch (size) {
         .Auto => if (is_min) 0.0 else std.math.inf(f32),
-        .exact => |v| @max(0.0, v),
+        .exact => |v| @max(0.0, v * active_zoom),
         .percent => |p| bounded_available * @max(0.0, p),
         .Full, .screen => bounded_available,
     };
@@ -598,10 +614,10 @@ fn clampAxisByStyle(value: f32, min_size: Size, max_size: Size, available: f32) 
 
 fn contentInsets(style: Style) Spacing {
     return .{
-        .top = style.padding.top + @max(0.0, style.border.top.width),
-        .right = style.padding.right + @max(0.0, style.border.right.width),
-        .bottom = style.padding.bottom + @max(0.0, style.border.bottom.width),
-        .left = style.padding.left + @max(0.0, style.border.left.width),
+        .top = (style.padding.top + @max(0.0, style.border.top.width)) * active_zoom,
+        .right = (style.padding.right + @max(0.0, style.border.right.width)) * active_zoom,
+        .bottom = (style.padding.bottom + @max(0.0, style.border.bottom.width)) * active_zoom,
+        .left = (style.padding.left + @max(0.0, style.border.left.width)) * active_zoom,
     };
 }
 
@@ -653,8 +669,8 @@ fn resolveTextMeasureOptions(style: Style, requested_max_width: f32, available_w
         .max_width = @max(0.0, max_width),
         .wrap = wrap,
         .ellipsis = ellipsis,
-        .line_height = style.line_height,
-        .font_size = style.font_size,
+        .line_height = style.line_height * active_zoom,
+        .font_size = style.font_size * active_zoom,
     };
 }
 
@@ -674,7 +690,7 @@ fn updateTextLayoutCache(node: anytype, text_layouter: anytype, font: anytype, t
             .max_width = options.max_width,
             .wrap = options.wrap,
             .ellipsis = options.ellipsis,
-            .font_size = node.style.font_size,
+            .font_size = options.font_size,
             .line_height = options.line_height,
         })
     else if (@hasDecl(Layouter, "measureTextWithOptions"))
@@ -682,7 +698,7 @@ fn updateTextLayoutCache(node: anytype, text_layouter: anytype, font: anytype, t
             .max_width = options.max_width,
             .wrap = options.wrap,
             .ellipsis = options.ellipsis,
-            .font_size = node.style.font_size,
+            .font_size = options.font_size,
             .line_height = options.line_height,
         })
     else
@@ -720,6 +736,10 @@ fn updateTextLayoutCache(node: anytype, text_layouter: anytype, font: anytype, t
 
 // text_layouter is anytype so tests can stub without HarfBuzz/Vulkan.
 pub fn measureNode(node: anytype, text_layouter: anytype, max_w: f32, max_h: f32, force_recalculate: bool) void {
+    const zoom_saved = active_zoom;
+    if (node.style.zoom_override) |z| active_zoom = z;
+    defer active_zoom = zoom_saved;
+
     if (node.style.display == .none) {
         node.layout_result.width = 0;
         node.layout_result.height = 0;
@@ -751,7 +771,7 @@ pub fn measureNode(node: anytype, text_layouter: anytype, max_w: f32, max_h: f32
     const is_content_box = node.style.box_sizing == .content_box;
 
     const resolved_width_raw: ?f32 = switch (node.style.width) {
-        .exact => |w| w,
+        .exact => |w| w * active_zoom,
         .Full => max_w,
         .percent => |p| max_w * @max(0.0, p),
         .screen => max_w,
@@ -764,7 +784,7 @@ pub fn measureNode(node: anytype, text_layouter: anytype, max_w: f32, max_h: f32
     } else null;
 
     const resolved_height_raw: ?f32 = switch (node.style.height) {
-        .exact => |h| h,
+        .exact => |h| h * active_zoom,
         .Full => max_h,
         .percent => |p| max_h * @max(0.0, p),
         .screen => max_h,
@@ -988,7 +1008,7 @@ fn measureFlexContentNoWrap(
         if (child.style.position == .absolute or child.style.position == .anchored) continue;
         if (child.style.display == .none) continue;
         flow_count += 1;
-        const margin = child.style.margin;
+        const margin = scaledSpacing(child.style.margin);
         const margin_main = if (is_row) margin.left + margin.right else margin.top + margin.bottom;
         if (child.style.flex_grow > 0) {
             total_flex_grow += child.style.flex_grow;
@@ -1003,7 +1023,7 @@ fn measureFlexContentNoWrap(
     }
 
     const total_gap: f32 = if (flow_count > 1)
-        node.style.gap * @as(f32, @floatFromInt(flow_count - 1))
+        zpx(node.style.gap) * @as(f32, @floatFromInt(flow_count - 1))
     else
         0;
 
@@ -1052,10 +1072,10 @@ fn measureFlexContentNoWrap(
         if (child.style.position == .absolute or child.style.position == .anchored) continue;
         if (child.style.display == .none) continue;
 
-        if (!first) main_size += node.style.gap;
+        if (!first) main_size += zpx(node.style.gap);
         first = false;
 
-        const margin = child.style.margin;
+        const margin = scaledSpacing(child.style.margin);
         const child_main = if (is_row)
             child.layout_result.width + margin.left + margin.right
         else
@@ -1105,7 +1125,7 @@ fn measureFlexContentWrap(
         if (child.style.position == .absolute or child.style.position == .anchored) continue;
         if (child.style.display == .none) continue;
 
-        const margin = child.style.margin;
+        const margin = scaledSpacing(child.style.margin);
         const child_main = if (is_row)
             child.layout_result.width + margin.left + margin.right
         else
@@ -1117,21 +1137,21 @@ fn measureFlexContentWrap(
             child.layout_result.width + margin.left + margin.right;
 
         const tentative_main = if (line_has_items)
-            line_main + node.style.gap + child_main
+            line_main + zpx(node.style.gap) + child_main
         else
             child_main;
 
         const should_wrap = line_has_items and main_limit > 0.0 and tentative_main > main_limit;
         if (should_wrap) {
             max_line_main = @max(max_line_main, line_main);
-            if (line_count > 0) total_cross += node.style.gap;
+            if (line_count > 0) total_cross += zpx(node.style.gap);
             total_cross += line_cross;
             line_count += 1;
 
             line_main = child_main;
             line_cross = child_cross;
         } else {
-            if (line_has_items) line_main += node.style.gap;
+            if (line_has_items) line_main += zpx(node.style.gap);
             line_main += child_main;
             line_cross = @max(line_cross, child_cross);
         }
@@ -1141,7 +1161,7 @@ fn measureFlexContentWrap(
 
     if (line_has_items) {
         max_line_main = @max(max_line_main, line_main);
-        if (line_count > 0) total_cross += node.style.gap;
+        if (line_count > 0) total_cross += zpx(node.style.gap);
         total_cross += line_cross;
         line_count += 1;
     }
@@ -1463,7 +1483,7 @@ fn resolveGridColumnSizes(
 
         switch (track) {
             .exact => |px| {
-                size = @max(0.0, px);
+                size = @max(0.0, px * active_zoom);
                 fixed_total += size;
             },
             .percent => |pct| {
@@ -1512,7 +1532,7 @@ fn initGridRowSizing(
 
         switch (track) {
             .exact => |px| {
-                row.size = @max(0.0, px);
+                row.size = @max(0.0, px * active_zoom);
                 row.growable = false;
             },
             .percent => |pct| {
@@ -1675,7 +1695,7 @@ fn measureGridContent(
         return;
     }
 
-    var column_sizes = resolveGridColumnSizes(node.style, node.allocator, cols, content_w, node.style.gap) catch
+    var column_sizes = resolveGridColumnSizes(node.style, node.allocator, cols, content_w, zpx(node.style.gap)) catch
         @panic("OOM while resolving grid column sizes");
     defer column_sizes.deinit(node.allocator);
 
@@ -1691,8 +1711,8 @@ fn measureGridContent(
 
     for (placements.items) |placement| {
         const child = placement.child;
-        const area_w = gridTrackSpanSize(column_sizes.items, node.style.gap, placement.column_start, placement.column_span);
-        const child_available_w = @max(0.0, area_w - child.style.margin.horizontal());
+        const area_w = gridTrackSpanSize(column_sizes.items, zpx(node.style.gap), placement.column_start, placement.column_span);
+        const child_available_w = @max(0.0, area_w - scaledSpacing(child.style.margin).horizontal());
 
         measureNode(child, text_layouter, child_available_w, content_h, false);
 
@@ -1705,18 +1725,22 @@ fn measureGridContent(
             );
         }
 
-        const required_h = child.layout_result.height + child.style.margin.top + child.style.margin.bottom;
-        growGridRowsForPlacement(row_sizes.items, placement, required_h, node.style.gap);
+        const required_h = child.layout_result.height + scaledSpacing(child.style.margin).vertical();
+        growGridRowsForPlacement(row_sizes.items, placement, required_h, zpx(node.style.gap));
     }
 
-    applyGridFrRows(row_sizes.items, content_h, node.style.gap, has_explicit_height);
+    applyGridFrRows(row_sizes.items, content_h, zpx(node.style.gap), has_explicit_height);
 
     node.layout_result.text_cache.clear(node.allocator);
     out_w.* = content_w;
-    out_h.* = totalGridRowHeight(row_sizes.items, node.style.gap);
+    out_h.* = totalGridRowHeight(row_sizes.items, zpx(node.style.gap));
 }
 
 pub fn arrangeNode(node: anytype, start_x: f32, start_y: f32) void {
+    const zoom_saved = active_zoom;
+    if (node.style.zoom_override) |z| active_zoom = z;
+    defer active_zoom = zoom_saved;
+
     if (node.style.display == .none) return;
 
     if (!node.flags.position) {
@@ -1755,25 +1779,25 @@ pub fn arrangeNode(node: anytype, start_x: f32, start_y: f32) void {
         var child_y = parent_origin_y;
 
         if (child.style.left) |l| {
-            child_x = parent_origin_x + l;
+            child_x = parent_origin_x + l * active_zoom;
             if (child.style.right) |r| {
                 if (child.style.width == .Auto) {
-                    child.layout_result.width = @max(0.0, parent_far_x - r - child_x);
+                    child.layout_result.width = @max(0.0, parent_far_x - r * active_zoom - child_x);
                 }
             }
         } else if (child.style.right) |r| {
-            child_x = parent_far_x - child.layout_result.width - r;
+            child_x = parent_far_x - child.layout_result.width - r * active_zoom;
         }
 
         if (child.style.top) |t| {
-            child_y = parent_origin_y + t;
+            child_y = parent_origin_y + t * active_zoom;
             if (child.style.bottom) |b| {
                 if (child.style.height == .Auto) {
-                    child.layout_result.height = @max(0.0, parent_far_y - b - child_y);
+                    child.layout_result.height = @max(0.0, parent_far_y - b * active_zoom - child_y);
                 }
             }
         } else if (child.style.bottom) |b| {
-            child_y = parent_far_y - child.layout_result.height - b;
+            child_y = parent_far_y - child.layout_result.height - b * active_zoom;
         }
 
         arrangeNode(child, child_x, child_y);
@@ -1823,7 +1847,7 @@ fn arrangeFlexChildrenNoWrap(node: anytype, start_x: f32, start_y: f32, w: f32, 
         prefetchNextChildIfEnabled(node.children.items, i);
         if (!isFlowChild(child)) continue;
         flow_count += 1;
-        const margin = child.style.margin;
+        const margin = scaledSpacing(child.style.margin);
         children_main_sum += if (is_row)
             child.layout_result.width + margin.left + margin.right
         else
@@ -1833,11 +1857,11 @@ fn arrangeFlexChildrenNoWrap(node: anytype, start_x: f32, start_y: f32, w: f32, 
     const inner_main: f32 = if (is_row) w - pad.horizontal() else h - pad.vertical();
     const inner_cross: f32 = if (is_row) h - pad.vertical() else w - pad.horizontal();
 
-    var between_gap: f32 = node.style.gap;
+    var between_gap: f32 = zpx(node.style.gap);
     var start_offset: f32 = 0;
 
     if (flow_count > 0) {
-        const total_gap = node.style.gap * @as(f32, @floatFromInt(if (flow_count > 1) flow_count - 1 else 0));
+        const total_gap = zpx(node.style.gap) * @as(f32, @floatFromInt(if (flow_count > 1) flow_count - 1 else 0));
         const total_children = children_main_sum + total_gap;
         const remaining = inner_main - total_children;
 
@@ -1870,7 +1894,7 @@ fn arrangeFlexChildrenNoWrap(node: anytype, start_x: f32, start_y: f32, w: f32, 
         if (!first) cursor += between_gap;
         first = false;
 
-        const margin = child.style.margin;
+        const margin = scaledSpacing(child.style.margin);
         const main_margin_start = if (is_row) margin.left else margin.top;
         const main_margin_end = if (is_row) margin.right else margin.bottom;
         const child_main_start = cursor + main_margin_start;
@@ -1951,7 +1975,7 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
             const child = node.children.items[j];
             if (!isFlowChild(child)) continue;
 
-            const margin = child.style.margin;
+            const margin = scaledSpacing(child.style.margin);
             const child_main = if (is_row)
                 child.layout_result.width + margin.left + margin.right
             else
@@ -1963,7 +1987,7 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
                 child.layout_result.width + margin.left + margin.right;
 
             const tentative_main = if (line_flow_count > 0)
-                line_main + node.style.gap + child_main
+                line_main + zpx(node.style.gap) + child_main
             else
                 child_main;
 
@@ -1971,14 +1995,14 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
                 break;
             }
 
-            if (line_flow_count > 0) line_main += node.style.gap;
+            if (line_flow_count > 0) line_main += zpx(node.style.gap);
             line_main += child_main;
             line_children_main_sum += child_main;
             line_cross = @max(line_cross, child_cross);
             line_flow_count += 1;
         }
 
-        var between_gap: f32 = node.style.gap;
+        var between_gap: f32 = zpx(node.style.gap);
         var start_offset: f32 = 0;
 
         if (line_flow_count > 0) {
@@ -2014,7 +2038,7 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
             if (!first_in_line) cursor += between_gap;
             first_in_line = false;
 
-            const margin = child.style.margin;
+            const margin = scaledSpacing(child.style.margin);
             const main_margin_start = if (is_row) margin.left else margin.top;
             const main_margin_end = if (is_row) margin.right else margin.bottom;
             const child_main_start = cursor + main_margin_start;
@@ -2066,7 +2090,7 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
                 child.layout_result.height) + main_margin_start + main_margin_end;
         }
 
-        line_cross_cursor += line_cross + node.style.gap;
+        line_cross_cursor += line_cross + zpx(node.style.gap);
         i = j;
     }
 }
@@ -2092,7 +2116,7 @@ fn arrangeGridChildren(node: anytype, start_x: f32, start_y: f32, w: f32, h: f32
         else => true,
     };
 
-    var column_sizes = resolveGridColumnSizes(node.style, node.allocator, cols, content_w, node.style.gap) catch
+    var column_sizes = resolveGridColumnSizes(node.style, node.allocator, cols, content_w, zpx(node.style.gap)) catch
         @panic("OOM while resolving grid columns during arrangement");
     defer column_sizes.deinit(node.allocator);
 
@@ -2107,10 +2131,10 @@ fn arrangeGridChildren(node: anytype, start_x: f32, start_y: f32, w: f32, h: f32
 
     for (placements.items) |placement| {
         const child = placement.child;
-        const required_h = child.layout_result.height + child.style.margin.top + child.style.margin.bottom;
-        growGridRowsForPlacement(row_sizes.items, placement, required_h, node.style.gap);
+        const required_h = child.layout_result.height + scaledSpacing(child.style.margin).vertical();
+        growGridRowsForPlacement(row_sizes.items, placement, required_h, zpx(node.style.gap));
     }
-    applyGridFrRows(row_sizes.items, content_h, node.style.gap, has_explicit_height);
+    applyGridFrRows(row_sizes.items, content_h, zpx(node.style.gap), has_explicit_height);
 
     const origin_x = start_x + pad.left - node.scroll_x;
     const origin_y = start_y + pad.top - node.scroll_y;
@@ -2118,11 +2142,11 @@ fn arrangeGridChildren(node: anytype, start_x: f32, start_y: f32, w: f32, h: f32
     for (placements.items) |placement| {
         const child = placement.child;
         const x = origin_x +
-            gridTrackStartOffset(column_sizes.items, node.style.gap, placement.column_start) +
-            child.style.margin.left;
+            gridTrackStartOffset(column_sizes.items, zpx(node.style.gap), placement.column_start) +
+            scaledSpacing(child.style.margin).left;
         const y = origin_y +
-            gridRowStartOffset(row_sizes.items, node.style.gap, placement.row_start) +
-            child.style.margin.top;
+            gridRowStartOffset(row_sizes.items, zpx(node.style.gap), placement.row_start) +
+            scaledSpacing(child.style.margin).top;
         arrangeNode(child, x, y);
     }
 }
@@ -2270,8 +2294,8 @@ const OptionTrackingTextLayouter = struct {
         self.last_ellipsis = options.ellipsis;
         self.last_line_height = options.line_height;
 
-        const char_w: f32 = 8.0;
-        const line_h: f32 = if (options.line_height > 0.0) options.line_height else 16.0;
+        const char_w: f32 = 8.0 * active_zoom;
+        const line_h: f32 = if (options.line_height > 0.0) options.line_height else 16.0 * active_zoom;
         const full_width: f32 = @as(f32, @floatFromInt(text.len)) * char_w;
 
         if (options.wrap and options.max_width > 0.0) {

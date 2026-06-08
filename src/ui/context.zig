@@ -62,6 +62,8 @@ pub fn UIContext(comptime MessageT: type) type {
         layout_dirty: bool = true,
         paint_dirty: bool = true,
 
+        view_zoom: f32 = 1.0,
+
         building: bool = false,
 
         current_time: f64 = 0.0,
@@ -661,6 +663,7 @@ pub fn UIContext(comptime MessageT: type) type {
             viewport_width: f32,
             viewport_height: f32,
         ) !void {
+            layout.active_zoom = self.view_zoom;
             layout.measureNode(self.root, text_layouter, viewport_width, viewport_height, true);
             layout.arrangeNode(self.root, 0.0, 0.0);
             self.portal_list.clearRetainingCapacity();
@@ -729,6 +732,20 @@ pub fn UIContext(comptime MessageT: type) type {
         }
 
         pub fn requestLayout(self: *@This()) void {
+            self.layout_dirty = true;
+            self.paint_dirty = true;
+        }
+
+        fn markSubtreeDirty(node: *Node(MessageT)) void {
+            node.flags = .{ .position = true, .size = true, .content = true };
+            for (node.children.items) |child| markSubtreeDirty(child);
+        }
+
+        pub fn setZoom(self: *@This(), zoom: f32) void {
+            const clamped = @max(0.1, @min(zoom, 10.0));
+            if (self.view_zoom == clamped) return;
+            self.view_zoom = clamped;
+            markSubtreeDirty(self.root);
             self.layout_dirty = true;
             self.paint_dirty = true;
         }

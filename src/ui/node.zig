@@ -22,6 +22,7 @@ const types = @import("types.zig");
 const EventType = types.EventType;
 const EventBinding = types.EventBinding;
 const computeMediaFit = @import("layout.zig").computeMediaFit;
+const layout_mod = @import("layout.zig");
 
 pub const HoverAnim = struct {
     start_time: f64,
@@ -293,32 +294,39 @@ pub fn Node(comptime MessageT: type) type {
                 self.style.overflow_y != .visible;
         }
 
-        fn resolveAccumulatedTranslate(self: *const @This()) [2]f32 {
-            var dx: f32 = 0.0;
-            var dy: f32 = 0.0;
-            var cur: ?*const @This() = self;
+        const RenderTransform = struct { scale: f32, tx: f32, ty: f32 };
 
-            while (cur) |node| {
-                dx += node.style.transform.translate[0];
-                dy += node.style.transform.translate[1];
-                cur = node.parent;
-            }
+        fn resolveRenderTransform(self: *const @This()) RenderTransform {
+            const parent = if (self.parent) |p|
+                p.resolveRenderTransform()
+            else
+                RenderTransform{ .scale = 1.0, .tx = 0.0, .ty = 0.0 };
 
-            return .{ dx, dy };
+            const tr = self.style.transform;
+            const f = clampScale(tr.scale);
+            const raw_x = self.layout_result.x;
+            const raw_y = self.layout_result.y;
+            const cx = raw_x + self.layout_result.width * 0.5;
+            const cy = raw_y + self.layout_result.height * 0.5;
+
+            return .{
+                .scale = parent.scale * f,
+                .tx = parent.scale * (cx * (1.0 - f) + tr.translate[0]) + parent.tx,
+                .ty = parent.scale * (cy * (1.0 - f) + tr.translate[1]) + parent.ty,
+            };
         }
 
         pub fn getTransformedRect(self: *const @This()) TransformedRect {
+            const t = self.resolveRenderTransform();
             const raw_x = self.layout_result.x;
             const raw_y = self.layout_result.y;
             const raw_w = self.layout_result.width;
             const raw_h = self.layout_result.height;
-            const tr = self.style.transform;
-            const accumulated_translate = self.resolveAccumulatedTranslate();
 
-            const exact_x = raw_x + accumulated_translate[0] + (raw_w - raw_w * tr.scale) * 0.5;
-            const exact_y = raw_y + accumulated_translate[1] + (raw_h - raw_h * tr.scale) * 0.5;
-            const exact_w = raw_w * tr.scale;
-            const exact_h = raw_h * tr.scale;
+            const exact_x = t.scale * raw_x + t.tx;
+            const exact_y = t.scale * raw_y + t.ty;
+            const exact_w = raw_w * t.scale;
+            const exact_h = raw_h * t.scale;
 
             const abs_x = @round(exact_x);
             const abs_y = @round(exact_y);
@@ -328,7 +336,7 @@ pub fn Node(comptime MessageT: type) type {
                 .y = abs_y,
                 .width = @round(exact_x + exact_w) - abs_x,
                 .height = @round(exact_y + exact_h) - abs_y,
-                .local_scale = tr.scale,
+                .local_scale = t.scale,
             };
         }
 
@@ -407,6 +415,10 @@ pub fn Node(comptime MessageT: type) type {
             return std.math.clamp(opacity, 0.0, 1.0);
         }
 
+        fn clampScale(scale: f32) f32 {
+            return @max(scale, 0.00);
+        }
+
         fn colorWithOpacity(color: [4]f32, opacity: f32) [4]f32 {
             return .{ color[0], color[1], color[2], std.math.clamp(color[3] * opacity, 0.0, 1.0) };
         }
@@ -420,6 +432,7 @@ pub fn Node(comptime MessageT: type) type {
             abs_y: f32,
             base_color: [4]f32,
             opacity: f32,
+            scale: f32,
         ) !void {
             const decoration = style.text_decoration;
             if (!decoration.line.hasAny()) return;
@@ -466,13 +479,13 @@ pub fn Node(comptime MessageT: type) type {
                 const baseline_y = first.y + ascender_scaled;
 
                 if (decoration.line.underline) {
-                    emitOneDecorationLine(batcher, abs_x + left, abs_y + baseline_y + underline_dy, width, thickness_px, deco_color, decoration.shape) catch |err| return err;
+                    emitOneDecorationLine(batcher, abs_x + left * scale, abs_y + (baseline_y + underline_dy) * scale, width * scale, thickness_px * scale, deco_color, decoration.shape) catch |err| return err;
                 }
                 if (decoration.line.line_through) {
-                    emitOneDecorationLine(batcher, abs_x + left, abs_y + baseline_y + strike_dy, width, thickness_px, deco_color, decoration.shape) catch |err| return err;
+                    emitOneDecorationLine(batcher, abs_x + left * scale, abs_y + (baseline_y + strike_dy) * scale, width * scale, thickness_px * scale, deco_color, decoration.shape) catch |err| return err;
                 }
                 if (decoration.line.overline) {
-                    emitOneDecorationLine(batcher, abs_x + left, abs_y + baseline_y + overline_dy, width, thickness_px, deco_color, decoration.shape) catch |err| return err;
+                    emitOneDecorationLine(batcher, abs_x + left * scale, abs_y + (baseline_y + overline_dy) * scale, width * scale, thickness_px * scale, deco_color, decoration.shape) catch |err| return err;
                 }
 
                 line_start = idx;
@@ -576,7 +589,7 @@ pub fn Node(comptime MessageT: type) type {
             text_layouter: *TextLayouter,
             time: f32,
         ) !void {
-            try self.renderWithOpacity(batcher, text_layouter, time, 1.0, 0.0, 0.0, 0, false);
+            try self.renderWithOpacity(batcher, text_layouter, time, 1.0, 1.0, 0.0, 0.0, 0, false);
         }
 
         pub fn renderPortal(
@@ -585,7 +598,7 @@ pub fn Node(comptime MessageT: type) type {
             text_layouter: *TextLayouter,
             time: f32,
         ) !void {
-            try self.renderWithOpacity(batcher, text_layouter, time, 1.0, 0.0, 0.0, 0, true);
+            try self.renderWithOpacity(batcher, text_layouter, time, 1.0, 1.0, 0.0, 0.0, 0, true);
         }
 
         fn renderWithOpacity(
@@ -594,6 +607,7 @@ pub fn Node(comptime MessageT: type) type {
             text_layouter: *TextLayouter,
             time: f32,
             parent_opacity: f32,
+            parent_scale: f32,
             parent_dx: f32,
             parent_dy: f32,
             parent_z: @TypeOf(self.style.z_index),
@@ -602,16 +616,29 @@ pub fn Node(comptime MessageT: type) type {
             if (self.style.display == .none) return;
             if (self.payload == .portal and !is_portal_pass) return;
 
+            const zoom_saved = layout_mod.active_zoom;
+            if (self.style.zoom_override) |z| layout_mod.active_zoom = z;
+            defer layout_mod.active_zoom = zoom_saved;
+
             const tr = self.style.transform;
             const raw_x = self.layout_result.x;
             const raw_y = self.layout_result.y;
             const raw_w = self.layout_result.width;
             const raw_h = self.layout_result.height;
 
-            const exact_x = raw_x + tr.translate[0] + parent_dx + (raw_w - raw_w * tr.scale) * 0.5;
-            const exact_y = raw_y + tr.translate[1] + parent_dy + (raw_h - raw_h * tr.scale) * 0.5;
-            const exact_w = raw_w * tr.scale;
-            const exact_h = raw_h * tr.scale;
+            const f = clampScale(tr.scale);
+            const self_scale = parent_scale * f;
+
+            const cx = raw_x + raw_w * 0.5;
+            const cy = raw_y + raw_h * 0.5;
+
+            const self_tx = parent_scale * (cx * (1.0 - f) + tr.translate[0]) + parent_dx;
+            const self_ty = parent_scale * (cy * (1.0 - f) + tr.translate[1]) + parent_dy;
+
+            const exact_x = self_scale * raw_x + self_tx;
+            const exact_y = self_scale * raw_y + self_ty;
+            const exact_w = raw_w * self_scale;
+            const exact_h = raw_h * self_scale;
 
             const abs_x = @round(exact_x);
             const abs_y = @round(exact_y);
@@ -759,6 +786,7 @@ pub fn Node(comptime MessageT: type) type {
                     const view_min_y: f32 = @floatFromInt(sc.offset.y);
                     const view_max_x: f32 = @floatFromInt(sc.offset.x + @as(i32, @intCast(sc.extent.width)));
                     const view_max_y: f32 = @floatFromInt(sc.offset.y + @as(i32, @intCast(sc.extent.height)));
+
                     const node_max_x = abs_x + w;
                     const node_max_y = abs_y + h;
                     const is_offscreen = node_max_x <= view_min_x or abs_x >= view_max_x or
@@ -777,10 +805,10 @@ pub fn Node(comptime MessageT: type) type {
                                 for (cache.metrics) |m| {
                                     if (m.byte_offset >= start and m.byte_offset < end) {
                                         try batcher.addRect(
-                                            abs_x + m.x,
-                                            abs_y + m.y,
-                                            m.width,
-                                            m.height,
+                                            abs_x + m.x * self_scale,
+                                            abs_y + m.y * self_scale,
+                                            m.width * self_scale,
+                                            m.height * self_scale,
                                             selection_color,
                                             0,
                                             0,
@@ -795,13 +823,13 @@ pub fn Node(comptime MessageT: type) type {
                             if (!m.is_visible) continue;
                             const combined_id: u32 = m.effect | (m.atlas_id & 0xFFFF);
                             const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
-                            const glyph_x = abs_x + m.render_x;
-                            const glyph_y = abs_y + m.render_y;
+                            const glyph_x = abs_x + m.render_x * self_scale;
+                            const glyph_y = abs_y + m.render_y * self_scale;
                             try batcher.addGlyphQuad(
                                 snapPixel(glyph_x),
                                 snapPixel(glyph_y),
-                                snapSize(glyph_x, m.render_w),
-                                snapSize(glyph_y, m.render_h),
+                                snapSize(glyph_x, m.render_w * self_scale),
+                                snapSize(glyph_y, m.render_h * self_scale),
                                 m.uv_min,
                                 m.uv_max,
                                 text_color,
@@ -819,6 +847,7 @@ pub fn Node(comptime MessageT: type) type {
                             abs_y,
                             self.style.text_color,
                             combined_opacity,
+                            self_scale,
                         );
                     }
                 },
@@ -843,7 +872,7 @@ pub fn Node(comptime MessageT: type) type {
 
                             for (cache.metrics) |m| {
                                 if (!m.is_visible or !metricIntersectsSpan(m, span)) continue;
-                                try batcher.addRect(abs_x + m.x, abs_y + m.y, m.width, m.height, color, 0, 0, .{ 0, 0, 0, 0 });
+                                try batcher.addRect(abs_x + m.x * self_scale, abs_y + m.y * self_scale, m.width * self_scale, m.height * self_scale, color, 0, 0, .{ 0, 0, 0, 0 });
                             }
                         }
 
@@ -854,10 +883,10 @@ pub fn Node(comptime MessageT: type) type {
                                 for (cache.metrics) |m| {
                                     if (m.byte_offset >= start and m.byte_offset < end) {
                                         try batcher.addRect(
-                                            abs_x + m.x,
-                                            abs_y + m.y,
-                                            m.width,
-                                            m.height,
+                                            abs_x + m.x * self_scale,
+                                            abs_y + m.y * self_scale,
+                                            m.width * self_scale,
+                                            m.height * self_scale,
                                             selection_color,
                                             0,
                                             0,
@@ -877,13 +906,13 @@ pub fn Node(comptime MessageT: type) type {
                             const text_color = colorWithOpacity(effective_style.text_color, combined_opacity);
                             const text_weight = msdfWeightFor(effective_style.font_weight);
                             const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
-                            const glyph_x = abs_x + m.render_x;
-                            const glyph_y = abs_y + m.render_y;
+                            const glyph_x = abs_x + m.render_x * self_scale;
+                            const glyph_y = abs_y + m.render_y * self_scale;
                             try batcher.addGlyphQuad(
                                 snapPixel(glyph_x),
                                 snapPixel(glyph_y),
-                                snapSize(glyph_x, m.render_w),
-                                snapSize(glyph_y, m.render_h),
+                                snapSize(glyph_x, m.render_w * self_scale),
+                                snapSize(glyph_y, m.render_h * self_scale),
                                 m.uv_min,
                                 m.uv_max,
                                 text_color,
@@ -901,6 +930,7 @@ pub fn Node(comptime MessageT: type) type {
                             abs_y,
                             self.style.text_color,
                             combined_opacity,
+                            self_scale,
                         );
                     }
                 },
@@ -909,19 +939,19 @@ pub fn Node(comptime MessageT: type) type {
                     const pad = self.style.padding;
                     const bdr = self.style.border;
 
-                    const inset_left = (pad.left + @max(0.0, bdr.left.width)) * tr.scale;
-                    const inset_top = (pad.top + @max(0.0, bdr.top.width)) * tr.scale;
-                    const inset_bottom = (pad.bottom + @max(0.0, bdr.bottom.width)) * tr.scale;
+                    const inset_left = (pad.left + @max(0.0, bdr.left.width)) * self_scale * layout_mod.active_zoom;
+                    const inset_top = (pad.top + @max(0.0, bdr.top.width)) * self_scale * layout_mod.active_zoom;
+                    const inset_bottom = (pad.bottom + @max(0.0, bdr.bottom.width)) * self_scale * layout_mod.active_zoom;
 
                     const cache = self.layout_result.text_cache;
 
-                    const font_scale = if (self.style.font_size > 0.0) (self.style.font_size / ti.font.base_size) else 1.0;
+                    const font_scale = if (self.style.font_size > 0.0) (self.style.font_size * layout_mod.active_zoom / ti.font.base_size) else 1.0;
                     const fallback_line_h = if (cache.line_height > 0.0) cache.line_height else (ti.font.line_height * font_scale);
 
                     const active_text_h = if (cache.height > 0.0) cache.height else fallback_line_h;
 
                     const inner_h = h - inset_top - inset_bottom;
-                    const scaled_text_h = active_text_h * tr.scale;
+                    const scaled_text_h = active_text_h * self_scale;
                     const align_offset_y = @max(0.0, @round((inner_h - scaled_text_h) / 2.0));
 
                     const text_x = abs_x + inset_left;
@@ -952,13 +982,13 @@ pub fn Node(comptime MessageT: type) type {
                             if (!m.is_visible) continue;
                             const combined_id: u32 = m.effect | (m.atlas_id & 0xFFFF);
                             const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
-                            const glyph_x = text_x + m.render_x;
-                            const glyph_y = text_y + m.render_y;
+                            const glyph_x = text_x + m.render_x * self_scale;
+                            const glyph_y = text_y + m.render_y * self_scale;
                             try batcher.addGlyphQuad(
                                 snapPixel(glyph_x),
                                 snapPixel(glyph_y),
-                                snapSize(glyph_x, m.render_w),
-                                snapSize(glyph_y, m.render_h),
+                                snapSize(glyph_x, m.render_w * self_scale),
+                                snapSize(glyph_y, m.render_h * self_scale),
                                 m.uv_min,
                                 m.uv_max,
                                 text_color,
@@ -976,6 +1006,7 @@ pub fn Node(comptime MessageT: type) type {
                             text_y,
                             self.style.text_color,
                             combined_opacity,
+                            self_scale,
                         );
                     }
 
@@ -983,20 +1014,20 @@ pub fn Node(comptime MessageT: type) type {
                         var cursor_x: f32 = text_x;
                         var cursor_y: f32 = text_y;
 
-                        const cursor_h: f32 = fallback_line_h * tr.scale;
+                        const cursor_h: f32 = fallback_line_h * self_scale;
 
                         const metrics = self.layout_result.text_cache.metrics;
                         var max_metric_index: usize = 0;
                         for (metrics) |m| {
                             max_metric_index = @max(max_metric_index, m.byte_offset + m.byte_length);
                             if (ti.cursor_index == m.byte_offset) {
-                                cursor_x = text_x + m.x;
-                                cursor_y = text_y + m.y;
+                                cursor_x = text_x + m.x * self_scale;
+                                cursor_y = text_y + m.y * self_scale;
                                 break;
                             }
                             if (ti.cursor_index >= m.byte_offset + m.byte_length) {
-                                cursor_x = text_x + m.x + m.width;
-                                cursor_y = text_y + m.y;
+                                cursor_x = text_x + m.x * self_scale + m.width * self_scale;
+                                cursor_y = text_y + m.y * self_scale;
                             }
                         }
 
@@ -1004,7 +1035,7 @@ pub fn Node(comptime MessageT: type) type {
                             const clamped_idx = @min(ti.cursor_index, ti.buffer.items.len);
                             const ratio = @as(f32, @floatFromInt(clamped_idx)) /
                                 @as(f32, @floatFromInt(ti.buffer.items.len));
-                            cursor_x = text_x + self.layout_result.text_cache.width * ratio;
+                            cursor_x = text_x + self.layout_result.text_cache.width * ratio * self_scale;
                         }
 
                         const alpha = @abs(std.math.sin(time * 5.0));
@@ -1026,10 +1057,10 @@ pub fn Node(comptime MessageT: type) type {
                                 for (metrics) |m| {
                                     if (m.byte_offset >= start and m.byte_offset < end) {
                                         try batcher.addRect(
-                                            text_x + m.x,
-                                            text_y + m.y,
-                                            m.width,
-                                            m.height,
+                                            text_x + m.x * self_scale,
+                                            text_y + m.y * self_scale,
+                                            m.width * self_scale,
+                                            m.height * self_scale,
                                             selection_color,
                                             0,
                                             0,
@@ -1046,16 +1077,16 @@ pub fn Node(comptime MessageT: type) type {
                     const pad = self.style.padding;
                     const bdr = self.style.border;
 
-                    const inset_left = (pad.left + @max(0.0, bdr.left.width)) * tr.scale;
-                    const inset_top = (pad.top + @max(0.0, bdr.top.width)) * tr.scale;
-                    const inset_bottom = (pad.bottom + @max(0.0, bdr.bottom.width)) * tr.scale;
+                    const inset_left = (pad.left + @max(0.0, bdr.left.width)) * self_scale * layout_mod.active_zoom;
+                    const inset_top = (pad.top + @max(0.0, bdr.top.width)) * self_scale * layout_mod.active_zoom;
+                    const inset_bottom = (pad.bottom + @max(0.0, bdr.bottom.width)) * self_scale * layout_mod.active_zoom;
 
                     const cache = self.layout_result.text_cache;
-                    const font_scale = if (self.style.font_size > 0.0) (self.style.font_size / ta.font.base_size) else 1.0;
+                    const font_scale = if (self.style.font_size > 0.0) (self.style.font_size * layout_mod.active_zoom / ta.font.base_size) else 1.0;
                     const fallback_line_h = if (cache.line_height > 0.0) cache.line_height else (ta.font.line_height * font_scale);
 
                     const text_x = abs_x + inset_left;
-                    const text_y = abs_y + inset_top - ta.scroll_y * tr.scale;
+                    const text_y = abs_y + inset_top - ta.scroll_y * self_scale;
 
                     const selection_color = colorWithOpacity(.{ 0.2, 0.4, 0.8, 0.5 }, combined_opacity);
 
@@ -1070,7 +1101,7 @@ pub fn Node(comptime MessageT: type) type {
                         node_max_y <= view_min_y or abs_y >= view_max_y;
 
                     if (!is_offscreen) {
-                        const inset_right = (pad.right + @max(0.0, bdr.right.width)) * tr.scale;
+                        const inset_right = (pad.right + @max(0.0, bdr.right.width)) * self_scale * layout_mod.active_zoom;
                         const inner_x = abs_x + inset_left;
                         const inner_y = abs_y + inset_top;
                         const inner_w = @max(0.0, w - inset_left - inset_right);
@@ -1096,10 +1127,10 @@ pub fn Node(comptime MessageT: type) type {
                                         if (!line_active or @abs(m.y - line_y) > 0.01) {
                                             if (line_active and line_end_x > line_start_x) {
                                                 try batcher.addRect(
-                                                    text_x + line_start_x,
-                                                    text_y + line_y,
-                                                    line_end_x - line_start_x,
-                                                    line_h * tr.scale,
+                                                    text_x + line_start_x * self_scale,
+                                                    text_y + line_y * self_scale,
+                                                    (line_end_x - line_start_x) * self_scale,
+                                                    line_h * self_scale,
                                                     selection_color,
                                                     0,
                                                     0,
@@ -1121,10 +1152,10 @@ pub fn Node(comptime MessageT: type) type {
 
                                     if (line_active and line_end_x > line_start_x) {
                                         try batcher.addRect(
-                                            text_x + line_start_x,
-                                            text_y + line_y,
-                                            line_end_x - line_start_x,
-                                            line_h * tr.scale,
+                                            text_x + line_start_x * self_scale,
+                                            text_y + line_y * self_scale,
+                                            (line_end_x - line_start_x) * self_scale,
+                                            line_h * self_scale,
                                             selection_color,
                                             0,
                                             0,
@@ -1142,13 +1173,13 @@ pub fn Node(comptime MessageT: type) type {
                             if (!m.is_visible) continue;
                             const combined_id: u32 = m.effect | (m.atlas_id & 0xFFFF);
                             const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
-                            const glyph_x = text_x + m.render_x;
-                            const glyph_y = text_y + m.render_y;
+                            const glyph_x = text_x + m.render_x * self_scale;
+                            const glyph_y = text_y + m.render_y * self_scale;
                             try batcher.addGlyphQuad(
                                 snapPixel(glyph_x),
                                 snapPixel(glyph_y),
-                                snapSize(glyph_x, m.render_w),
-                                snapSize(glyph_y, m.render_h),
+                                snapSize(glyph_x, m.render_w * self_scale),
+                                snapSize(glyph_y, m.render_h * self_scale),
                                 m.uv_min,
                                 m.uv_max,
                                 text_color,
@@ -1166,12 +1197,13 @@ pub fn Node(comptime MessageT: type) type {
                             text_y,
                             self.style.text_color,
                             combined_opacity,
+                            self_scale,
                         );
 
                         if (self.is_focused and !is_offscreen) {
                             var cursor_x: f32 = text_x;
                             var cursor_y: f32 = text_y;
-                            var cursor_h: f32 = fallback_line_h * tr.scale;
+                            var cursor_h: f32 = fallback_line_h * self_scale;
 
                             const metrics = cache.metrics;
                             var max_metric_index: usize = 0;
@@ -1180,20 +1212,20 @@ pub fn Node(comptime MessageT: type) type {
                                 max_metric_index = @max(max_metric_index, m.byte_offset + m.byte_length);
 
                                 if (ta.cursor_index == m.byte_offset) {
-                                    cursor_x = text_x + m.x;
-                                    cursor_y = text_y + m.y;
-                                    cursor_h = m.height * tr.scale;
+                                    cursor_x = text_x + m.x * self_scale;
+                                    cursor_y = text_y + m.y * self_scale;
+                                    cursor_h = m.height * self_scale;
                                     break;
                                 }
 
                                 if (ta.cursor_index >= m.byte_offset + m.byte_length) {
-                                    cursor_x = text_x + m.x + m.width;
-                                    cursor_y = text_y + m.y;
-                                    cursor_h = m.height * tr.scale;
+                                    cursor_x = text_x + (m.x + m.width) * self_scale;
+                                    cursor_y = text_y + m.y * self_scale;
+                                    cursor_h = m.height * self_scale;
 
                                     if (m.byte_length > 0 and m.width == 0 and m.byte_offset < ta.buffer.items.len and ta.buffer.items[m.byte_offset] == '\n') {
                                         cursor_x = text_x;
-                                        cursor_y = text_y + m.y + m.height;
+                                        cursor_y = text_y + (m.y + m.height) * self_scale;
                                     }
                                 }
                             }
@@ -1202,7 +1234,7 @@ pub fn Node(comptime MessageT: type) type {
                                 const clamped_idx = @min(ta.cursor_index, ta.buffer.items.len);
                                 const ratio = @as(f32, @floatFromInt(clamped_idx)) /
                                     @as(f32, @floatFromInt(ta.buffer.items.len));
-                                cursor_x = text_x + cache.width * ratio;
+                                cursor_x = text_x + cache.width * ratio * self_scale;
                                 cursor_y = text_y;
                             }
 
@@ -1231,13 +1263,13 @@ pub fn Node(comptime MessageT: type) type {
                             if (!m.is_visible) continue;
                             const combined_id: u32 = m.effect | (m.atlas_id & 0xFFFF);
                             const glyph_corner_radii: [4]f32 = .{ text_weight, m.sdf_padding, 0, 0 };
-                            const glyph_x = abs_x + m.render_x;
-                            const glyph_y = abs_y + m.render_y;
+                            const glyph_x = abs_x + m.render_x * self_scale;
+                            const glyph_y = abs_y + m.render_y * self_scale;
                             try batcher.addGlyphQuad(
                                 snapPixel(glyph_x),
                                 snapPixel(glyph_y),
-                                snapSize(glyph_x, m.render_w),
-                                snapSize(glyph_y, m.render_h),
+                                snapSize(glyph_x, m.render_w * self_scale),
+                                snapSize(glyph_y, m.render_h * self_scale),
                                 m.uv_min,
                                 m.uv_max,
                                 text_color,
@@ -1255,6 +1287,7 @@ pub fn Node(comptime MessageT: type) type {
                             abs_y,
                             self.style.text_color,
                             combined_opacity,
+                            self_scale,
                         );
                     } else {
                         var effect_flags: u32 = 0;
@@ -1437,17 +1470,15 @@ pub fn Node(comptime MessageT: type) type {
                 );
             }
 
-            const accumulated_dx = parent_dx + tr.translate[0];
-            const accumulated_dy = parent_dy + tr.translate[1];
-
             for (self.children.items) |child| {
                 try child.renderWithOpacity(
                     batcher,
                     text_layouter,
                     time,
                     combined_opacity,
-                    accumulated_dx,
-                    accumulated_dy,
+                    self_scale,
+                    self_tx,
+                    self_ty,
                     effective_z,
                     is_portal_pass,
                 );
