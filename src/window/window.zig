@@ -40,7 +40,6 @@ pub const ResizeFn = *const fn (ptr: *anyopaque) void;
 
 pub const HotkeyFn = *const fn (user_ptr: ?*anyopaque) void;
 
-
 const PROP_NAME = std.unicode.utf8ToUtf16LeStringLiteral("ZigWindowContext");
 
 // glfwGetWin32Window: provided by GLFW when built with -D_GLFW_WIN32
@@ -505,6 +504,7 @@ pub fn initWindow(allocator: std.mem.Allocator, config: platform.AppBackendConfi
     glfw.windowHint(glfw.Decorated, if (config.borderless) 0 else 1);
     glfw.windowHint(glfw.Floating, if (config.topmost) 1 else 0);
     glfw.windowHint(glfw.Visible, if (config.visible_on_start) 1 else 0);
+    glfw.windowHint(glfw.Maximized, if (config.maximize) 1 else 0);
 
     // GLFW_SCALE_FRAMEBUFFER=0x0002200D off; matches X11/Windows behaviour, compositor upscales.
     if (comptime is_linux) {
