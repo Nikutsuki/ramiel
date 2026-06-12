@@ -1457,15 +1457,26 @@ pub fn Node(comptime MessageT: type) type {
 
             const needs_clip = self.clipsChildren();
             if (needs_clip) {
-                const clip_radii = if (self.style.corner_radius.hasAny())
-                    self.style.corner_radius.toArray()
-                else
-                    [4]f32{ 0.0, 0.0, 0.0, 0.0 };
+                const bdr = self.style.border;
+                const inset_l = @max(0.0, bdr.left.width);
+                const inset_t = @max(0.0, bdr.top.width);
+                const inset_r = @max(0.0, bdr.right.width);
+                const inset_b = @max(0.0, bdr.bottom.width);
+                const clip_radii = if (self.style.corner_radius.hasAny()) blk: {
+                    const r = self.style.corner_radius.toArray();
+                    const max_inset = @max(@max(inset_l, inset_t), @max(inset_r, inset_b));
+                    break :blk [4]f32{
+                        @max(0.0, r[0] - max_inset),
+                        @max(0.0, r[1] - max_inset),
+                        @max(0.0, r[2] - max_inset),
+                        @max(0.0, r[3] - max_inset),
+                    };
+                } else [4]f32{ 0.0, 0.0, 0.0, 0.0 };
                 try batcher.pushScissor(
-                    abs_x,
-                    abs_y,
-                    @max(0.0, w),
-                    @max(0.0, h),
+                    abs_x + inset_l,
+                    abs_y + inset_t,
+                    @max(0.0, w - inset_l - inset_r),
+                    @max(0.0, h - inset_t - inset_b),
                     clip_radii,
                 );
             }

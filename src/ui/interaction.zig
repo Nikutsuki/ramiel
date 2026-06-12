@@ -1323,6 +1323,8 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             if (self.focused_node) |node| {
                 if (action == glfw.Press or action == glfw.Repeat) {
                     if (editableTextRef(node)) |edit| {
+                        const len_before = edit.buffer.items.len;
+                        var paste_changed = false;
                         if (is_ctrl and key == glfw.KeyA) {
                             if (edit.buffer.items.len > 0) {
                                 edit.selection_anchor.* = 0;
@@ -1349,6 +1351,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                                     edit.buffer.insertSlice(node.allocator, edit.cursor_index.*, content) catch return;
                                     edit.cursor_index.* += content.len;
                                     edit.selection_anchor.* = null;
+                                    paste_changed = true;
                                     node.markDirty();
                                     self.layout_requested = true;
                                     self.updateTextAreaNavigationX(node);
@@ -1473,6 +1476,12 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                             self.layout_requested = true;
                             self.updateTextAreaNavigationX(node);
                             self.ensureTextAreaCursorVisible(node);
+                        }
+
+                        if (edit.buffer.items.len != len_before or paste_changed) {
+                            if (node.hasEventBinding(.text_input)) {
+                                self.dispatchNodeEvent(node, .text_input, .{ .text = .{ .codepoint = 0 } });
+                            }
                         }
                     }
 
