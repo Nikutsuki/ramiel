@@ -439,7 +439,7 @@ pub const Engine = struct {
         try self.recordCanvasUploads(cb, ctx.frame_index, canvases);
         video_manager.recordUploads(ctx.frame_index, self.core.vkd, cb);
 
-        try font_registry.flushUploads(&self.core, cb);
+        try font_registry.flushUploads(&self.core);
 
         var has_blur = false;
         for (batcher.layers.items) |layer_entry| {
@@ -1098,7 +1098,7 @@ pub const Engine = struct {
         try self.resources.flushDescriptorUpdates(&self.core, ctx.frame_index);
         try self.recordCanvasUploads(cb, ctx.frame_index, canvases);
         video_manager.recordUploads(ctx.frame_index, self.core.vkd, cb);
-        try font_registry.flushUploads(&self.core, cb);
+        try font_registry.flushUploads(&self.core);
 
         try self.resource_map.put(.swapchain, self.swapchain.images[ctx.image_index]);
 

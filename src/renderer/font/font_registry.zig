@@ -477,41 +477,74 @@ pub const FontRegistry = struct {
 
         const src_buffer = bitmap.buffer;
         const pitch: i32 = bitmap.pitch;
-        const pitch_abs: u32 = @intCast(if (pitch < 0) -pitch else pitch);
-        const is_bgra = bitmap.pixel_mode == c.FT_PIXEL_MODE_BGRA;
+        const pitch_abs: usize = @intCast(if (pitch < 0) -pitch else pitch);
+        const pixel_mode: c_int = @intCast(bitmap.pixel_mode);
         var row: u32 = 0;
         while (row < bh) : (row += 1) {
-            const src_row_index: u32 = if (pitch < 0) (bh - 1 - row) else row;
+            const src_row_index: usize = if (pitch < 0) (bh - 1 - row) else row;
             const src_row = @as([*]const u8, @ptrCast(src_buffer)) + src_row_index * pitch_abs;
             var col: u32 = 0;
             while (col < bw) : (col += 1) {
                 const dst = (row * bw + col) * 4;
-                if (is_bgra) {
-                    // FreeType color bitmaps are premultiplied BGRA. Un-premultiply
-                    // to straight-alpha RGBA so it composites under the pipeline's
-                    // src_alpha / one_minus_src_alpha blend like other textures.
-                    const b = src_row[col * 4 + 0];
-                    const g = src_row[col * 4 + 1];
-                    const r = src_row[col * 4 + 2];
-                    const a = src_row[col * 4 + 3];
-                    if (a == 0) {
+                switch (pixel_mode) {
+                    c.FT_PIXEL_MODE_BGRA => {
+                        const b = src_row[col * 4 + 0];
+                        const g = src_row[col * 4 + 1];
+                        const r = src_row[col * 4 + 2];
+                        const a = src_row[col * 4 + 3];
+                        if (a == 0) {
+                            mapped_ptr[dst + 0] = 0;
+                            mapped_ptr[dst + 1] = 0;
+                            mapped_ptr[dst + 2] = 0;
+                            mapped_ptr[dst + 3] = 0;
+                        } else {
+                            const af: u32 = a;
+                            mapped_ptr[dst + 0] = @intCast(@min(@as(u32, 255), @as(u32, r) * 255 / af));
+                            mapped_ptr[dst + 1] = @intCast(@min(@as(u32, 255), @as(u32, g) * 255 / af));
+                            mapped_ptr[dst + 2] = @intCast(@min(@as(u32, 255), @as(u32, b) * 255 / af));
+                            mapped_ptr[dst + 3] = a;
+                        }
+                    },
+                    c.FT_PIXEL_MODE_GRAY => {
+                        const cov = src_row[col];
+                        mapped_ptr[dst + 0] = cov;
+                        mapped_ptr[dst + 1] = cov;
+                        mapped_ptr[dst + 2] = cov;
+                        mapped_ptr[dst + 3] = cov;
+                    },
+                    c.FT_PIXEL_MODE_MONO => {
+                        const shift: u3 = @intCast(7 - (col & 7));
+                        const bit: u8 = (src_row[col >> 3] >> shift) & 1;
+                        const cov: u8 = if (bit != 0) 255 else 0;
+                        mapped_ptr[dst + 0] = cov;
+                        mapped_ptr[dst + 1] = cov;
+                        mapped_ptr[dst + 2] = cov;
+                        mapped_ptr[dst + 3] = cov;
+                    },
+                    c.FT_PIXEL_MODE_GRAY2 => {
+                        const shift: u3 = @intCast(6 - 2 * (col & 3));
+                        const v: u8 = (src_row[col >> 2] >> shift) & 0x3;
+                        const cov: u8 = v * 85;
+                        mapped_ptr[dst + 0] = cov;
+                        mapped_ptr[dst + 1] = cov;
+                        mapped_ptr[dst + 2] = cov;
+                        mapped_ptr[dst + 3] = cov;
+                    },
+                    c.FT_PIXEL_MODE_GRAY4 => {
+                        const shift: u3 = if (col & 1 == 0) 4 else 0;
+                        const v: u8 = (src_row[col >> 1] >> shift) & 0xF;
+                        const cov: u8 = v * 17;
+                        mapped_ptr[dst + 0] = cov;
+                        mapped_ptr[dst + 1] = cov;
+                        mapped_ptr[dst + 2] = cov;
+                        mapped_ptr[dst + 3] = cov;
+                    },
+                    else => {
                         mapped_ptr[dst + 0] = 0;
                         mapped_ptr[dst + 1] = 0;
                         mapped_ptr[dst + 2] = 0;
                         mapped_ptr[dst + 3] = 0;
-                    } else {
-                        const af: u32 = a;
-                        mapped_ptr[dst + 0] = @intCast(@min(@as(u32, 255), @as(u32, r) * 255 / af));
-                        mapped_ptr[dst + 1] = @intCast(@min(@as(u32, 255), @as(u32, g) * 255 / af));
-                        mapped_ptr[dst + 2] = @intCast(@min(@as(u32, 255), @as(u32, b) * 255 / af));
-                        mapped_ptr[dst + 3] = a;
-                    }
-                } else {
-                    const cov = src_row[col];
-                    mapped_ptr[dst + 0] = cov;
-                    mapped_ptr[dst + 1] = cov;
-                    mapped_ptr[dst + 2] = cov;
-                    mapped_ptr[dst + 3] = cov;
+                    },
                 }
             }
         }
@@ -539,8 +572,12 @@ pub const FontRegistry = struct {
         });
     }
 
-    pub fn flushUploads(self: *FontRegistry, core: *const Core, cmd: vk.CommandBuffer) !void {
+    pub fn flushUploads(self: *FontRegistry, core: *const Core) !void {
         if (self.pending_copies.items.len == 0) return;
+
+        _ = core.vkd.deviceWaitIdle(core.logical_device) catch {};
+
+        const cmd = try core.beginSingleTimeCommands();
 
         var unique_images = std.AutoHashMap(vk.Image, void).init(self.allocator);
         defer unique_images.deinit();
@@ -572,6 +609,8 @@ pub const FontRegistry = struct {
         while (it.next()) |img_ptr| {
             try core.transitionImageLayoutCmd(cmd, img_ptr.*, .transfer_dst_optimal, .shader_read_only_optimal);
         }
+
+        try core.endSingleTimeCommands(cmd);
 
         self.staging_offset = 0;
         self.pending_copies.clearRetainingCapacity();
