@@ -356,6 +356,10 @@ pub const WindowContext = struct {
 
     fn glfwCharCallback(win: *glfw.Window, codepoint: u32) callconv(.c) void {
         const ctx: *WindowContext = @ptrCast(@alignCast(glfw.getWindowUserPointer(win) orelse return));
+        const mods = ctx.getMods();
+        const ctrl = (mods & glfw.ModifierControl) != 0;
+        const alt = (mods & glfw.ModifierAlt) != 0;
+        if (ctrl != alt) return;
         if (ctx.char_fn) |f| if (ctx.user_ptr) |p| f(p, @intCast(codepoint));
     }
 

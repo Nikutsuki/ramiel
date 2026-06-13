@@ -1640,7 +1640,8 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             }
             const is_ctrl = app.backend.isKeyDown(glfw.KeyLeftControl) or app.backend.isKeyDown(glfw.KeyRightControl);
             const is_shift = app.backend.isKeyDown(glfw.KeyLeftShift) or app.backend.isKeyDown(glfw.KeyRightShift);
-            app.ui.interaction_registry.pushKey(app.ui.root, key, action, is_ctrl, is_shift);
+            const is_alt = app.backend.isKeyDown(glfw.KeyLeftAlt) or app.backend.isKeyDown(glfw.KeyRightAlt);
+            app.ui.interaction_registry.pushKey(app.ui.root, key, action, is_ctrl, is_shift, is_alt);
         }
 
         fn onChar(ptr: *anyopaque, codepoint: u21) void {

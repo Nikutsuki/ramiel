@@ -1289,7 +1289,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             }
         }
 
-        pub fn pushKey(self: *Self, root: *Node(MessageT), key: i32, action: i32, is_ctrl: bool, is_shift: bool) void {
+        pub fn pushKey(self: *Self, root: *Node(MessageT), key: i32, action: i32, is_ctrl: bool, is_shift: bool, is_alt: bool) void {
             if (self.shortcut_handler) |handler| {
                 if (handler(self.shortcut_context, self, key, action, is_ctrl, is_shift)) return;
             }
@@ -1487,8 +1487,9 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
                     if (node.hasEventBinding(.key_down)) {
                         // Forward real modifier state (GLFW mod bits: shift=0x1,
-                        // ctrl=0x2) so handlers can bind chords like ctrl+z.
-                        const dispatch_mods: i32 = (if (is_shift) @as(i32, 0x0001) else 0) | (if (is_ctrl) @as(i32, 0x0002) else 0);
+                        // ctrl=0x2, alt=0x4) so handlers can bind chords like
+                        // ctrl+z or alt+s.
+                        const dispatch_mods: i32 = (if (is_shift) @as(i32, 0x0001) else 0) | (if (is_ctrl) @as(i32, 0x0002) else 0) | (if (is_alt) @as(i32, 0x0004) else 0);
                         self.dispatchNodeEvent(node, .key_down, .{ .key = .{ .key = key, .action = action, .mods = dispatch_mods } });
                     }
                 }

@@ -217,12 +217,14 @@ pub const Backend = union(platform.BackendKind) {
                 for (client.key_queue[0..client.key_queue_len]) |kev| {
                     var is_ctrl = false;
                     var is_shift = false;
+                    var is_alt = false;
                     if (client.xkb_state) |xs| {
                         is_ctrl = wayland_backend.xkb.xkb_state_mod_name_is_active(xs, "Control", wayland_backend.xkb.XKB_STATE_MODS_EFFECTIVE) == 1;
                         is_shift = wayland_backend.xkb.xkb_state_mod_name_is_active(xs, "Shift", wayland_backend.xkb.XKB_STATE_MODS_EFFECTIVE) == 1;
+                        is_alt = wayland_backend.xkb.xkb_state_mod_name_is_active(xs, "Mod1", wayland_backend.xkb.XKB_STATE_MODS_EFFECTIVE) == 1;
                     }
                     if (raw_key_handler) |handler| handler(kev.evdev_key, kev.state);
-                    registry.pushKey(root, @intCast(kev.key), @intCast(kev.state), is_ctrl, is_shift);
+                    registry.pushKey(root, @intCast(kev.key), @intCast(kev.state), is_ctrl, is_shift, is_alt);
                 }
                 client.key_queue_len = 0;
 

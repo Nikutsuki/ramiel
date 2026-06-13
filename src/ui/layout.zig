@@ -1843,10 +1843,12 @@ fn arrangeFlexChildrenNoWrap(node: anytype, start_x: f32, start_y: f32, w: f32, 
 
     var children_main_sum: f32 = 0;
     var flow_count: usize = 0;
+    var total_flex_grow: f32 = 0;
     for (node.children.items, 0..) |child, i| {
         prefetchNextChildIfEnabled(node.children.items, i);
         if (!isFlowChild(child)) continue;
         flow_count += 1;
+        total_flex_grow += child.style.flex_grow;
         const margin = scaledSpacing(child.style.margin);
         children_main_sum += if (is_row)
             child.layout_result.width + margin.left + margin.right
@@ -1857,11 +1859,28 @@ fn arrangeFlexChildrenNoWrap(node: anytype, start_x: f32, start_y: f32, w: f32, 
     const inner_main: f32 = if (is_row) w - pad.horizontal() else h - pad.vertical();
     const inner_cross: f32 = if (is_row) h - pad.vertical() else w - pad.horizontal();
 
+    const total_gap = zpx(node.style.gap) * @as(f32, @floatFromInt(if (flow_count > 1) flow_count - 1 else 0));
+
+    if (total_flex_grow > 0) {
+        const slack = inner_main - children_main_sum - total_gap;
+        if (slack > 0) {
+            for (node.children.items) |child| {
+                if (!isFlowChild(child) or child.style.flex_grow <= 0) continue;
+                const add = slack * (child.style.flex_grow / total_flex_grow);
+                if (is_row) {
+                    child.layout_result.width += add;
+                } else {
+                    child.layout_result.height += add;
+                }
+            }
+            children_main_sum += slack;
+        }
+    }
+
     var between_gap: f32 = zpx(node.style.gap);
     var start_offset: f32 = 0;
 
     if (flow_count > 0) {
-        const total_gap = zpx(node.style.gap) * @as(f32, @floatFromInt(if (flow_count > 1) flow_count - 1 else 0));
         const total_children = children_main_sum + total_gap;
         const remaining = inner_main - total_children;
 
