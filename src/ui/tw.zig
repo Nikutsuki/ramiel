@@ -790,6 +790,10 @@ pub fn backdrop_blur(value_px: f32) struct { backdrop_blur: f32 } {
     return .{ .backdrop_blur = value_px };
 }
 
+pub fn noise(amount: f32) struct { noise: f32 } {
+    return .{ .noise = amount };
+}
+
 pub const cursor_default = .{ .cursor = layout.Cursor.default };
 pub const cursor_pointer = .{ .cursor = layout.Cursor.pointer };
 pub const cursor_text = .{ .cursor = layout.Cursor.text };

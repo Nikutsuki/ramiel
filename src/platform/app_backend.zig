@@ -196,6 +196,52 @@ pub const Backend = union(platform.BackendKind) {
         }
     }
 
+    pub fn enableCustomFrame(self: *Backend) void {
+        switch (self.*) {
+            .glfw => |*win| win.enableCustomFrame(),
+            .wayland => {},
+        }
+    }
+
+    pub fn setCaptionQuery(
+        self: *Backend,
+        ctx: ?*anyopaque,
+        query: *const fn (?*anyopaque, x: i32, y: i32) callconv(.c) bool,
+    ) void {
+        switch (self.*) {
+            .glfw => |*win| win.setCaptionQuery(ctx, query),
+            .wayland => {},
+        }
+    }
+
+    pub fn minimizeWindow(self: *Backend) void {
+        switch (self.*) {
+            .glfw => |*win| win.minimizeWindow(),
+            .wayland => {},
+        }
+    }
+
+    pub fn toggleMaximizeWindow(self: *Backend) void {
+        switch (self.*) {
+            .glfw => |*win| win.toggleMaximize(),
+            .wayland => {},
+        }
+    }
+
+    pub fn isWindowMaximized(self: *const Backend) bool {
+        return switch (self.*) {
+            .glfw => |*win| win.isMaximized(),
+            .wayland => false,
+        };
+    }
+
+    pub fn requestClose(self: *Backend) void {
+        switch (self.*) {
+            .glfw => |*win| win.closeWindow(),
+            .wayland => {},
+        }
+    }
+
     pub fn pointerInputSnapshot(self: *Backend) platform.PointerInputSnapshot {
         return switch (self.*) {
             .glfw => |*win| win.pointerInputSnapshot(),

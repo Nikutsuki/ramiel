@@ -13,6 +13,7 @@ layout(location = 9) in vec4  inOutlineWidths;  // [top, right, bottom, left]
 layout(location = 10) in vec4 inSdfParams;      // [softness, logical_w, logical_h, sdf_padding]
 layout(location = 11) in uvec4 inBorderColors;  // packed RGBA8 [top, right, bottom, left]
 layout(location = 12) in uvec4 inOutlineColors; // packed RGBA8 [top, right, bottom, left]
+layout(location = 13) in float inNoise;
 
 layout(location = 0) out vec4        fragColor;
 layout(location = 1) out vec2        fragUV;
@@ -26,6 +27,7 @@ layout(location = 8) out flat vec4   fragOutlineWidths;
 layout(location = 9) out flat vec4   fragSdfParams;
 layout(location = 10) out flat uvec4 fragBorderColors;
 layout(location = 11) out flat uvec4 fragOutlineColors;
+layout(location = 12) out flat float fragNoise;
 
 layout(set = 0, binding = 0) uniform GlobalUBO {
     mat4 projection;
@@ -47,4 +49,5 @@ void main() {
     fragSdfParams   = inSdfParams;
     fragBorderColors  = inBorderColors;
     fragOutlineColors = inOutlineColors;
+    fragNoise         = inNoise;
 }

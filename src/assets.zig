@@ -10,6 +10,7 @@ pub const EFFECT_ELEMENT_BLUR: u32 = 1 << 19;
 pub const EFFECT_BITMAP_TEXT: u32 = 1 << 20;
 pub const EFFECT_COLOR_GLYPH: u32 = 1 << 21;
 pub const EFFECT_DECORATION_LINE: u32 = 1 << 22;
+pub const EFFECT_NOISE_DITHER: u32 = 1 << 23;
 
 pub const NO_TEXTURE: u32 = 0xFFFF;
 

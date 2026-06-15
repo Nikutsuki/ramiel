@@ -20,6 +20,7 @@ layout(location = 9) in flat vec4  fragSdfParams;
 /// Packed RGBA8 per side [top, right, bottom, left].
 layout(location = 10) in flat uvec4 fragBorderColors;
 layout(location = 11) in flat uvec4 fragOutlineColors;
+layout(location = 12) in flat float fragNoise;
 
 layout(location = 0) out vec4 outColor;
 
@@ -38,6 +39,17 @@ layout(push_constant) uniform PushConstants {
 
 float median3(float a, float b, float c) {
     return max(min(a, b), min(max(a, b), c));
+}
+
+uint pcg2d(uvec2 v) {
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> 16u);
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v = v ^ (v >> 16u);
+    return v.x;
 }
 
 void main() {
@@ -351,6 +363,12 @@ void main() {
             baseColor.rgb = (baseColor.rgb * ia + border_zone_rgb * ba_w + outline_col.rgb * oa_w) / total_a;
         }
         baseColor.a = total_a;
+    }
+
+    if ((flags & (1u << 7)) != 0u && fragNoise > 0.0) {
+        uint h = pcg2d(uvec2(gl_FragCoord.xy));
+        float n = float(h) * (1.0 / 4294967295.0);
+        baseColor.rgb = clamp(baseColor.rgb + (n - 0.5) * fragNoise * baseColor.a, 0.0, 1.0);
     }
 
     baseColor.a *= rounded_clip_cov;

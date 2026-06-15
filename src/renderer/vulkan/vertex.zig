@@ -16,6 +16,7 @@ pub const Vertex = struct {
     sdf_params: [4]f32 = .{ 0, 0, 0, 0 },
     border_colors: [4]u32 = .{ 0, 0, 0, 0 },
     outline_colors: [4]u32 = .{ 0, 0, 0, 0 },
+    noise: f32 = 0,
 
     pub fn getBindingDescription() vk.VertexInputBindingDescription {
         return vk.VertexInputBindingDescription{
@@ -25,7 +26,7 @@ pub const Vertex = struct {
         };
     }
 
-    pub fn getAttributeDescriptions() [13]vk.VertexInputAttributeDescription {
+    pub fn getAttributeDescriptions() [14]vk.VertexInputAttributeDescription {
         return [_]vk.VertexInputAttributeDescription{
             .{ .binding = 0, .location = 0, .format = .r32g32_sfloat, .offset = @offsetOf(Vertex, "pos") },
             .{ .binding = 0, .location = 1, .format = .r32g32_sfloat, .offset = @offsetOf(Vertex, "uv") },
@@ -40,6 +41,7 @@ pub const Vertex = struct {
             .{ .binding = 0, .location = 10, .format = .r32g32b32a32_sfloat, .offset = @offsetOf(Vertex, "sdf_params") },
             .{ .binding = 0, .location = 11, .format = .r32g32b32a32_uint, .offset = @offsetOf(Vertex, "border_colors") },
             .{ .binding = 0, .location = 12, .format = .r32g32b32a32_uint, .offset = @offsetOf(Vertex, "outline_colors") },
+            .{ .binding = 0, .location = 13, .format = .r32_sfloat, .offset = @offsetOf(Vertex, "noise") },
         };
     }
 };

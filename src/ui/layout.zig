@@ -428,6 +428,7 @@ pub const Style = struct {
     grid_row_span: u16 = 1,
 
     box_sizing: BoxSizing = .border_box,
+    window_drag: bool = false,
     width: Size = .Auto,
     height: Size = .Auto,
     min_width: Size = .Auto,
@@ -453,6 +454,7 @@ pub const Style = struct {
     outline: Border = .{},
     blur: f32 = 0,
     backdrop_blur: f32 = 0,
+    noise: f32 = 0,
 
     shadow_color: [4]f32 = .{ 0, 0, 0, 0 },
     shadow_offset: [2]f32 = .{ 0, 0 },

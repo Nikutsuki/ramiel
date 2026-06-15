@@ -1328,9 +1328,58 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             try self.backend.registerGlobalHotkey(modifier, key, self, callback);
         }
 
+        pub fn minimizeWindow(self: *Self) void {
+            self.backend.minimizeWindow();
+        }
+
+        pub fn toggleMaximizeWindow(self: *Self) void {
+            self.backend.toggleMaximizeWindow();
+        }
+
+        pub fn isWindowMaximized(self: *const Self) bool {
+            return self.backend.isWindowMaximized();
+        }
+
+        pub fn requestClose(self: *Self) void {
+            self.backend.requestClose();
+        }
+
+        fn captionHitTest(ctx: ?*anyopaque, x: i32, y: i32) callconv(.c) bool {
+            const self: *Self = @ptrCast(@alignCast(ctx orelse return false));
+            const fx: f32 = @floatFromInt(x);
+            const fy: f32 = @floatFromInt(y);
+            if (pointOverInteractive(self.ui.root, fx, fy)) return false;
+            return pointOverDragRegion(self.ui.root, fx, fy);
+        }
+
+        fn rectContains(rect: Node(MessageType).TransformedRect, x: f32, y: f32) bool {
+            if (rect.width <= 0.0 or rect.height <= 0.0) return false;
+            return x >= rect.x and x < rect.x + rect.width and y >= rect.y and y < rect.y + rect.height;
+        }
+
+        fn pointOverInteractive(node: *Node(MessageType), x: f32, y: f32) bool {
+            if (node.style.pointer_events != .none and nodeNeedsInput(node) and rectContains(node.getTransformedRect(), x, y)) {
+                return true;
+            }
+            for (node.children.items) |child| {
+                if (pointOverInteractive(child, x, y)) return true;
+            }
+            return false;
+        }
+
+        fn pointOverDragRegion(node: *Node(MessageType), x: f32, y: f32) bool {
+            if (node.style.window_drag and rectContains(node.getTransformedRect(), x, y)) return true;
+            for (node.children.items) |child| {
+                if (pointOverDragRegion(child, x, y)) return true;
+            }
+            return false;
+        }
+
         pub fn run(self: *Self) !void {
             self.backend.rebindListeners();
             self.backend.registerCallbacks(self, onKey, onChar, onResize);
+            self.backend.setCaptionQuery(self, captionHitTest);
+            self.backend.enableCustomFrame();
             self.ui.interaction_registry.clipboard_ctx = &self.backend;
             self.ui.interaction_registry.clipboard_get_fn = clipboardGet;
             self.ui.interaction_registry.clipboard_set_fn = clipboardSet;

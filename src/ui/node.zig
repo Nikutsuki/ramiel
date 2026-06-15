@@ -700,11 +700,13 @@ pub fn Node(comptime MessageT: type) type {
 
             const backdrop_blur = @max(0.0, self.style.backdrop_blur);
             const element_blur = @max(0.0, self.style.blur);
+            const noise = @max(0.0, self.style.noise);
 
             const has_any_visual =
                 bg[3] > 0 or
                 backdrop_blur > 0 or
                 element_blur > 0 or
+                noise > 0 or
                 self.style.border.hasAny() or
                 self.style.outline.hasAny() or
                 self.style.corner_radius.hasAny();
@@ -717,6 +719,7 @@ pub fn Node(comptime MessageT: type) type {
                     !otl.hasAny() and
                     backdrop_blur == 0.0 and
                     element_blur == 0.0 and
+                    noise == 0.0 and
                     rotation == 0.0;
 
                 if (can_skip_sdf) {
@@ -771,6 +774,7 @@ pub fn Node(comptime MessageT: type) type {
                             },
                             .backdrop_blur = backdrop_blur,
                             .element_blur = element_blur,
+                            .noise = noise,
                         },
                         rotation,
                     );
