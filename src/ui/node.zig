@@ -363,7 +363,8 @@ pub fn Node(comptime MessageT: type) type {
             const track_height = @max(0.0, transformed.height - thumb_h);
             const scroll_ratio = std.math.clamp(self.scroll_y / max_scroll, 0.0, 1.0);
             const thumb_y = transformed.y + track_height * scroll_ratio;
-            const thumb_x = transformed.x + transformed.width - thumb_w - 2.0 * transformed.local_scale;
+
+            const thumb_x = transformed.x + transformed.width - thumb_w;
 
             return .{
                 .x = thumb_x,
@@ -399,7 +400,7 @@ pub fn Node(comptime MessageT: type) type {
             const scroll_ratio = std.math.clamp(self.scroll_x / max_scroll, 0.0, 1.0);
             const thumb_x = transformed.x + track_width * scroll_ratio;
 
-            const thumb_y = transformed.y + transformed.height - thumb_h - 2.0 * transformed.local_scale;
+            const thumb_y = transformed.y + transformed.height - thumb_h;
 
             return .{
                 .x = thumb_x,

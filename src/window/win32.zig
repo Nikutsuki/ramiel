@@ -160,6 +160,11 @@ pub const MARGINS = extern struct {
 extern "dwmapi" fn DwmExtendFrameIntoClientArea(hWnd: HWND, pMarInset: *const MARGINS) callconv(.c) c_long;
 pub const dwmExtendFrameIntoClientArea = DwmExtendFrameIntoClientArea;
 
+pub const DWMWA_BORDER_COLOR: u32 = 34;
+pub const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
+extern "dwmapi" fn DwmSetWindowAttribute(hWnd: HWND, dwAttribute: u32, pvAttribute: *const anyopaque, cbAttribute: u32) callconv(.c) c_long;
+pub const dwmSetWindowAttribute = DwmSetWindowAttribute;
+
 pub const getWindowLongPtrW = GetWindowLongPtrW;
 pub const setWindowLongPtrW = SetWindowLongPtrW;
 pub const getPropW = GetPropW;
@@ -254,5 +259,7 @@ pub fn handleCustomFrame(
 pub fn enableCustomFrame(hwnd: HWND) void {
     const margins = MARGINS{ .cxLeftWidth = 0, .cxRightWidth = 0, .cyTopHeight = 1, .cyBottomHeight = 0 };
     _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+    const border_none: u32 = DWMWA_COLOR_NONE;
+    _ = DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &border_none, @sizeOf(u32));
     _ = SetWindowPos(hwnd, null, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
