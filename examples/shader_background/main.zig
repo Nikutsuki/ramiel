@@ -28,7 +28,7 @@ fn build(ui: *UI, state: *const State) anyerror!*Node {
         .target = bg,
         .children = &.{
             try ux.textAny(.{
-                .class = .{ tw.text_lg, tw.text_color_value(.{ 1.0, 1.0, 1.0, 1.0 }) },
+                .class = .{ tw.text_lg, tw.text_color_value(lib.layout.Color.from(.{ 1.0, 1.0, 1.0, 1.0 })) },
                 .content = "fragment shader background",
                 .font = state.font,
             }),

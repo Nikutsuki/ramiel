@@ -532,7 +532,7 @@ pub fn build(
 
     var thumb_style = layout.Style{
         .position = .absolute,
-        .background_color = .{ 0, 0, 0, 0 },
+        .background_color = layout.Color.transparent,
         .cursor = .pointer,
     };
 

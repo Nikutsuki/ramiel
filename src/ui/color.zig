@@ -1,14 +1,68 @@
 const std = @import("std");
 
-pub fn parse(comptime input_str: []const u8) [4]f32 {
+pub const Color = packed struct(u32) {
+    r: u8 = 0,
+    g: u8 = 0,
+    b: u8 = 0,
+    a: u8 = 0,
+
+    pub const transparent: Color = .{};
+
+    pub fn rgbaU8(r: u8, g: u8, b: u8, a: u8) Color {
+        return .{ .r = r, .g = g, .b = b, .a = a };
+    }
+
+    pub fn from(c: [4]f32) Color {
+        return .{ .r = chan(c[0]), .g = chan(c[1]), .b = chan(c[2]), .a = chan(c[3]) };
+    }
+
+    pub fn toArray(self: Color) [4]f32 {
+        return .{ f(self.r), f(self.g), f(self.b), f(self.a) };
+    }
+
+    pub fn bits(self: Color) u32 {
+        return @bitCast(self);
+    }
+
+    pub fn eql(a: Color, b: Color) bool {
+        return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
+    }
+
+    pub fn withAlpha(self: Color, alpha: f32) Color {
+        return .{ .r = self.r, .g = self.g, .b = self.b, .a = chan(alpha) };
+    }
+
+    pub fn scaleAlpha(self: Color, factor: f32) Color {
+        return .{ .r = self.r, .g = self.g, .b = self.b, .a = chan(f(self.a) * factor) };
+    }
+
+    pub fn lerp(a: Color, b: Color, t: f32) Color {
+        return .{
+            .r = chan(f(a.r) + (f(b.r) - f(a.r)) * t),
+            .g = chan(f(a.g) + (f(b.g) - f(a.g)) * t),
+            .b = chan(f(a.b) + (f(b.b) - f(a.b)) * t),
+            .a = chan(f(a.a) + (f(b.a) - f(a.a)) * t),
+        };
+    }
+
+    fn chan(v: f32) u8 {
+        return @intFromFloat(@max(0.0, @min(255.0, v * 255.0 + 0.5)));
+    }
+
+    fn f(c: u8) f32 {
+        return @as(f32, @floatFromInt(c)) / 255.0;
+    }
+};
+
+pub fn parse(comptime input_str: []const u8) Color {
     @setEvalBranchQuota(100000);
 
     const str = comptime std.mem.trim(u8, input_str, " \t\r\n");
 
     comptime if (std.mem.startsWith(u8, str, "#")) {
-        return parseHex(str);
+        return Color.from(parseHex(str));
     } else if (std.mem.startsWith(u8, str, "oklch")) {
-        return parseOklch(str);
+        return Color.from(parseOklch(str));
     } else {
         @compileError("Unsupported color format. Expected hex or oklch, found: '" ++ str ++ "'");
     };
@@ -95,8 +149,8 @@ fn parseNumberOrPercent(comptime str: []const u8) f32 {
     }
 }
 
-pub fn oklch(l: f32, c: f32, h: f32, alpha: f32) [4]f32 {
-    return oklchToRgb(l, c, h, alpha);
+pub fn oklch(l: f32, c: f32, h: f32, alpha: f32) Color {
+    return Color.from(oklchToRgb(l, c, h, alpha));
 }
 
 pub fn oklchToRgb(l: f32, c: f32, h: f32, alpha: f32) [4]f32 {

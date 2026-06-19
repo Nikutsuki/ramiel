@@ -1,6 +1,7 @@
 const std = @import("std");
 const Node = @import("../node.zig").Node;
 const Style = @import("../layout.zig").Style;
+const Color = @import("../layout.zig").Color;
 const UIContext = @import("../context.zig").UIContext;
 const types = @import("../types.zig");
 const FontData = @import("../../renderer/font/font_registry.zig").FontData;
@@ -34,7 +35,7 @@ pub const VideoPlayerDescriptor = struct {
         .align_items = .Center,
         .gap = 14.0,
         .padding = .all(12.0),
-        .background_color = .{ 0.08, 0.09, 0.12, 0.85 },
+        .background_color = Color.from(.{ 0.08, 0.09, 0.12, 0.85 }),
         .corner_radius = .all(8.0),
     },
     controls_icon_button_style: Style = .{
@@ -42,8 +43,8 @@ pub const VideoPlayerDescriptor = struct {
         .height = .{ .exact = 36.0 },
         .align_items = .Center,
         .justify_content = .Center,
-        .background_color = .{ 0.20, 0.22, 0.30, 1.0 },
-        .hover_color = .{ 0.25, 0.28, 0.38, 1.0 },
+        .background_color = Color.from(.{ 0.20, 0.22, 0.30, 1.0 }),
+        .hover_color = Color.from(.{ 0.25, 0.28, 0.38, 1.0 }),
         .corner_radius = .all(6.0),
         .cursor = .pointer,
     },

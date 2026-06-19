@@ -2,6 +2,7 @@ const std = @import("std");
 const Node = @import("node.zig").Node;
 const TextSelection = @import("node.zig").TextSelection;
 const Style = @import("layout.zig").Style;
+const Color = @import("layout.zig").Color;
 const window_mod = @import("../window/window.zig");
 const platform = @import("../platform/backend.zig");
 const app_backend = @import("../platform/app_backend.zig");
@@ -53,6 +54,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         active_drag_axis: enum { None, Vertical, Horizontal } = .None,
         active_drag_has_moved: bool = false,
         pointer_locked_for_drag: bool = false,
+        cursor_locked: bool = false,
 
         cursor_lock_origin_x: f64 = 0.0,
         cursor_lock_origin_y: f64 = 0.0,
@@ -603,6 +605,13 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
             const mouse_is_down = self.previous_mouse_down;
             var suppress_click_this_frame = false;
+            var drag_was_active = false;
+
+            if (self.cursor_locked and self.active_drag_node == null) {
+                if (win) |w| w.setCursorModeDisabled(false);
+                self.cursor_locked = false;
+                self.pointer_locked_for_drag = false;
+            }
 
             if (self.active_drag_node) |drag_node| {
                 if (mouse_is_down) {
@@ -639,11 +648,9 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                     self.previous_drag_y = self.mouse_y;
                 } else {
                     const released_axis = self.active_drag_axis;
-                    const had_scroll_capture = released_axis != .None;
+                    drag_was_active = true;
                     suppress_click_this_frame = self.active_drag_has_moved;
-                    if (self.mouse_just_released and drag_node.hasEventBinding(.pointer_up) and
-                        (had_scroll_capture or drag_node.lock_pointer_on_drag))
-                    {
+                    if (self.mouse_just_released and drag_node.hasEventBinding(.pointer_up)) {
                         self.dispatchNodeEvent(drag_node, .pointer_up, .{ .mouse = .{
                             .x = @floatCast(self.mouse_x),
                             .y = @floatCast(self.mouse_y),
@@ -676,6 +683,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                         if (win) |w| {
                             w.setCursorModeDisabled(false);
                             w.setCursorPos(restore_x, restore_y);
+                            self.cursor_locked = false;
                         }
                         self.mouse_x = restore_x;
                         self.mouse_y = restore_y;
@@ -754,6 +762,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                                 self.cursor_lock_origin_x = origin.x;
                                 self.cursor_lock_origin_y = origin.y;
                                 w.setCursorModeDisabled(true);
+                                self.cursor_locked = true;
                             }
                             self.pointer_locked_for_drag = true;
                         }
@@ -871,7 +880,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                 }
             }
 
-            if (self.mouse_just_released and self.active_drag_node == null) {
+            if (self.mouse_just_released and self.active_drag_node == null and !drag_was_active) {
                 if (self.hovered_node) |target| {
                     var up_target: ?*Node(MessageT) = target;
                     while (up_target) |n| {
@@ -1985,7 +1994,7 @@ test "hover chain: ancestor with hover_enter binding receives event when descend
         .{ .event = .hover_exit, .msg = 99 },
     });
 
-    const inner = try makeHitTestNode(allocator, .{ .hover_color = .{ 1, 1, 1, 1 } }, 10, 10, 50, 50);
+    const inner = try makeHitTestNode(allocator, .{ .hover_color = Color.from(.{ 1, 1, 1, 1 }) }, 10, 10, 50, 50);
 
     try outer.addChild(inner);
     try root.addChild(outer);
@@ -2032,7 +2041,7 @@ test "hover chain: cursor moves between gap and inner; outer fires no spurious e
         .{ .event = .hover_exit, .msg = 2 },
     });
 
-    const inner = try makeHitTestNode(allocator, .{ .hover_color = .{ 1, 1, 1, 1 } }, 25, 25, 50, 50);
+    const inner = try makeHitTestNode(allocator, .{ .hover_color = Color.from(.{ 1, 1, 1, 1 }) }, 25, 25, 50, 50);
 
     try outer.addChild(inner);
     try root.addChild(outer);

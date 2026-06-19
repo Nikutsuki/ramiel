@@ -84,6 +84,40 @@ pub fn UIContext(comptime MessageT: type) type {
 
         font_cache: std.AutoHashMapUnmanaged(FontCacheKey, *FontData) = .empty,
 
+        node_pool: std.heap.MemoryPool(Node(MessageT)) = .empty,
+
+        traversal: std.ArrayList(*Node(MessageT)) = .empty,
+        traversal_dirty: bool = true,
+
+        on_node_destroyed: ?*const fn (*anyopaque, *Node(MessageT)) void = null,
+        on_node_destroyed_ctx: *anyopaque = undefined,
+
+        recon_scratch_pool: std.ArrayList(*Scratch) = .empty,
+
+        const Scratch = struct {
+            id_map: std.AutoHashMapUnmanaged(NodeId, usize) = .empty,
+            children: std.ArrayList(*Node(MessageT)) = .empty,
+        };
+
+        fn acquireScratch(self: *@This()) !*Scratch {
+            if (self.recon_scratch_pool.pop()) |s| {
+                s.id_map.clearRetainingCapacity();
+                s.children.clearRetainingCapacity();
+                return s;
+            }
+            const s = try self.gpa.create(Scratch);
+            s.* = .{};
+            return s;
+        }
+
+        fn releaseScratch(self: *@This(), s: *Scratch) void {
+            self.recon_scratch_pool.append(self.gpa, s) catch {
+                s.id_map.deinit(self.gpa);
+                s.children.deinit(self.gpa);
+                self.gpa.destroy(s);
+            };
+        }
+
         pub const PostLayoutHook = struct {
             userdata: *anyopaque,
             callback: *const fn (ctx: *UIContext(MessageT), userdata: *anyopaque) bool,
@@ -108,13 +142,16 @@ pub fn UIContext(comptime MessageT: type) type {
         };
 
         pub fn init(child_allocator: std.mem.Allocator, initial_theme: theme_lib.Theme) !@This() {
-            const root = try child_allocator.create(Node(MessageT));
+            var node_pool: std.heap.MemoryPool(Node(MessageT)) = .empty;
+            errdefer node_pool.deinit(child_allocator);
+            const root = try node_pool.create(child_allocator);
             root.* = Node(MessageT).init();
             root.allocator = child_allocator;
 
             return @This(){
                 .gpa = child_allocator,
                 .root = root,
+                .node_pool = node_pool,
                 .active_theme = initial_theme,
                 .needs_redraw = true,
                 .id_map = std.AutoHashMap(NodeId, *Node(MessageT)).init(child_allocator),
@@ -204,6 +241,18 @@ pub fn UIContext(comptime MessageT: type) type {
             return resolved;
         }
 
+        pub fn measureTextWidth(self: *Self, style: *const Style, content: []const u8) f32 {
+            if (content.len == 0) return 0;
+            const fs = self.font_system orelse return 0;
+            const font = self.resolveFontFromStyle(null, style) catch return 0;
+            const res = fs.text_layouter.measureTextCached(self.gpa, font, content, .{
+                .font_size = style.font_size,
+                .wrap = false,
+            });
+            self.gpa.free(res.metrics);
+            return res.width;
+        }
+
         fn registerNodeId(self: *@This(), node: *Node(MessageT), id: ?NodeId) !void {
             if (id) |stable_id| {
                 node.id = stable_id;
@@ -213,39 +262,43 @@ pub fn UIContext(comptime MessageT: type) type {
             }
         }
 
-        fn rebuildIdMapFromSubtree(self: *@This(), node: *Node(MessageT)) !void {
-            if (node.id) |stable_id| {
-                try self.id_map.put(stable_id, node);
-            }
-            for (node.children.items) |child| {
-                try self.rebuildIdMapFromSubtree(child);
-            }
-        }
-
         pub fn resetTreeDestructive(self: *@This()) !*Node(MessageT) {
             self.interaction_registry.resetForNewTree();
             self.id_map.clearRetainingCapacity();
             self.portal_list.clearRetainingCapacity();
             self.post_layout_hooks.clearRetainingCapacity();
-            self.root.deinit();
 
-            const root = try self.gpa.create(Node(MessageT));
+            if (self.on_node_destroyed) |hook| hook(self.on_node_destroyed_ctx, self.root);
+            self.destroyTree(self.root);
+
+            const root = try self.node_pool.create(self.gpa);
             root.* = Node(MessageT).init();
             root.allocator = self.gpa;
             self.root = root;
+            self.traversal_dirty = true;
 
             return self.root;
         }
 
         pub fn mountRoot(self: *@This(), new_root: *Node(MessageT)) !void {
             self.interaction_registry.resetForNewTree();
-            self.id_map.clearRetainingCapacity();
             self.portal_list.clearRetainingCapacity();
-            self.root.deinit();
 
-            new_root.parent = null;
-            self.root = new_root;
-            try self.rebuildIdMapFromSubtree(self.root);
+            if (self.on_node_destroyed) |hook| hook(self.on_node_destroyed_ctx, self.root);
+            self.destroyTree(self.root);
+            self.id_map.clearRetainingCapacity();
+
+            self.root = promoteToGPA(MessageT, self, new_root) catch |err| {
+                const empty = try self.node_pool.create(self.gpa);
+                empty.* = Node(MessageT).init();
+                empty.allocator = self.gpa;
+                self.root = empty;
+                return err;
+            };
+            self.root.parent = null;
+            new_root.deinit();
+
+            self.traversal_dirty = true;
             self.layout_dirty = true;
             self.paint_dirty = true;
         }
@@ -361,7 +414,7 @@ pub fn UIContext(comptime MessageT: type) type {
             max_width: f32 = 0.0,
             initial_text: []const u8 = "",
             placeholder: []const u8 = "",
-            placeholder_color: ?[4]f32 = null,
+            placeholder_color: ?layout.Color = null,
 
             events: []const types.EventBinding(MessageT) = &.{},
         };
@@ -552,7 +605,7 @@ pub fn UIContext(comptime MessageT: type) type {
             const font = try self.resolveFontFromStyle(desc.font, &desc.label_style);
             var container_style = desc.style;
 
-            if (container_style.background_color[3] == 0.0) {
+            if (container_style.background_color.a == 0) {
                 container_style.background_color = self.active_theme.tokens.action_default;
                 container_style.hover_color = self.active_theme.tokens.action_hover;
             }
@@ -564,7 +617,7 @@ pub fn UIContext(comptime MessageT: type) type {
             var label_style = desc.label_style;
             label_style.pointer_events = .none;
 
-            if (label_style.text_color[3] == 0.0) {
+            if (label_style.text_color.a == 0) {
                 label_style.text_color = self.active_theme.tokens.text_inverse;
             }
 
@@ -664,10 +717,11 @@ pub fn UIContext(comptime MessageT: type) type {
             viewport_height: f32,
         ) !void {
             layout.active_zoom = self.view_zoom;
+            try self.ensureTraversal();
             layout.measureNode(self.root, text_layouter, viewport_width, viewport_height, true);
             layout.arrangeNode(self.root, 0.0, 0.0);
             self.portal_list.clearRetainingCapacity();
-            try self.collectPortals(self.root);
+            try self.collectPortals();
             self.interaction_registry.portals = self.portal_list.items;
             for (self.portal_list.items) |portal_node| {
                 layout.measureNode(portal_node, text_layouter, viewport_width, viewport_height, true);
@@ -722,13 +776,21 @@ pub fn UIContext(comptime MessageT: type) type {
             }
         }
 
-        fn collectPortals(self: *@This(), node: *Node(MessageT)) !void {
-            if (node.payload == .portal) {
-                try self.portal_list.append(self.gpa, node);
+        fn collectPortals(self: *@This()) !void {
+            for (self.traversal.items, 0..) |node, i| {
+                prefetchNodeIfEnabled(MessageT, self.traversal.items, i);
+                if (node.payload == .portal) {
+                    try self.portal_list.append(self.gpa, node);
+                }
             }
-            for (node.children.items) |child| {
-                try self.collectPortals(child);
-            }
+        }
+
+        pub fn applyAnimations(self: *@This(), current_time: f64) void {
+            self.ensureTraversal() catch {
+                self.animation_registry.applyAnimatedValuesToTree(self.root, current_time);
+                return;
+            };
+            self.animation_registry.applyAnimatedValuesFlat(self.traversal.items, current_time);
         }
 
         pub fn requestLayout(self: *@This()) void {
@@ -817,9 +879,8 @@ pub fn UIContext(comptime MessageT: type) type {
 
         pub fn reconcile(self: *@This(), new_root: *Node(MessageT)) !void {
             try reconcileNode(MessageT, self, self.root, new_root);
+            if (self.root.id) |id| try self.id_map.put(id, self.root);
             _ = self.build_arena.reset(.retain_capacity);
-            self.id_map.clearRetainingCapacity();
-            try self.rebuildIdMapFromSubtree(self.root);
             self.layout_dirty = true;
             self.paint_dirty = true;
         }
@@ -831,20 +892,55 @@ pub fn UIContext(comptime MessageT: type) type {
             self.portal_list.deinit(self.gpa);
             self.post_layout_hooks.deinit(self.gpa);
             self.font_cache.deinit(self.gpa);
-            self.root.deinit();
+            for (self.recon_scratch_pool.items) |s| {
+                s.id_map.deinit(self.gpa);
+                s.children.deinit(self.gpa);
+                self.gpa.destroy(s);
+            }
+            self.recon_scratch_pool.deinit(self.gpa);
+            self.traversal.deinit(self.gpa);
+            self.destroyTree(self.root);
+            self.node_pool.deinit(self.gpa);
             self.build_arena.deinit();
+        }
+
+        fn destroyTree(self: *@This(), node: *Node(MessageT)) void {
+            for (node.children.items) |child| {
+                self.destroyTree(child);
+            }
+            node.freeOwn();
+            node.children.deinit(node.allocator);
+            self.node_pool.destroy(node);
+        }
+
+        fn ensureTraversal(self: *@This()) !void {
+            if (!self.traversal_dirty) return;
+            self.traversal.clearRetainingCapacity();
+            try appendPreorder(MessageT, &self.traversal, self.gpa, self.root);
+            self.traversal_dirty = false;
         }
     };
 }
 
+fn appendPreorder(comptime MessageT: type, list: *std.ArrayList(*Node(MessageT)), gpa: std.mem.Allocator, node: *Node(MessageT)) std.mem.Allocator.Error!void {
+    try list.append(gpa, node);
+    for (node.children.items) |child| {
+        try appendPreorder(MessageT, list, gpa, child);
+    }
+}
+
 fn promoteToGPA(comptime MessageT: type, ctx: *UIContext(MessageT), desc: *Node(MessageT)) std.mem.Allocator.Error!*Node(MessageT) {
-    const node = try ctx.gpa.create(Node(MessageT));
+    const node = try ctx.node_pool.create(ctx.gpa);
     node.* = Node(MessageT).init();
     node.allocator = ctx.gpa;
+    ctx.traversal_dirty = true;
 
     node.style = desc.style;
     node.clip_children = desc.clip_children;
     node.id = desc.id;
+    if (desc.id) |stable_id| {
+        try ctx.id_map.put(stable_id, node);
+    }
     node.child_memo_key = desc.child_memo_key;
     node.flags = .{};
     node.is_focusable = desc.is_focusable;
@@ -1200,6 +1296,17 @@ fn cancelAnimationsInSubtree(comptime MessageT: type, ctx: *UIContext(MessageT),
     for (node.children.items) |child| cancelAnimationsInSubtree(MessageT, ctx, child);
 }
 
+fn removeIdsInSubtree(comptime MessageT: type, ctx: *UIContext(MessageT), node: *Node(MessageT)) void {
+    if (node.id) |id| {
+        if (ctx.id_map.get(id)) |mapped| {
+            if (mapped == node) _ = ctx.id_map.remove(id);
+        }
+    }
+    for (node.children.items) |child| {
+        removeIdsInSubtree(MessageT, ctx, child);
+    }
+}
+
 fn clearInteractionRefsInSubtree(comptime MessageT: type, ctx: *UIContext(MessageT), node: *Node(MessageT)) void {
     if (ctx.interaction_registry.focused_node == node) {
         ctx.interaction_registry.focused_node = null;
@@ -1272,16 +1379,20 @@ fn reconcileChildren(comptime MessageT: type, ctx: *UIContext(MessageT), retaine
 
     if (try reconcileEqualAnonymousChildren(MessageT, ctx, retained, desc)) return;
 
-    var retained_id_map = std.AutoHashMap(NodeId, usize).init(ctx.gpa);
-    defer retained_id_map.deinit();
-    for (retained.children.items, 0..) |child, i| {
-        if (child.id) |id| try retained_id_map.put(id, i);
+    const scratch = try ctx.acquireScratch();
+    defer ctx.releaseScratch(scratch);
+
+    if (childListHasIds(MessageT, retained.children.items) or
+        childListHasIds(MessageT, desc.children.items))
+    {
+        for (retained.children.items, 0..) |child, i| {
+            if (child.id) |id| try scratch.id_map.put(ctx.gpa, id, i);
+        }
     }
 
     var reused = try ctx.build_arena.allocator().alloc(bool, ret_count);
     @memset(reused, false);
 
-    var new_children = std.ArrayList(*Node(MessageT)).empty;
     var children_changed = ret_count != desc.children.items.len;
 
     for (desc.children.items, 0..) |desc_child, desc_i| {
@@ -1290,7 +1401,7 @@ fn reconcileChildren(comptime MessageT: type, ctx: *UIContext(MessageT), retaine
         var matched_idx: ?usize = null;
 
         if (desc_child.id) |desc_id| {
-            if (retained_id_map.get(desc_id)) |idx| {
+            if (scratch.id_map.get(desc_id)) |idx| {
                 if (!reused[idx]) {
                     matched_retained = retained.children.items[idx];
                     matched_idx = idx;
@@ -1315,21 +1426,26 @@ fn reconcileChildren(comptime MessageT: type, ctx: *UIContext(MessageT), retaine
             if (matched_idx.? != desc_i) children_changed = true;
             ret_child.parent = retained;
             try reconcileNode(MessageT, ctx, ret_child, desc_child);
-            try new_children.append(retained.allocator, ret_child);
+            try scratch.children.append(ctx.gpa, ret_child);
         } else {
             children_changed = true;
             const adopted = try promoteToGPA(MessageT, ctx, desc_child);
             adopted.parent = retained;
-            try new_children.append(retained.allocator, adopted);
+            try scratch.children.append(ctx.gpa, adopted);
         }
     }
+
+    try retained.children.ensureTotalCapacity(retained.allocator, scratch.children.items.len);
 
     for (retained.children.items, 0..) |child, i| {
         prefetchNodeIfEnabled(MessageT, retained.children.items, i);
         if (!reused[i]) {
             clearInteractionRefsInSubtree(MessageT, ctx, child);
             cancelAnimationsInSubtree(MessageT, ctx, child);
-            child.deinit();
+            removeIdsInSubtree(MessageT, ctx, child);
+            if (ctx.on_node_destroyed) |hook| hook(ctx.on_node_destroyed_ctx, child);
+            ctx.destroyTree(child);
+            ctx.traversal_dirty = true;
         }
     }
 
@@ -1338,8 +1454,8 @@ fn reconcileChildren(comptime MessageT: type, ctx: *UIContext(MessageT), retaine
         retained.markPositionDirty();
     }
 
-    retained.children.deinit(retained.allocator);
-    retained.children = new_children;
+    retained.children.clearRetainingCapacity();
+    retained.children.appendSliceAssumeCapacity(scratch.children.items);
 }
 
 fn reconcileNode(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *Node(MessageT), desc: *Node(MessageT)) std.mem.Allocator.Error!void {
@@ -1462,15 +1578,19 @@ fn markStyleDirty(comptime MessageT: type, ctx: *UIContext(MessageT), node: *Nod
 
 fn patchStyle(comptime MessageT: type, ctx: *UIContext(MessageT), node: *Node(MessageT), new_style: *const layout.Style) void {
     const preserved_hover_blend = node.style._hover_blend;
+    node.style._hover_blend = new_style._hover_blend;
+    if (std.meta.eql(node.style, new_style.*)) {
+        node.style._hover_blend = preserved_hover_blend;
+        return;
+    }
+    node.style._hover_blend = preserved_hover_blend;
+
     const old = node.style;
     const tr = new_style.transition;
 
     node.style = new_style.*;
     node.style._hover_blend = preserved_hover_blend;
-
-    if (!std.meta.eql(old, node.style)) {
-        markStyleDirty(MessageT, ctx, node, old, node.style);
-    }
+    markStyleDirty(MessageT, ctx, node, old, node.style);
 
     const id = node.id orelse return;
     if (!tr.property.hasAny()) return; // No transitions defined.
@@ -1545,8 +1665,8 @@ const registry_mod = @import("../animation/registry.zig");
 const AnimationEntry = registry_mod.AnimationEntry;
 const AnimatedValue = registry_mod.AnimatedValue;
 
-fn colorChanged(a: [4]f32, b: [4]f32) bool {
-    return a[0] != b[0] or a[1] != b[1] or a[2] != b[2] or a[3] != b[3];
+fn colorChanged(a: layout.Color, b: layout.Color) bool {
+    return !a.eql(b);
 }
 
 fn vec2Changed(a: [2]f32, b: [2]f32) bool {
@@ -1586,7 +1706,7 @@ test "patchStyle keeps paint-only changes out of layout dirtiness" {
 
     var node = cleanStyleTestNode();
     var next = node.style;
-    next.text_color = .{ 0.2, 0.3, 0.4, 1.0 };
+    next.text_color = layout.Color.from(.{ 0.2, 0.3, 0.4, 1.0 });
 
     patchStyle(u32, &ui, &node, &next);
 
@@ -1625,4 +1745,193 @@ test "patchStyle marks metric-affecting text style changes dirty" {
     try std.testing.expect(!node.flags.content);
     try std.testing.expect(node.flags.size);
     try std.testing.expect(node.flags.position);
+}
+
+fn reconcileTwoKeyed(ui: *UIContext(u32), id_left: u32, id_right: u32) !void {
+    ui.building = true;
+    ui.use_arena = true;
+    const left = try ui.div(.{ .id = id_left });
+    const right = try ui.div(.{ .id = id_right });
+    const kids = [_]?*Node(u32){ left, right };
+    const root = try ui.div(.{ .children = &kids });
+    ui.use_arena = false;
+    ui.building = false;
+    try ui.reconcile(root);
+}
+
+test "reconcile maintains id_map incrementally across rebuilds" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    try reconcileTwoKeyed(&ui, 1, 2);
+    try std.testing.expect(ui.getById(1) != null);
+    try std.testing.expect(ui.getById(2) != null);
+    const a_ptr = ui.getById(1).?;
+
+    try reconcileTwoKeyed(&ui, 1, 3);
+    try std.testing.expectEqual(a_ptr, ui.getById(1).?);
+    try std.testing.expect(ui.getById(2) == null);
+    try std.testing.expect(ui.getById(3) != null);
+
+    try reconcileTwoKeyed(&ui, 3, 1);
+    try std.testing.expectEqual(a_ptr, ui.getById(1).?);
+    try std.testing.expect(ui.getById(3) != null);
+    try std.testing.expect(ui.getById(2) == null);
+}
+
+fn reconcileIdList(ui: *UIContext(u32), ids: []const u32) !void {
+    ui.building = true;
+    ui.use_arena = true;
+    var kids = std.ArrayList(?*Node(u32)).empty;
+    defer kids.deinit(std.testing.allocator);
+    for (ids) |id| try kids.append(std.testing.allocator, try ui.div(.{ .id = id }));
+    const root = try ui.div(.{ .children = kids.items });
+    ui.use_arena = false;
+    ui.building = false;
+    try ui.reconcile(root);
+}
+
+test "reconcile pool: drop and re-add subtrees is leak-free" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    var i: usize = 0;
+    while (i < 50) : (i += 1) {
+        try reconcileIdList(&ui, &.{ 1, 2, 3 });
+        try std.testing.expect(ui.getById(1) != null);
+        try std.testing.expect(ui.getById(3) != null);
+        try reconcileIdList(&ui, &.{});
+        try std.testing.expect(ui.getById(1) == null);
+        try std.testing.expectEqual(@as(usize, 0), ui.root.children.items.len);
+    }
+}
+
+test "reconcile pool stress: random keyed lists stay consistent and leak-free" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    var prng = std.Random.DefaultPrng.init(0xBADC0FFEE);
+    const rand = prng.random();
+
+    var step: usize = 0;
+    while (step < 300) : (step += 1) {
+        var present = [_]bool{false} ** 13;
+        var ids = std.ArrayList(u32).empty;
+        defer ids.deinit(std.testing.allocator);
+        const count = rand.uintAtMost(usize, 12);
+        var k: usize = 0;
+        while (k < count) : (k += 1) {
+            const id = rand.intRangeAtMost(u32, 1, 12);
+            if (present[id]) continue;
+            present[id] = true;
+            try ids.append(std.testing.allocator, id);
+        }
+
+        try reconcileIdList(&ui, ids.items);
+
+        try std.testing.expectEqual(ids.items.len, ui.root.children.items.len);
+        for (ids.items) |id| try std.testing.expect(ui.getById(id) != null);
+        var id: u32 = 1;
+        while (id <= 12) : (id += 1) {
+            if (!present[id]) try std.testing.expect(ui.getById(id) == null);
+        }
+        for (ui.root.children.items) |c| try std.testing.expectEqual(ui.root, c.parent.?);
+
+        try ui.ensureTraversal();
+        try std.testing.expectEqual(ui.root.children.items.len + 1, ui.traversal.items.len);
+    }
+}
+
+test "reconcile pool: nested subtree destroy is leak-free, traversal is preorder" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    ui.building = true;
+    ui.use_arena = true;
+    const g = try ui.div(.{ .id = 10 });
+    const gk = [_]?*Node(u32){g};
+    const c = try ui.div(.{ .id = 11, .children = &gk });
+    const ck = [_]?*Node(u32){c};
+    const root = try ui.div(.{ .children = &ck });
+    ui.use_arena = false;
+    ui.building = false;
+    try ui.reconcile(root);
+
+    try ui.ensureTraversal();
+    try std.testing.expectEqual(@as(usize, 3), ui.traversal.items.len);
+    try std.testing.expectEqual(ui.root, ui.traversal.items[0]);
+    try std.testing.expectEqual(ui.getById(11).?, ui.traversal.items[1]);
+    try std.testing.expectEqual(ui.getById(10).?, ui.traversal.items[2]);
+
+    try reconcileIdList(&ui, &.{});
+    try std.testing.expect(ui.getById(10) == null);
+    try std.testing.expect(ui.getById(11) == null);
+}
+
+test "mountRoot clones an external gpa tree into the pool" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    ui.building = true;
+    ui.use_arena = false;
+    const a = try ui.div(.{ .id = 100 });
+    const ak = [_]?*Node(u32){a};
+    const external = try ui.div(.{ .id = 200, .children = &ak });
+    ui.building = false;
+    try ui.mountRoot(external);
+
+    try std.testing.expect(ui.getById(100) != null);
+    try std.testing.expect(ui.getById(200) != null);
+
+    try reconcileIdList(&ui, &.{ 5, 6 });
+    try std.testing.expect(ui.getById(5) != null);
+    try std.testing.expect(ui.getById(100) == null);
+}
+
+const HookHolder = struct {
+    cached: ?*Node(u32) = null,
+    saw: bool = false,
+    fn onDestroy(ctx: *anyopaque, node: *Node(u32)) void {
+        const self: *HookHolder = @ptrCast(@alignCast(ctx));
+        if (self.cached == node) {
+            self.cached = null;
+            self.saw = true;
+        }
+    }
+};
+
+test "destroy hook clears external pointers before slot reuse" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    var holder = HookHolder{};
+    ui.on_node_destroyed = &HookHolder.onDestroy;
+    ui.on_node_destroyed_ctx = &holder;
+
+    try reconcileTwoKeyed(&ui, 1, 2);
+    holder.cached = ui.getById(2);
+    try std.testing.expect(holder.cached != null);
+
+    try reconcileTwoKeyed(&ui, 1, 3);
+    try std.testing.expect(holder.saw);
+    try std.testing.expect(holder.cached == null);
+}
+
+test "traversal array rebuilds on structural change, not on style-only" {
+    var ui = try UIContext(u32).init(std.testing.allocator, theme_lib.Theme.init(.{ 0.6, 0.1, 250.0, 1.0 }, true));
+    defer ui.deinit();
+
+    try reconcileTwoKeyed(&ui, 1, 2);
+    try ui.ensureTraversal();
+    try std.testing.expect(!ui.traversal_dirty);
+    try std.testing.expectEqual(@as(usize, 3), ui.traversal.items.len);
+
+    try reconcileTwoKeyed(&ui, 1, 2);
+    try std.testing.expect(!ui.traversal_dirty);
+
+    try reconcileTwoKeyed(&ui, 1, 9);
+    try std.testing.expect(ui.traversal_dirty);
+    try ui.ensureTraversal();
+    try std.testing.expectEqual(@as(usize, 3), ui.traversal.items.len);
+    try std.testing.expect(ui.getById(9) != null);
 }

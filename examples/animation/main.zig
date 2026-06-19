@@ -53,14 +53,14 @@ const AppState = struct {
 
 const App = lib.Application(AppState, AppMessage);
 
-const BG: [4]f32 = .{ 0.07, 0.08, 0.12, 1.0 };
-const SURFACE: [4]f32 = .{ 0.13, 0.15, 0.22, 1.0 };
-const ACCENT: [4]f32 = .{ 0.20, 0.55, 1.00, 1.0 };
-const ACCENT_HOVER: [4]f32 = .{ 0.35, 0.70, 1.00, 1.0 };
-const GREEN: [4]f32 = .{ 0.20, 0.80, 0.50, 1.0 };
-const ORANGE: [4]f32 = .{ 1.00, 0.55, 0.15, 1.0 };
-const TEXT: [4]f32 = .{ 0.88, 0.90, 0.96, 1.0 };
-const DIM: [4]f32 = .{ 0.50, 0.55, 0.68, 1.0 };
+const BG = layout.Color.from(.{ 0.07, 0.08, 0.12, 1.0 });
+const SURFACE = layout.Color.from(.{ 0.13, 0.15, 0.22, 1.0 });
+const ACCENT = layout.Color.from(.{ 0.20, 0.55, 1.00, 1.0 });
+const ACCENT_HOVER = layout.Color.from(.{ 0.35, 0.70, 1.00, 1.0 });
+const GREEN = layout.Color.from(.{ 0.20, 0.80, 0.50, 1.0 });
+const ORANGE = layout.Color.from(.{ 1.00, 0.55, 0.15, 1.0 });
+const TEXT = layout.Color.from(.{ 0.88, 0.90, 0.96, 1.0 });
+const DIM = layout.Color.from(.{ 0.50, 0.55, 0.68, 1.0 });
 const CARD_W: f32 = 160;
 const CARD_H: f32 = 80;
 
@@ -82,7 +82,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             u: *AppUIContext,
             f: *FontData,
             id: ?NodeId,
-            bg: [4]f32,
+            bg: layout.Color,
             label: []const u8,
             radius: f32,
             scale: f32,

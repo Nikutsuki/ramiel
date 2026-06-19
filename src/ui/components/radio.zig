@@ -9,13 +9,13 @@ const FontData = @import("../../renderer/font/font_registry.zig").FontData;
 
 pub const RingStyle = struct {
     style: layout.Style = .{},
-    active_color: ?[4]f32 = null,
-    inactive_color: ?[4]f32 = null,
+    active_color: ?layout.Color = null,
+    inactive_color: ?layout.Color = null,
 };
 
 pub const DotStyle = struct {
     style: layout.Style = .{},
-    color: ?[4]f32 = null,
+    color: ?layout.Color = null,
 };
 
 pub fn RadioParams(comptime MessageT: type) type {
@@ -79,7 +79,7 @@ pub fn build(
 
     const active_color = params.ring.active_color orelse tokens.action_default;
     const dot_fill = params.dot.color orelse active_color;
-    dot_style.background_color = if (params.selected) dot_fill else .{ 0.0, 0.0, 0.0, 0.0 };
+    dot_style.background_color = if (params.selected) dot_fill else layout.Color.transparent;
     dot_style.pointer_events = .none;
 
     const ring_node = try ctx.div(.{

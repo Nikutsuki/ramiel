@@ -25,12 +25,12 @@ pub const RadioGroupDescriptor = struct {
     item_style: layout.Style = .{},
     ring: struct {
         style: layout.Style = .{},
-        active_color: ?[4]f32 = null,
-        inactive_color: ?[4]f32 = null,
+        active_color: ?layout.Color = null,
+        inactive_color: ?layout.Color = null,
     } = .{},
     dot: struct {
         style: layout.Style = .{},
-        color: ?[4]f32 = null,
+        color: ?layout.Color = null,
     } = .{},
 };
 

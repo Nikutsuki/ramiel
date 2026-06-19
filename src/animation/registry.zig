@@ -5,6 +5,7 @@ const EasingFunction = @import("easing.zig").EasingFunction;
 
 const Style = layout.Style;
 const Transform = layout.Transform;
+const Color = layout.Color;
 
 pub const AnimatedProperty = enum {
     background_color,
@@ -43,7 +44,7 @@ pub const AnimatedValue = union(AnimatedProperty) {
     scale: ScalarAnim,
     rotate: ScalarAnim,
 
-    pub const ColorAnim = struct { from: [4]f32, to: [4]f32 };
+    pub const ColorAnim = struct { from: Color, to: Color };
     pub const ScalarAnim = struct { from: f32, to: f32 };
     pub const Vec2Anim = struct { from: [2]f32, to: [2]f32 };
     pub const RadiiAnim = struct { from: [4]f32, to: [4]f32 };
@@ -67,13 +68,13 @@ pub const AnimationEntry = struct {
 /// True if both animations (same active tag) head to the same target.
 fn targetsEqual(a: AnimatedValue, b: AnimatedValue) bool {
     return switch (a) {
-        .background_color => |x| std.mem.eql(f32, &x.to, &b.background_color.to),
-        .hover_color => |x| std.mem.eql(f32, &x.to, &b.hover_color.to),
-        .text_color => |x| std.mem.eql(f32, &x.to, &b.text_color.to),
-        .border_color => |x| std.mem.eql(f32, &x.to, &b.border_color.to),
-        .outline_color => |x| std.mem.eql(f32, &x.to, &b.outline_color.to),
-        .shadow_color => |x| std.mem.eql(f32, &x.to, &b.shadow_color.to),
-        .text_decoration_color => |x| std.mem.eql(f32, &x.to, &b.text_decoration_color.to),
+        .background_color => |x| x.to.eql(b.background_color.to),
+        .hover_color => |x| x.to.eql(b.hover_color.to),
+        .text_color => |x| x.to.eql(b.text_color.to),
+        .border_color => |x| x.to.eql(b.border_color.to),
+        .outline_color => |x| x.to.eql(b.outline_color.to),
+        .shadow_color => |x| x.to.eql(b.shadow_color.to),
+        .text_decoration_color => |x| x.to.eql(b.text_decoration_color.to),
         .corner_radius => |x| std.mem.eql(f32, &x.to, &b.corner_radius.to),
         .shadow_offset => |x| std.mem.eql(f32, &x.to, &b.shadow_offset.to),
         .translate => |x| std.mem.eql(f32, &x.to, &b.translate.to),
@@ -90,13 +91,8 @@ fn lerpF(a: f32, b: f32, t: f32) f32 {
     return a + (b - a) * t;
 }
 
-fn lerpColor(a: [4]f32, b: [4]f32, t: f32) [4]f32 {
-    return .{
-        lerpF(a[0], b[0], t),
-        lerpF(a[1], b[1], t),
-        lerpF(a[2], b[2], t),
-        lerpF(a[3], b[3], t),
-    };
+fn lerpColor(a: Color, b: Color, t: f32) Color {
+    return Color.lerp(a, b, t);
 }
 
 fn lerpVec2(a: [2]f32, b: [2]f32, t: f32) [2]f32 {
@@ -255,6 +251,13 @@ pub const AnimationRegistry = struct {
 
     pub fn applyAnimatedValuesToTree(self: *AnimationRegistry, root: anytype, current_time: f64) void {
         applyTreeRecursive(self, root, current_time);
+    }
+
+    pub fn applyAnimatedValuesFlat(self: *AnimationRegistry, nodes: anytype, current_time: f64) void {
+        for (nodes, 0..) |node, i| {
+            if (i + 1 < nodes.len) @prefetch(nodes[i + 1], .{});
+            self.applyAnimatedValues(node, current_time);
+        }
     }
 
     pub fn hasLayoutAnimations(self: *const AnimationRegistry) bool {

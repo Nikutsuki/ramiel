@@ -125,7 +125,7 @@ fn navButton(
         .content = label,
         .font = font,
         .style = tw.style(.{
-            tw.text_color_value(.{ 1.0, 1.0, 1.0, 1.0 }),
+            tw.text_color_value(core.layout.Color.from(.{ 1.0, 1.0, 1.0, 1.0 })),
             tw.text(13.0),
             tw.pointer_events_none,
         }),

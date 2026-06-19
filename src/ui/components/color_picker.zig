@@ -28,7 +28,7 @@ pub const ColorPickerDescriptor = struct {
     hue_slider_style: layout.Style = .{},
     hex_font: ?*FontData = null,
     show_readout: bool = true,
-    readout_background: ?[4]f32 = null,
+    readout_background: ?layout.Color = null,
 };
 
 fn PlanePayload(comptime MessageT: type) type {
@@ -128,8 +128,8 @@ pub fn build(
             .top = -2.0,
             .width = .{ .exact = 8.0 },
             .height = .{ .exact = 8.0 },
-            .background_color = .{ 0, 0, 0, 0 },
-            .border = layout.Border.all(1.0, .{ 0.0, 0.0, 0.0, 0.65 }),
+            .background_color = layout.Color.transparent,
+            .border = layout.Border.all(1.0, layout.Color.from(.{ 0.0, 0.0, 0.0, 0.65 })),
             .corner_radius = layout.CornerRadius.all(4.0),
             .pointer_events = .none,
         },
@@ -142,8 +142,8 @@ pub fn build(
             .top = cursor_y - 6.0,
             .width = .{ .exact = 12.0 },
             .height = .{ .exact = 12.0 },
-            .background_color = .{ 0.0, 0.0, 0.0, 0.0 },
-            .border = layout.Border.all(2.0, .{ 1.0, 1.0, 1.0, 1.0 }),
+            .background_color = layout.Color.transparent,
+            .border = layout.Border.all(2.0, layout.Color.from(.{ 1.0, 1.0, 1.0, 1.0 })),
             .corner_radius = layout.CornerRadius.all(6.0),
             .pointer_events = .none,
         },
@@ -178,7 +178,7 @@ pub fn build(
         .on_change = logic.on_hue_change,
         .userdata = logic.userdata,
         .track = .{ .style = track_style },
-        .fill = .{ .style = .{ .background_color = .{ hue_rgb[0], hue_rgb[1], hue_rgb[2], 1.0 } } },
+        .fill = .{ .style = .{ .background_color = layout.Color.from(.{ hue_rgb[0], hue_rgb[1], hue_rgb[2], 1.0 }) } },
     });
 
     const rgb = color_math.hsvToRgb(logic.hsv[0], logic.hsv[1], logic.hsv[2]);
@@ -196,19 +196,19 @@ pub fn build(
         const rgb_text = try std.fmt.bufPrint(rgb_buf, "{d}, {d}, {d}", .{ r_byte, g_byte, b_byte });
 
         const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-        const readable_text: [4]f32 = if (lum > 0.55)
-            .{ 0.05, 0.06, 0.08, 1.0 }
+        const readable_text: layout.Color = if (lum > 0.55)
+            layout.Color.from(.{ 0.05, 0.06, 0.08, 1.0 })
         else
-            .{ 0.96, 0.97, 1.0, 1.0 };
+            layout.Color.from(.{ 0.96, 0.97, 1.0, 1.0 });
 
         const swatch = try ctx.div(.{
             .id = deriveChildId(logic.base_id, "swatch"),
             .style = .{
                 .width = .{ .exact = 28.0 },
                 .height = .{ .exact = 28.0 },
-                .background_color = .{ rgb[0], rgb[1], rgb[2], 1.0 },
+                .background_color = layout.Color.from(.{ rgb[0], rgb[1], rgb[2], 1.0 }),
                 .corner_radius = layout.CornerRadius.all(4.0),
-                .border = layout.Border.all(1.0, .{ 1.0, 1.0, 1.0, 0.15 }),
+                .border = layout.Border.all(1.0, layout.Color.from(.{ 1.0, 1.0, 1.0, 0.15 })),
                 .pointer_events = .none,
             },
         });
@@ -229,7 +229,7 @@ pub fn build(
             .content = rgb_text,
             .font = font,
             .style = .{
-                .text_color = .{ readable_text[0], readable_text[1], readable_text[2], readable_text[3] * 0.7 },
+                .text_color = readable_text.scaleAlpha(0.7),
                 .font_size = 11,
                 .pointer_events = .none,
             },
@@ -245,14 +245,15 @@ pub fn build(
             .children = &.{ hex_text, rgb_text_node },
         });
 
-        const bg: [4]f32 = visuals.readout_background orelse blk2: {
+        const bg: layout.Color = visuals.readout_background orelse blk2: {
             const mix: f32 = 0.18;
-            break :blk2 .{
-                tokens.bg_surface[0] * (1.0 - mix) + rgb[0] * mix,
-                tokens.bg_surface[1] * (1.0 - mix) + rgb[1] * mix,
-                tokens.bg_surface[2] * (1.0 - mix) + rgb[2] * mix,
+            const surf = tokens.bg_surface.toArray();
+            break :blk2 layout.Color.from(.{
+                surf[0] * (1.0 - mix) + rgb[0] * mix,
+                surf[1] * (1.0 - mix) + rgb[1] * mix,
+                surf[2] * (1.0 - mix) + rgb[2] * mix,
                 1.0,
-            };
+            });
         };
 
         break :blk try ctx.div(.{

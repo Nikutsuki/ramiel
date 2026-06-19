@@ -56,7 +56,7 @@ pub fn buildPalette(
     }
 
     var backdrop_color = tokens.bg_base;
-    backdrop_color[3] = 0.5;
+    backdrop_color = backdrop_color.withAlpha(0.5);
 
     return try ux.divAny(.{
         .class = .{
@@ -93,7 +93,7 @@ pub fn buildHelp(ui: *core.AppUIContext, font: *lib.FontData) !*core.AppNode {
     const ux = ui.ux();
 
     var backdrop_color = tokens.bg_base;
-    backdrop_color[3] = 0.6;
+    backdrop_color = backdrop_color.withAlpha(0.6);
 
     return try ux.divAny(.{
         .class = .{

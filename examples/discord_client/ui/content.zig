@@ -92,7 +92,7 @@ fn buildAttachmentCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx,
     }
 
     var card_bg = tokens.bg_surface;
-    card_bg[3] = 0.85;
+    card_bg = card_bg.withAlpha(0.85);
 
     return ctx.ux().div(.{
         .style = tw.style(.{
@@ -202,7 +202,7 @@ fn buildEmbedCard(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, embe
         }
     }
 
-    const color_bar_color: [4]f32 = if (embed.color) |hex| hexToRgba(hex) else tokens.border_subtle;
+    const color_bar_color = if (embed.color) |hex| core.lib.layout.Color.from(hexToRgba(hex)) else tokens.border_subtle;
 
     return ctx.ux().div(.{
         .style = tw.style(.{
@@ -254,10 +254,10 @@ fn buildBrowseEntry(
     defer allocator.free(label);
 
     var entry_bg = if (is_selected) tokens.action_default else tokens.bg_surface;
-    entry_bg[3] = if (is_selected) 0.9 else 0.72;
+    entry_bg = entry_bg.withAlpha(if (is_selected) 0.9 else 0.72);
 
     var hover_bg = if (is_selected) tokens.action_hover else tokens.action_default;
-    hover_bg[3] = if (is_selected) 0.95 else 0.9;
+    hover_bg = hover_bg.withAlpha(if (is_selected) 0.95 else 0.9);
 
     return try ux.buttonAny(.{
         .label = label,
@@ -311,7 +311,7 @@ fn buildBrowseVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*con
     );
 }
 
-fn buildMessageContent(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, content: []const u8, body_color: [4]f32) !*core.AppNode {
+fn buildMessageContent(ctx: *core.AppUIContext, payload: *const MessageBuildCtx, content: []const u8, body_color: core.lib.layout.Color) !*core.AppNode {
     const build_alloc = ctx.build_arena.allocator();
     var children = std.ArrayList(?*core.AppNode).empty;
     defer children.deinit(build_alloc);
@@ -431,16 +431,16 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
     const meta = try std.fmt.allocPrint(payload.allocator, "{s}  {s}", .{ message.author_name, display_timestamp });
     defer payload.allocator.free(meta);
     const body = if (message.content.len > 0) message.content else "(empty message)";
-    const body_color: [4]f32 = switch (message.delivery_status) {
-        .pending => .{ 0.72, 0.75, 0.82, 1.0 },
-        else => .{ 0.95, 0.97, 1.0, 1.0 },
+    const body_color: core.lib.layout.Color = switch (message.delivery_status) {
+        .pending => core.lib.layout.Color.from(.{ 0.72, 0.75, 0.82, 1.0 }),
+        else => core.lib.layout.Color.from(.{ 0.95, 0.97, 1.0, 1.0 }),
     };
     var content_children = std.ArrayList(?*core.AppNode).empty;
     defer content_children.deinit(build_alloc);
     try content_children.append(build_alloc, try ctx.ux().text(.{
         .content = meta,
         .font = payload.font,
-        .style = tw.style(.{tw.text_color_value(.{ 0.82, 0.86, 0.95, 1.0 })}),
+        .style = tw.style(.{tw.text_color_value(core.lib.layout.Color.from(.{ 0.82, 0.86, 0.95, 1.0 }))}),
     }));
 
     try content_children.append(build_alloc, try buildMessageContent(ctx, payload, body, body_color));
@@ -587,13 +587,13 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
                         try ctx.ux().text(.{
                             .content = video_card_title,
                             .font = payload.font,
-                            .style = tw.style(.{tw.text_color_value(.{ 0.91, 0.94, 1.0, 1.0 })}),
+                            .style = tw.style(.{tw.text_color_value(core.lib.layout.Color.from(.{ 0.91, 0.94, 1.0, 1.0 }))}),
                         }),
                         try ctx.ux().text(.{
                             .content = maybeSlice(attachment.url),
                             .font = payload.font,
                             .max_width = 560,
-                            .style = tw.style(.{tw.text_color_value(.{ 0.56, 0.76, 1.0, 1.0 })}),
+                            .style = tw.style(.{tw.text_color_value(core.lib.layout.Color.from(.{ 0.56, 0.76, 1.0, 1.0 }))}),
                         }),
                     },
                 }));
@@ -692,7 +692,7 @@ fn buildMessageVirtualItem(ctx: *core.AppUIContext, index: usize, userdata: ?*co
                 try ctx.ux().text(.{
                     .content = message.author_name[0..@min(message.author_name.len, 1)],
                     .font = payload.font,
-                    .style = tw.style(.{tw.text_color_value(.{ 1.0, 1.0, 1.0, 1.0 })}),
+                    .style = tw.style(.{tw.text_color_value(core.lib.layout.Color.from(.{ 1.0, 1.0, 1.0, 1.0 }))}),
                 }),
             },
         });
@@ -838,7 +838,7 @@ pub fn build(allocator: std.mem.Allocator, ui: *core.AppUIContext, state: *const
         .scale = 1.0,
         .intrinsic_size = .{ 16.0, 16.0 },
         .style = tw.style(.{tw.square(16)}),
-        .tint = tokens.text_main,
+        .tint = tokens.text_main.toArray(),
         .alt_text = "Add",
         .alt_font = font,
         .fallback_state = .ready,

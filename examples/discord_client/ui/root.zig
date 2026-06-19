@@ -93,7 +93,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
 
         if (media_node) |mn| {
             var overlay_bg = tokens.bg_base;
-            overlay_bg[3] = 0.8;
+            overlay_bg = overlay_bg.withAlpha(0.8);
 
             const preview_overlay = try ux.divAny(.{
                 .class = .{
@@ -115,7 +115,7 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
     }
 
     var container_bg = tokens.bg_base;
-    container_bg[3] = 0.0;
+    container_bg = container_bg.withAlpha(0.0);
 
     const container = try ux.divAny(.{
         .class = .{

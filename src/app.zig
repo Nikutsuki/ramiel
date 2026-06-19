@@ -853,9 +853,16 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             self.build_fn = build;
         }
 
+        fn devtoolsDestroyHook(ctx: *anyopaque, node: *Node(MessageType)) void {
+            const ds: *DevToolsState(MessageType) = @ptrCast(@alignCast(ctx));
+            ds.clearDestroyedSubtree(node);
+        }
+
         pub fn mountRoot(self: *Self) !void {
             if (self.initial_tree_mounted) return;
             const build = self.build_fn orelse return error.NoRootBuilder;
+            self.ui.on_node_destroyed = &devtoolsDestroyHook;
+            self.ui.on_node_destroyed_ctx = &self.devtools_state;
             self.ui.building = true;
             self.ui.has_animated_images = false;
             self.ui.min_animated_frame_ms = 0;
@@ -944,7 +951,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             const wrap_w = @max(120.0, @as(f32, @floatFromInt(fb.width)) - 32.0);
 
             var text_style: layout.Style = .{};
-            text_style.text_color = .{ 1.0, 0.86, 0.86, 1.0 };
+            text_style.text_color = layout.Color.from(.{ 1.0, 0.86, 0.86, 1.0 });
             text_style.font_size = 13.0;
             const text_node = try self.ui.text(.{ .content = msg, .font = font, .style = text_style, .max_width = wrap_w });
 
@@ -953,7 +960,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             banner_style.left = 0.0;
             banner_style.top = 0.0;
             banner_style.right = 0.0;
-            banner_style.background_color = .{ 0.16, 0.02, 0.03, 0.95 };
+            banner_style.background_color = layout.Color.from(.{ 0.16, 0.02, 0.03, 0.95 });
             banner_style.padding = .{ .top = 12.0, .bottom = 12.0, .left = 16.0, .right = 16.0 };
             banner_style.direction = .Column;
             const banner = try self.ui.div(.{ .style = banner_style, .children = &.{text_node} });
@@ -1615,7 +1622,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                         var layout_passes: u8 = 0;
                         while (self.ui.layout_dirty and layout_passes < 2) {
                             self.ui.layout_dirty = false;
-                            self.ui.animation_registry.applyAnimatedValuesToTree(self.ui.root, current_time);
+                            self.ui.applyAnimations(current_time);
                             try self.ui.calculateLayout(&self.font_system.text_layouter, @floatFromInt(current_fb.width), @floatFromInt(current_fb.height));
                             layout_passes += 1;
                         }
@@ -1623,7 +1630,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 }
 
                 if (self.ui.paint_dirty) {
-                    self.ui.animation_registry.applyAnimatedValuesToTree(self.ui.root, current_time);
+                    self.ui.applyAnimations(current_time);
                     self.syncAutoInputRegion();
 
                     const current_time_f32 = @as(f32, @floatCast(current_time));
@@ -1644,6 +1651,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                     const frame_rendered = try self.engine.draw(&self.batcher, self.canvases.items, &self.video_manager, &self.font_system.font_registry);
                     if (frame_rendered) {
                         self.ui.paint_dirty = false;
+                        tracy.frameMark(null);
                     }
                 }
             }

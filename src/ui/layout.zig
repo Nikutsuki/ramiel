@@ -247,6 +247,8 @@ pub const TransitionStyle = struct {
     }
 };
 
+pub const Color = @import("color.zig").Color;
+
 pub const CornerRadius = struct {
     top_left: f32 = 0,
     top_right: f32 = 0,
@@ -269,7 +271,7 @@ pub const CornerRadius = struct {
 
 pub const BorderSide = struct {
     width: f32 = 0,
-    color: [4]f32 = .{ 0, 0, 0, 0 },
+    color: Color = .{},
 };
 
 pub const Border = struct {
@@ -278,7 +280,7 @@ pub const Border = struct {
     bottom: BorderSide = .{},
     left: BorderSide = .{},
 
-    pub fn all(width: f32, color: [4]f32) Border {
+    pub fn all(width: f32, color: Color) Border {
         const s = BorderSide{ .width = width, .color = color };
         return .{ .top = s, .right = s, .bottom = s, .left = s };
     }
@@ -336,7 +338,7 @@ pub const TextDecoration = struct {
     line: TextDecorationLine = .{},
     shape: TextDecorationShape = .solid,
     /// null -> inherit text_color.
-    color: ?[4]f32 = null,
+    color: ?Color = null,
     /// 0 -> use font.underline_thickness.
     thickness: f32 = 0,
     offset: f32 = 0,
@@ -418,8 +420,8 @@ pub const Style = struct {
     gap: f32 = 0,
 
     grid_columns: u16 = 0,
-    grid_template_columns: GridTemplate = .{},
-    grid_template_rows: GridTemplate = .{},
+    grid_template_columns: ?*const GridTemplate = null,
+    grid_template_rows: ?*const GridTemplate = null,
     grid_auto_rows: GridTrack = .{ .Auto = {} },
 
     grid_column_start: ?u16 = null,
@@ -442,11 +444,11 @@ pub const Style = struct {
 
     scrollbar_width: f32 = 8.0,
     scrollbar_min_height: f32 = 20.0,
-    scrollbar_color: [4]f32 = .{ 1.0, 1.0, 1.0, 0.3 },
+    scrollbar_color: Color = Color.from(.{ 1.0, 1.0, 1.0, 0.3 }),
     scrollbar_radius: f32 = 4.0,
 
-    background_color: [4]f32 = .{ 0, 0, 0, 0 },
-    hover_color: ?[4]f32 = null,
+    background_color: Color = .{},
+    hover_color: ?Color = null,
     _hover_blend: f32 = 0.0,
     corner_radius: CornerRadius = .{},
     corner_softness: f32 = 1.0,
@@ -456,11 +458,11 @@ pub const Style = struct {
     backdrop_blur: f32 = 0,
     noise: f32 = 0,
 
-    shadow_color: [4]f32 = .{ 0, 0, 0, 0 },
+    shadow_color: Color = .{},
     shadow_offset: [2]f32 = .{ 0, 0 },
     shadow_blur: f32 = 0,
 
-    text_color: [4]f32 = .{ 1, 1, 1, 1 },
+    text_color: Color = Color.from(.{ 1, 1, 1, 1 }),
     /// null -> UIContext's default family.
     font_family: ?[]const u8 = null,
     font_weight: FontWeight = .normal,
@@ -623,28 +625,34 @@ fn contentInsets(style: Style) Spacing {
     };
 }
 
+fn gridColCount(style: Style) usize {
+    return if (style.grid_template_columns) |t| t.count() else 0;
+}
+
+fn gridRowCount(style: Style) usize {
+    return if (style.grid_template_rows) |t| t.count() else 0;
+}
+
 fn isGridLayoutEnabled(style: Style) bool {
-    return style.grid_columns > 0 or style.grid_template_columns.count() > 0;
+    return style.grid_columns > 0 or gridColCount(style) > 0;
 }
 
 fn effectiveGridColumnCount(style: Style) usize {
-    const template_cols = style.grid_template_columns.count();
+    const template_cols = gridColCount(style);
     if (template_cols > 0) return template_cols;
     return @as(usize, @intCast(style.grid_columns));
 }
 
 fn getGridColumnTrack(style: Style, column_index: usize) GridTrack {
-    const template_cols = style.grid_template_columns.count();
-    if (template_cols > 0 and column_index < template_cols) {
-        return style.grid_template_columns.trackAt(column_index);
+    if (style.grid_template_columns) |t| {
+        if (column_index < t.count()) return t.trackAt(column_index);
     }
     return .{ .fr = 1.0 };
 }
 
 fn getGridRowTrack(style: Style, row_index: usize) GridTrack {
-    const template_rows = style.grid_template_rows.count();
-    if (row_index < template_rows) {
-        return style.grid_template_rows.trackAt(row_index);
+    if (style.grid_template_rows) |t| {
+        if (row_index < t.count()) return t.trackAt(row_index);
     }
     return style.grid_auto_rows;
 }
@@ -1447,7 +1455,7 @@ fn buildGridPlacements(
 }
 
 fn requiredGridRowCount(style: Style, placements: anytype) usize {
-    var row_count = style.grid_template_rows.count();
+    var row_count = gridRowCount(style);
     for (placements) |placement| {
         row_count = @max(row_count, placement.row_start + placement.row_span);
     }
@@ -2410,20 +2418,20 @@ test "TextDecoration.merge: non-default fields win" {
     const a = TextDecoration{ .line = .{ .underline = true } };
     const b = TextDecoration{
         .shape = .wavy,
-        .color = .{ 1, 0, 0, 1 },
+        .color = Color.from(.{ 1, 0, 0, 1 }),
         .thickness = 3,
     };
     const out = a.merge(b);
     try testing.expect(out.line.underline);
     try testing.expectEqual(TextDecorationShape.wavy, out.shape);
-    try testing.expectEqualSlices(f32, &.{ 1, 0, 0, 1 }, &out.color.?);
+    try testing.expect(out.color.?.eql(Color.from(.{ 1, 0, 0, 1 })));
     try testing.expectApproxEqAbs(@as(f32, 3), out.thickness, 0.001);
 }
 
 test "Style.mix: text_decoration deep-merges across partials" {
     const underline_partial = .{ .text_decoration = TextDecoration{ .line = .{ .underline = true } } };
     const wavy_partial = .{ .text_decoration = TextDecoration{ .shape = .wavy } };
-    const red_partial = .{ .text_decoration = TextDecoration{ .color = .{ 1, 0, 0, 1 } } };
+    const red_partial = .{ .text_decoration = TextDecoration{ .color = Color.from(.{ 1, 0, 0, 1 }) } };
     const merged = Style.mix(.{ underline_partial, wavy_partial, red_partial });
     try testing.expect(merged.text_decoration.line.underline);
     try testing.expectEqual(TextDecorationShape.wavy, merged.text_decoration.shape);
@@ -2434,7 +2442,7 @@ test "tw.style: text_decoration deep-merges across helpers" {
     // tw.style and Style.mix both need the deep-merge carve-out; this guards
     // the path apps actually take (tw.style flat-overwrote before the fix).
     const tw = @import("tw.zig");
-    const a = tw.style(.{ tw.underline, tw.decoration_color_value(.{ 1, 0, 0, 1 }) });
+    const a = tw.style(.{ tw.underline, tw.decoration_color_value(Color.from(.{ 1, 0, 0, 1 })) });
     try testing.expect(a.text_decoration.line.underline);
     try testing.expect(a.text_decoration.color != null);
 
@@ -2442,7 +2450,7 @@ test "tw.style: text_decoration deep-merges across helpers" {
     try testing.expect(b.text_decoration.line.line_through);
     try testing.expectApproxEqAbs(@as(f32, 2.0), b.text_decoration.thickness, 0.001);
 
-    const c = tw.style(.{ tw.underline, tw.line_through, tw.overline, tw.decoration_color_value(.{ 0.5, 0.5, 0.5, 1 }) });
+    const c = tw.style(.{ tw.underline, tw.line_through, tw.overline, tw.decoration_color_value(Color.from(.{ 0.5, 0.5, 0.5, 1 })) });
     try testing.expect(c.text_decoration.line.underline);
     try testing.expect(c.text_decoration.line.line_through);
     try testing.expect(c.text_decoration.line.overline);
@@ -2633,7 +2641,7 @@ test "measureNode: border contributes to intrinsic size" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 
-    const parent = try makeNode(alloc, .{ .direction = .Column, .border = Border.all(5, .{ 1, 1, 1, 1 }) });
+    const parent = try makeNode(alloc, .{ .direction = .Column, .border = Border.all(5, Color.from(.{ 1, 1, 1, 1 })) });
     defer parent.deinit();
 
     const child = try makeNode(alloc, .{ .width = .{ .exact = 50 }, .height = .{ .exact = 20 } });
@@ -2910,18 +2918,20 @@ test "measureNode: grid template rows mix fixed and auto tracks" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 
+    const col_tmpl = GridTemplate.fromSlice(&.{
+        .{ .fr = 1.0 },
+        .{ .fr = 1.0 },
+    });
+    const row_tmpl = GridTemplate.fromSlice(&.{
+        .{ .exact = 30.0 },
+        .{ .Auto = {} },
+    });
     const parent = try makeNode(alloc, .{
         .display = .grid,
         .width = .{ .exact = 210 },
         .gap = 10,
-        .grid_template_columns = GridTemplate.fromSlice(&.{
-            .{ .fr = 1.0 },
-            .{ .fr = 1.0 },
-        }),
-        .grid_template_rows = GridTemplate.fromSlice(&.{
-            .{ .exact = 30.0 },
-            .{ .Auto = {} },
-        }),
+        .grid_template_columns = &col_tmpl,
+        .grid_template_rows = &row_tmpl,
     });
     defer parent.deinit();
 
@@ -2942,15 +2952,16 @@ test "measureNode: grid column span stretches auto-width child across tracks" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 
+    const col_tmpl = GridTemplate.fromSlice(&.{
+        .{ .fr = 1.0 },
+        .{ .fr = 1.0 },
+        .{ .fr = 1.0 },
+    });
     const parent = try makeNode(alloc, .{
         .display = .grid,
         .width = .{ .exact = 320 },
         .gap = 10,
-        .grid_template_columns = GridTemplate.fromSlice(&.{
-            .{ .fr = 1.0 },
-            .{ .fr = 1.0 },
-            .{ .fr = 1.0 },
-        }),
+        .grid_template_columns = &col_tmpl,
     });
     defer parent.deinit();
 
@@ -3274,7 +3285,7 @@ test "arrangeNode: border offsets children like CSS" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 
-    const parent = try makeNode(alloc, .{ .direction = .Column, .border = Border.all(8, .{ 1, 1, 1, 1 }), .width = .{ .exact = 200 }, .height = .{ .exact = 200 } });
+    const parent = try makeNode(alloc, .{ .direction = .Column, .border = Border.all(8, Color.from(.{ 1, 1, 1, 1 })), .width = .{ .exact = 200 }, .height = .{ .exact = 200 } });
     defer parent.deinit();
 
     const child = try makeNode(alloc, .{ .width = .{ .exact = 50 }, .height = .{ .exact = 20 } });
@@ -3295,7 +3306,7 @@ test "arrangeNode: absolute positioning uses inset box" {
         .width = .{ .exact = 400 },
         .height = .{ .exact = 300 },
         .padding = Spacing.all(6),
-        .border = Border.all(4, .{ 1, 1, 1, 1 }),
+        .border = Border.all(4, Color.from(.{ 1, 1, 1, 1 })),
     });
     defer parent.deinit();
 
@@ -3781,7 +3792,7 @@ test "arrangeNode: display none children are skipped" {
 
 test "style: default background_color is transparent" {
     const style = Style{};
-    try testing.expectEqual(@as(f32, 0), style.background_color[3]);
+    try testing.expectEqual(@as(f32, 0), style.background_color.toArray()[3]);
 }
 
 test "style: default opacity is fully opaque" {
@@ -3792,18 +3803,18 @@ test "style: default opacity is fully opaque" {
 test "style: visual properties can be set inline" {
     const s = Style{
         .opacity = 0.35,
-        .background_color = .{ 1, 0, 0, 1 },
-        .border = Border.all(2, .{ 0, 0, 1, 1 }),
+        .background_color = Color.from(.{ 1, 0, 0, 1 }),
+        .border = Border.all(2, Color.from(.{ 0, 0, 1, 1 })),
         .corner_radius = CornerRadius.all(8),
-        .shadow_color = .{ 0, 0, 0, 0.5 },
+        .shadow_color = Color.from(.{ 0, 0, 0, 0.5 }),
         .shadow_offset = .{ 4, 4 },
         .shadow_blur = 6,
-        .text_color = .{ 1, 1, 1, 1 },
+        .text_color = Color.from(.{ 1, 1, 1, 1 }),
     };
-    try testing.expectApproxEqAbs(@as(f32, 1), s.background_color[3], 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 1), s.background_color.toArray()[3], 0.01);
     try testing.expectApproxEqAbs(@as(f32, 2), s.border.top.width, 0.01);
     try testing.expectApproxEqAbs(@as(f32, 8), s.corner_radius.top_left, 0.01);
-    try testing.expectApproxEqAbs(@as(f32, 0.5), s.shadow_color[3], 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), s.shadow_color.toArray()[3], 0.01);
     try testing.expectApproxEqAbs(@as(f32, 0.35), s.opacity, 0.01);
 }
 

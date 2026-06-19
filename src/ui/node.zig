@@ -84,7 +84,7 @@ pub const RenderPayload = union(enum) {
         /// Rendered when buffer is empty. Contributes to layout (so the box keeps
         /// its intrinsic height) and rendered in `placeholder_color`.
         placeholder: []const u8 = "",
-        placeholder_color: ?[4]f32 = null,
+        placeholder_color: ?layout_mod.Color = null,
     },
     text_area: struct {
         buffer: std.ArrayList(u8),
@@ -244,7 +244,7 @@ pub fn Node(comptime MessageT: type) type {
             return any_active;
         }
 
-        pub fn deinit(self: *@This()) void {
+        pub fn freeOwn(self: *@This()) void {
             self.layout_result.text_cache.clear(self.allocator);
 
             if (self.events.len > 0) {
@@ -263,10 +263,13 @@ pub fn Node(comptime MessageT: type) type {
                 },
                 else => {},
             }
+        }
 
+        pub fn deinit(self: *@This()) void {
             for (self.children.items) |child| {
                 child.deinit();
             }
+            self.freeOwn();
             self.children.deinit(self.allocator);
             self.allocator.destroy(self);
         }
@@ -420,8 +423,9 @@ pub fn Node(comptime MessageT: type) type {
             return @max(scale, 0.00);
         }
 
-        fn colorWithOpacity(color: [4]f32, opacity: f32) [4]f32 {
-            return .{ color[0], color[1], color[2], std.math.clamp(color[3] * opacity, 0.0, 1.0) };
+        fn colorWithOpacity(color: anytype, opacity: f32) [4]f32 {
+            const c = if (@TypeOf(color) == layout_mod.Color) color.toArray() else color;
+            return .{ c[0], c[1], c[2], std.math.clamp(c[3] * opacity, 0.0, 1.0) };
         }
 
         fn emitTextDecorations(
@@ -431,7 +435,7 @@ pub fn Node(comptime MessageT: type) type {
             style: *const Style,
             abs_x: f32,
             abs_y: f32,
-            base_color: [4]f32,
+            base_color: layout_mod.Color,
             opacity: f32,
             scale: f32,
         ) !void {
@@ -572,8 +576,8 @@ pub fn Node(comptime MessageT: type) type {
 
         /// Used as the placeholder color when no explicit `placeholder_color` is
         /// set on the input. Half-alpha of the active text color.
-        fn mutedFallback(color: [4]f32) [4]f32 {
-            return .{ color[0], color[1], color[2], color[3] * 0.45 };
+        fn mutedFallback(color: layout_mod.Color) layout_mod.Color {
+            return color.scaleAlpha(0.45);
         }
 
         fn snapPixel(value: f32) f32 {
@@ -687,15 +691,9 @@ pub fn Node(comptime MessageT: type) type {
                 );
             }
 
-            const bg_base = if (self.style.hover_color) |hc| blk: {
+            const bg_base: layout_mod.Color = if (self.style.hover_color) |hc| blk: {
                 const t = std.math.clamp(self.style._hover_blend, 0.0, 1.0);
-                const a = self.style.background_color;
-                break :blk [4]f32{
-                    a[0] + (hc[0] - a[0]) * t,
-                    a[1] + (hc[1] - a[1]) * t,
-                    a[2] + (hc[2] - a[2]) * t,
-                    a[3] + (hc[3] - a[3]) * t,
-                };
+                break :blk layout_mod.Color.lerp(self.style.background_color, hc, t);
             } else self.style.background_color;
             const bg = colorWithOpacity(bg_base, combined_opacity);
 

@@ -9,7 +9,7 @@ const player = @import("player.zig");
 const icons_mod = @import("icons.zig");
 const IconId = icons_mod.IconId;
 
-fn iconChild(ctx: anytype, id: IconId, dim: f32, color: [4]f32) anyerror!*lib.Node(@TypeOf(ctx.*).Message) {
+fn iconChild(ctx: anytype, id: IconId, dim: f32, color: layout.Color) anyerror!*lib.Node(@TypeOf(ctx.*).Message) {
     return ctx.components.icon(.{
         .icon_id = @intFromEnum(id),
         .scale = 1.0,
@@ -21,7 +21,7 @@ fn iconChild(ctx: anytype, id: IconId, dim: f32, color: [4]f32) anyerror!*lib.No
             s.pointer_events = .none;
             break :blk s;
         },
-        .tint = color,
+        .tint = color.toArray(),
         .alt_text = "",
         .fallback_state = .ready,
     });
@@ -215,7 +215,7 @@ fn buildPaletteRow(ctx: anytype, tokens: lib.SemanticTokens) anyerror!*lib.Node(
     const ux = ctx.ux;
     const arena = ctx.ui.build_arena.allocator();
 
-    const swatches = [_]struct { c: [4]f32, label: []const u8 }{
+    const swatches = [_]struct { c: layout.Color, label: []const u8 }{
         .{ .c = tokens.action_default, .label = "action" },
         .{ .c = tokens.accent_default, .label = "accent" },
         .{ .c = tokens.secondary_default, .label = "secondary" },
@@ -376,7 +376,7 @@ fn toggleRow(ctx: anytype, id: lib.NodeId, label: []const u8, on: bool, msg: Set
     var dot: layout.Style = .{};
     dot.width = .{ .exact = 14.0 };
     dot.height = .{ .exact = 14.0 };
-    dot.background_color = .{ 1, 1, 1, 1 };
+    dot.background_color = layout.Color.from(.{ 1, 1, 1, 1 });
     dot.corner_radius = layout.CornerRadius.all(7.0);
     dot.flex_shrink = 0.0;
     dot.margin = .{

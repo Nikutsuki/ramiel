@@ -77,7 +77,7 @@ pub fn build(
                     for (state.editor.dither_palette_hsv.items, 0..) |hsv, i| {
                         const rgb = lib.Color.hsvToRgb(hsv[0], hsv[1], hsv[2]);
                         const is_selected = i == state.editor.dither_selected_color;
-                        const swatch_color: [4]f32 = .{ rgb[0], rgb[1], rgb[2], 1.0 };
+                        const swatch_color = lib.layout.Color.from(.{ rgb[0], rgb[1], rgb[2], 1.0 });
                         var swatch_style = tw.style(.{
                             tw.square(24.0),
                             tw.bg_value(swatch_color),

@@ -263,15 +263,20 @@ void main() {
                 p.x + half_size.x  // left
             );
 
+            bool sharp = softness <= 1.0001;
+            float aa = max(fwidth(dist), 1e-4) * 0.5;
+            float edge = sharp ? aa : sm;
+            float sq_shape = sharp ? (1.0 - smoothstep(-aa, aa, dist)) : shape_cov;
+
             vec4 border_side_cov = vec4(0.0);
-            if (bw.x > 0.0) border_side_cov.x = 1.0 - smoothstep(max(bw.x - sm, 0.0), bw.x, inset.x);
-            if (bw.y > 0.0) border_side_cov.y = 1.0 - smoothstep(max(bw.y - sm, 0.0), bw.y, inset.y);
-            if (bw.z > 0.0) border_side_cov.z = 1.0 - smoothstep(max(bw.z - sm, 0.0), bw.z, inset.z);
-            if (bw.w > 0.0) border_side_cov.w = 1.0 - smoothstep(max(bw.w - sm, 0.0), bw.w, inset.w);
-            border_side_cov *= shape_cov;
+            if (bw.x > 0.0) border_side_cov.x = 1.0 - smoothstep(bw.x - edge, bw.x + edge, inset.x);
+            if (bw.y > 0.0) border_side_cov.y = 1.0 - smoothstep(bw.y - edge, bw.y + edge, inset.y);
+            if (bw.z > 0.0) border_side_cov.z = 1.0 - smoothstep(bw.z - edge, bw.z + edge, inset.z);
+            if (bw.w > 0.0) border_side_cov.w = 1.0 - smoothstep(bw.w - edge, bw.w + edge, inset.w);
+            border_side_cov *= sq_shape;
 
             border_cov = max(max(border_side_cov.x, border_side_cov.y), max(border_side_cov.z, border_side_cov.w));
-            inner_cov = clamp(shape_cov - border_cov, 0.0, 1.0);
+            inner_cov = clamp(sq_shape - border_cov, 0.0, 1.0);
 
             float bw_mix_sum = dot(border_side_cov, vec4(1.0));
             border_col = (bw_mix_sum > eps)
@@ -281,21 +286,21 @@ void main() {
                         unpackUnorm4x8(fragBorderColors.w) * border_side_cov.w) / bw_mix_sum
                 : vec4(0.0);
 
-            float span_x = 1.0 - smoothstep(0.0, sm, abs(p.x) - half_size.x);
-            float span_y = 1.0 - smoothstep(0.0, sm, abs(p.y) - half_size.y);
+            float span_x = 1.0 - smoothstep(0.0, edge, abs(p.x) - half_size.x);
+            float span_y = 1.0 - smoothstep(0.0, edge, abs(p.y) - half_size.y);
             vec4 outline_side_cov = vec4(0.0);
             if (ow.x > 0.0) outline_side_cov.x =
-                (1.0 - smoothstep(max(ow.x - sm, 0.0), ow.x, -inset.x)) *
-                (1.0 - smoothstep(0.0, sm, inset.x)) * span_x;
+                (1.0 - smoothstep(ow.x - edge, ow.x + edge, -inset.x)) *
+                (1.0 - smoothstep(0.0, edge, inset.x)) * span_x;
             if (ow.y > 0.0) outline_side_cov.y =
-                (1.0 - smoothstep(max(ow.y - sm, 0.0), ow.y, -inset.y)) *
-                (1.0 - smoothstep(0.0, sm, inset.y)) * span_y;
+                (1.0 - smoothstep(ow.y - edge, ow.y + edge, -inset.y)) *
+                (1.0 - smoothstep(0.0, edge, inset.y)) * span_y;
             if (ow.z > 0.0) outline_side_cov.z =
-                (1.0 - smoothstep(max(ow.z - sm, 0.0), ow.z, -inset.z)) *
-                (1.0 - smoothstep(0.0, sm, inset.z)) * span_x;
+                (1.0 - smoothstep(ow.z - edge, ow.z + edge, -inset.z)) *
+                (1.0 - smoothstep(0.0, edge, inset.z)) * span_x;
             if (ow.w > 0.0) outline_side_cov.w =
-                (1.0 - smoothstep(max(ow.w - sm, 0.0), ow.w, -inset.w)) *
-                (1.0 - smoothstep(0.0, sm, inset.w)) * span_y;
+                (1.0 - smoothstep(ow.w - edge, ow.w + edge, -inset.w)) *
+                (1.0 - smoothstep(0.0, edge, inset.w)) * span_y;
 
             outline_cov = max(max(outline_side_cov.x, outline_side_cov.y), max(outline_side_cov.z, outline_side_cov.w));
             float ow_mix_sum = dot(outline_side_cov, vec4(1.0));

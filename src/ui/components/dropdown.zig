@@ -12,8 +12,8 @@ pub const TriggerStyle = struct { style: layout.Style = .{} };
 pub const MenuStyle = struct { style: layout.Style = .{} };
 pub const ItemStyle = struct {
     style: layout.Style = .{},
-    active_color: ?[4]f32 = null,
-    hover_color: ?[4]f32 = null,
+    active_color: ?layout.Color = null,
+    hover_color: ?layout.Color = null,
 };
 
 pub fn DropdownParams(comptime MessageT: type) type {
@@ -44,7 +44,7 @@ pub fn build(
     const trigger_id = deriveChildId(params.base_id, "trigger");
 
     var trigger_style = params.trigger.style;
-    if (trigger_style.background_color[3] == 0.0) {
+    if (trigger_style.background_color.a == 0) {
         trigger_style.background_color = tokens.bg_surface;
     }
     if (!trigger_style.border.hasAny()) {
@@ -75,7 +75,7 @@ pub fn build(
         .font = params.font,
         .style = .{
             .pointer_events = .none,
-            .text_color = if (params.trigger.style.text_color[3] == 0.0) tokens.text_main else params.trigger.style.text_color,
+            .text_color = if (params.trigger.style.text_color.a == 0) tokens.text_main else params.trigger.style.text_color,
         },
     });
 
@@ -105,7 +105,7 @@ pub fn build(
         });
 
         var menu_style = params.menu.style;
-        if (menu_style.background_color[3] == 0.0) {
+        if (menu_style.background_color.a == 0) {
             menu_style.background_color = tokens.bg_surface;
         }
         if (!menu_style.border.hasAny()) {

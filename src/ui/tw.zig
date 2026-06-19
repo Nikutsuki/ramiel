@@ -1,6 +1,7 @@
 const std = @import("std");
 const color_parser = @import("color.zig");
 const layout = @import("layout.zig");
+const Color = color_parser.Color;
 const theme_mod = @import("theme.zig");
 
 pub const Style = layout.Style;
@@ -217,31 +218,26 @@ fn applyThemeToken(result: *Style, tokens: theme_mod.SemanticTokens, partial: Th
     }
 }
 
-pub fn resolveThemeColor(tokens: theme_mod.SemanticTokens, token: ThemeColor) [4]f32 {
+pub fn resolveThemeColor(tokens: theme_mod.SemanticTokens, token: ThemeColor) Color {
     return switch (token) {
         inline else => |tag| @field(tokens, @tagName(tag)),
     };
 }
 
-pub fn color(comptime input_str: []const u8) [4]f32 {
+pub fn color(comptime input_str: []const u8) Color {
     return comptime color_parser.parse(input_str);
 }
 
-pub fn rgba(r: f32, g: f32, b: f32, a: f32) [4]f32 {
-    return .{ r, g, b, a };
+pub fn rgba(r: f32, g: f32, b: f32, a: f32) Color {
+    return Color.from(.{ r, g, b, a });
 }
 
-pub fn rgb255(r: u8, g: u8, b: u8) [4]f32 {
-    return rgba(@as(f32, @floatFromInt(r)) / 255.0, @as(f32, @floatFromInt(g)) / 255.0, @as(f32, @floatFromInt(b)) / 255.0, 1.0);
+pub fn rgb255(r: u8, g: u8, b: u8) Color {
+    return Color.rgbaU8(r, g, b, 255);
 }
 
-pub fn rgba255(r: u8, g: u8, b: u8, a: u8) [4]f32 {
-    return rgba(
-        @as(f32, @floatFromInt(r)) / 255.0,
-        @as(f32, @floatFromInt(g)) / 255.0,
-        @as(f32, @floatFromInt(b)) / 255.0,
-        @as(f32, @floatFromInt(a)) / 255.0,
-    );
+pub fn rgba255(r: u8, g: u8, b: u8, a: u8) Color {
+    return Color.rgbaU8(r, g, b, a);
 }
 
 pub const transparent = color("#0000");
@@ -323,11 +319,11 @@ pub fn leading(value_px: f32) struct { line_height: f32 } {
     return .{ .line_height = value_px };
 }
 
-pub fn text_color(comptime color_str: []const u8) struct { text_color: [4]f32 } {
+pub fn text_color(comptime color_str: []const u8) struct { text_color: Color } {
     return .{ .text_color = color(color_str) };
 }
 
-pub fn text_color_value(color_value: [4]f32) struct { text_color: [4]f32 } {
+pub fn text_color_value(color_value: Color) struct { text_color: Color } {
     return .{ .text_color = color_value };
 }
 
@@ -387,7 +383,7 @@ pub fn decoration_color(comptime hex: []const u8) struct { text_decoration: layo
     return .{ .text_decoration = .{ .color = color(hex) } };
 }
 
-pub fn decoration_color_value(value: [4]f32) struct { text_decoration: layout.TextDecoration } {
+pub fn decoration_color_value(value: Color) struct { text_decoration: layout.TextDecoration } {
     return .{ .text_decoration = .{ .color = value } };
 }
 
@@ -465,12 +461,18 @@ pub fn columns(count: u16) struct { grid_columns: u16 } {
     return .{ .grid_columns = count };
 }
 
-pub fn cols(tracks: []const GridTrack) struct { grid_template_columns: GridTemplate } {
-    return .{ .grid_template_columns = GridTemplate.fromSlice(tracks) };
+pub fn cols(comptime tracks: []const GridTrack) struct { grid_template_columns: ?*const GridTemplate } {
+    const S = struct {
+        const tmpl = GridTemplate.fromSlice(tracks);
+    };
+    return .{ .grid_template_columns = &S.tmpl };
 }
 
-pub fn rows(tracks: []const GridTrack) struct { grid_template_rows: GridTemplate } {
-    return .{ .grid_template_rows = GridTemplate.fromSlice(tracks) };
+pub fn rows(comptime tracks: []const GridTrack) struct { grid_template_rows: ?*const GridTemplate } {
+    const S = struct {
+        const tmpl = GridTemplate.fromSlice(tracks);
+    };
+    return .{ .grid_template_rows = &S.tmpl };
 }
 
 pub const relative = .{ .position = layout.Position.relative };
@@ -695,19 +697,19 @@ pub const overflow_y_hidden = .{ .overflow_y = layout.Overflow.hidden };
 pub const overflow_x_scroll = .{ .overflow_x = layout.Overflow.scroll };
 pub const overflow_y_scroll = .{ .overflow_y = layout.Overflow.scroll };
 
-pub fn bg(comptime color_str: []const u8) struct { background_color: [4]f32 } {
+pub fn bg(comptime color_str: []const u8) struct { background_color: Color } {
     return .{ .background_color = color(color_str) };
 }
 
-pub fn bg_value(color_value: [4]f32) struct { background_color: [4]f32 } {
+pub fn bg_value(color_value: Color) struct { background_color: Color } {
     return .{ .background_color = color_value };
 }
 
-pub fn hover(comptime color_str: []const u8) struct { hover_color: ?[4]f32 } {
+pub fn hover(comptime color_str: []const u8) struct { hover_color: ?Color } {
     return .{ .hover_color = color(color_str) };
 }
 
-pub fn hover_value(color_value: [4]f32) struct { hover_color: ?[4]f32 } {
+pub fn hover_value(color_value: Color) struct { hover_color: ?Color } {
     return .{ .hover_color = color_value };
 }
 
@@ -730,7 +732,7 @@ pub fn border(width: f32, comptime color_str: []const u8) struct { border: Borde
     return .{ .border = Border.all(width, color(color_str)) };
 }
 
-pub fn border_value(width: f32, color_value: [4]f32) struct { border: Border } {
+pub fn border_value(width: f32, color_value: Color) struct { border: Border } {
     return .{ .border = Border.all(width, color_value) };
 }
 
@@ -738,7 +740,7 @@ pub fn border_t(width: f32, comptime color_str: []const u8) struct { border: Bor
     return .{ .border = .{ .top = .{ .width = width, .color = color(color_str) } } };
 }
 
-pub fn border_t_value(width: f32, color_value: [4]f32) struct { border: Border } {
+pub fn border_t_value(width: f32, color_value: Color) struct { border: Border } {
     return .{ .border = .{ .top = .{ .width = width, .color = color_value } } };
 }
 
@@ -746,7 +748,7 @@ pub fn border_r(width: f32, comptime color_str: []const u8) struct { border: Bor
     return .{ .border = .{ .right = .{ .width = width, .color = color(color_str) } } };
 }
 
-pub fn border_r_value(width: f32, color_value: [4]f32) struct { border: Border } {
+pub fn border_r_value(width: f32, color_value: Color) struct { border: Border } {
     return .{ .border = .{ .right = .{ .width = width, .color = color_value } } };
 }
 
@@ -754,7 +756,7 @@ pub fn border_b(width: f32, comptime color_str: []const u8) struct { border: Bor
     return .{ .border = .{ .bottom = .{ .width = width, .color = color(color_str) } } };
 }
 
-pub fn border_b_value(width: f32, color_value: [4]f32) struct { border: Border } {
+pub fn border_b_value(width: f32, color_value: Color) struct { border: Border } {
     return .{ .border = .{ .bottom = .{ .width = width, .color = color_value } } };
 }
 
@@ -762,7 +764,7 @@ pub fn border_l(width: f32, comptime color_str: []const u8) struct { border: Bor
     return .{ .border = .{ .left = .{ .width = width, .color = color(color_str) } } };
 }
 
-pub fn border_l_value(width: f32, color_value: [4]f32) struct { border: Border } {
+pub fn border_l_value(width: f32, color_value: Color) struct { border: Border } {
     return .{ .border = .{ .left = .{ .width = width, .color = color_value } } };
 }
 
@@ -770,15 +772,15 @@ pub fn outline(width: f32, comptime color_str: []const u8) struct { outline: Bor
     return .{ .outline = Border.all(width, color(color_str)) };
 }
 
-pub fn outline_value(width: f32, color_value: [4]f32) struct { outline: Border } {
+pub fn outline_value(width: f32, color_value: Color) struct { outline: Border } {
     return .{ .outline = Border.all(width, color_value) };
 }
 
-pub fn shadow(comptime color_str: []const u8, offset: [2]f32, blur_px: f32) struct { shadow_color: [4]f32, shadow_offset: [2]f32, shadow_blur: f32 } {
+pub fn shadow(comptime color_str: []const u8, offset: [2]f32, blur_px: f32) struct { shadow_color: Color, shadow_offset: [2]f32, shadow_blur: f32 } {
     return .{ .shadow_color = color(color_str), .shadow_offset = offset, .shadow_blur = blur_px };
 }
 
-pub fn shadow_value(color_value: [4]f32, offset: [2]f32, blur_px: f32) struct { shadow_color: [4]f32, shadow_offset: [2]f32, shadow_blur: f32 } {
+pub fn shadow_value(color_value: Color, offset: [2]f32, blur_px: f32) struct { shadow_color: Color, shadow_offset: [2]f32, shadow_blur: f32 } {
     return .{ .shadow_color = color_value, .shadow_offset = offset, .shadow_blur = blur_px };
 }
 
@@ -841,7 +843,7 @@ test "tw composes style partials over defaults" {
     try std.testing.expectEqual(layout.FlexAlign.Center, s.align_items);
     try std.testing.expectEqual(@as(f32, 12), s.gap);
     try std.testing.expectEqual(@as(f32, 8), s.padding.left);
-    try std.testing.expectEqual(@as(f32, 1), s.text_color[3]);
+    try std.testing.expectEqual(@as(f32, 1), s.text_color.toArray()[3]);
 }
 
 test "tw applies partials over existing style" {

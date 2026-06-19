@@ -1341,7 +1341,7 @@ pub fn build(
                     ts.position = .absolute;
                     ts.left = norm * px_w - 16.0; // approximate centre offset
                     ts.top = 4.0;
-                    if (ts.text_color[3] == 0.0) ts.text_color = descriptor.axis_color;
+                    if (ts.text_color.a == 0) ts.text_color = layout.Color.from(descriptor.axis_color);
                     const label = try ctx.text(.{
                         .style = ts,
                         .content = text_slice,
@@ -1362,7 +1362,7 @@ pub fn build(
                     ts.position = .absolute;
                     ts.right = 4.0;
                     ts.top = (1.0 - norm) * px_h - 6.0;
-                    if (ts.text_color[3] == 0.0) ts.text_color = descriptor.axis_color;
+                    if (ts.text_color.a == 0) ts.text_color = layout.Color.from(descriptor.axis_color);
                     const label = try ctx.text(.{
                         .style = ts,
                         .content = text_slice,
@@ -1452,7 +1452,7 @@ pub fn build(
 
         const text_node = try ctx.text(.{
             .style = .{
-                .text_color = .{ 1.0, 1.0, 1.0, 1.0 },
+                .text_color = layout.Color.from(.{ 1.0, 1.0, 1.0, 1.0 }),
                 .font_size = 11,
                 .pointer_events = .none,
             },
@@ -1475,7 +1475,7 @@ pub fn build(
                 .left = tooltip_left,
                 .top = tooltip_top,
                 .padding = .{ .top = 4, .bottom = 4, .left = 8, .right = 8 },
-                .background_color = .{ 0.0, 0.0, 0.0, 0.75 },
+                .background_color = layout.Color.from(.{ 0.0, 0.0, 0.0, 0.75 }),
                 .corner_radius = layout.CornerRadius.all(4),
                 .pointer_events = .none,
                 .z_index = 10,

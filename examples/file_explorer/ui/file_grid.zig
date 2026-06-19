@@ -39,8 +39,6 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
         try cells.append(arena, try cell(ui, state, font, entry));
     }
 
-    const columns = layout.GridTemplate.fromSlice(&([_]layout.GridTrack{.{ .fr = 1.0 }} ** 10));
-
     return try ui.ux().div(.{
         .id = core.NodeIds.grid_root,
         .style = tw.style(.{
@@ -50,7 +48,8 @@ pub fn build(ui: *core.AppUIContext, state: *const core.AppState) !*core.AppNode
             tw.border_l_value(1.0, tokens.border_subtle),
             tw.grow_1,
             tw.grid,
-            .{ .grid_template_columns = columns, .grid_auto_rows = layout.GridTrack{ .exact = 110.0 } },
+            tw.cols(&([_]layout.GridTrack{.{ .fr = 1.0 }} ** 10)),
+            .{ .grid_auto_rows = layout.GridTrack{ .exact = 110.0 } },
             tw.gap_px(6.0),
             tw.overflow_y_scroll,
         }),
@@ -80,7 +79,7 @@ fn cell(
             tw.pointer_events_none,
         }),
         .intrinsic_size = .{ 56.0, 56.0 },
-        .tint = if (entry.is_dir) tokens.action_default else tokens.text_muted,
+        .tint = (if (entry.is_dir) tokens.action_default else tokens.text_muted).toArray(),
     });
 
     const label_node = try ui.ux().text(.{
@@ -102,7 +101,7 @@ fn cell(
             tw.items_center,
             tw.justify_center,
             tw.p_xy_px(4.0, 6.0),
-            tw.bg_value(if (is_selected) tokens.action_pressed else .{ 0.0, 0.0, 0.0, 0.0 }),
+            tw.bg_value(if (is_selected) tokens.action_pressed else layout.Color.transparent),
             tw.hover_value(tokens.action_hover),
             tw.rounded(6.0),
             tw.cursor_pointer,
