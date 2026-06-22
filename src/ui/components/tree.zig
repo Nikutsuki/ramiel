@@ -221,7 +221,7 @@ pub fn update(
 
             if (is_ctrl) {
                 try state.toggleSelection(ci.id);
-            } else if (state.isSelected(ci.id)) {} else {
+            } else if (!state.isSelected(ci.id) or state.selected_ids.count() > 1) {
                 try state.selectOnly(ci.id);
             }
         },
@@ -279,7 +279,7 @@ pub fn updateAdapted(
 
             if (is_ctrl) {
                 try state.toggleSelection(ci.id);
-            } else if (!state.isSelected(ci.id)) {
+            } else if (!state.isSelected(ci.id) or state.selected_ids.count() > 1) {
                 try state.selectOnly(ci.id);
             }
         },
