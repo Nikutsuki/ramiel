@@ -167,7 +167,7 @@ pub fn Node(comptime MessageT: type) type {
         /// the framework skips default Tab focus-traversal and the
         /// tree-walking Ctrl+C / Ctrl+A clipboard path. When set on any
         /// ancestor of a click target, the framework also skips initiating
-        /// its visual text selection on `.text` payloads in the subtree —
+        /// its visual text selection on `.text` payloads in the subtree -
         /// so the widget can drive its own selection model from raw
         /// pointer events.
         claims_input: bool = false,

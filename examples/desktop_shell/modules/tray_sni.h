@@ -46,7 +46,7 @@ void tray_sni_context_menu(uintptr_t id);
 /* Copy the latest icon pixmap (RGBA8 byte order) into `out_buf`.
  * Returns 1 on success and writes width/height/serial. Returns 0 if the
  * item has no pixmap, the buffer is too small, or the id is unknown.
- * `serial` increments whenever the pixmap changes — callers should
+ * `serial` increments whenever the pixmap changes - callers should
  * compare it against their cached value to decide whether to re-upload. */
 int tray_sni_get_pixmap(uintptr_t id, uint8_t *out_buf, size_t buf_len,
                         int32_t *out_width, int32_t *out_height,

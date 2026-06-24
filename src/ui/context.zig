@@ -38,6 +38,19 @@ const FontCacheKey = struct {
     style: layout.FontStyle,
 };
 
+pub const ScrollAlignment = enum {
+    nearest,
+    top,
+    bottom,
+    center,
+};
+
+pub const ScrollOptions = struct {
+    align_y: ScrollAlignment = .nearest,
+    align_x: ScrollAlignment = .nearest,
+    scroll_margin: f32 = 0.0,
+};
+
 pub fn UIContext(comptime MessageT: type) type {
     return struct {
         const Self = @This();
@@ -98,6 +111,107 @@ pub fn UIContext(comptime MessageT: type) type {
             id_map: std.AutoHashMapUnmanaged(NodeId, usize) = .empty,
             children: std.ArrayList(*Node(MessageT)) = .empty,
         };
+
+        const ScrollHookData = struct {
+            container_id: NodeId,
+            target_id: NodeId,
+            options: ScrollOptions,
+        };
+
+        fn scrollIntoViewCallback(ctx: *Self, userdata: *anyopaque) bool {
+            const data: *ScrollHookData = @ptrCast(@alignCast(userdata));
+
+            const container = ctx.getById(data.container_id) orelse return false;
+            const target = ctx.getById(data.target_id) orelse return false;
+
+            return applyScrollIntoView(container, target, data.options);
+        }
+
+        fn applyScrollIntoView(container: *Node(MessageT), target: *Node(MessageT), options: ScrollOptions) bool {
+            const rel_x = target.layout_result.x - container.layout_result.x + container.scroll_x;
+            const rel_y = target.layout_result.y - container.layout_result.y + container.scroll_y;
+
+            const viewport_w = container.layout_result.width;
+            const viewport_h = container.layout_result.height;
+            const m = options.scroll_margin;
+
+            var changed = false;
+
+            if (viewport_h > 0.0) {
+                var next_y = container.scroll_y;
+                const target_h = target.layout_result.height;
+
+                switch (options.align_y) {
+                    .nearest => {
+                        if (rel_y < container.scroll_y + m) {
+                            next_y = rel_y - m;
+                        } else if (rel_y + target_h > container.scroll_y + viewport_h - m) {
+                            next_y = rel_y + target_h - viewport_h + m;
+                        }
+                    },
+                    .top => next_y = rel_y - m,
+                    .bottom => next_y = rel_y + target_h - viewport_h + m,
+                    .center => next_y = rel_y + (target_h * 0.5) - (viewport_h * 0.5),
+                }
+
+                const max_y = @max(0.0, container.layout_result.content_height - viewport_h);
+                next_y = std.math.clamp(next_y, 0.0, max_y);
+                if (@abs(next_y - container.scroll_y) > 0.5) {
+                    container.scroll_y = next_y;
+                    changed = true;
+                }
+            }
+
+            if (viewport_w > 0.0) {
+                var next_x = container.scroll_x;
+                const target_w = target.layout_result.width;
+
+                switch (options.align_x) {
+                    .nearest => {
+                        if (rel_x < container.scroll_x + m) {
+                            next_x = rel_x - m;
+                        } else if (rel_x + target_w > container.scroll_x + viewport_w - m) {
+                            next_x = rel_x + target_w - viewport_w + m;
+                        }
+                    },
+                    .top => next_x = rel_x - m,
+                    .bottom => next_x = rel_x + target_w - viewport_w + m,
+                    .center => next_x = rel_x + (target_w * 0.5) - (viewport_w * 0.5),
+                }
+
+                const max_x = @max(0.0, container.layout_result.content_width - viewport_w);
+                next_x = std.math.clamp(next_x, 0.0, max_x);
+                if (@abs(next_x - container.scroll_x) > 0.5) {
+                    container.scroll_x = next_x;
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                container.markPositionDirty();
+            }
+            return changed;
+        }
+
+        pub fn scrollIntoView(
+            self: *Self,
+            container_id: NodeId,
+            target_id: NodeId,
+            options: ScrollOptions,
+        ) !void {
+            const allocator = self.build_arena.allocator();
+            const data = try allocator.create(ScrollHookData);
+            data.* = .{
+                .container_id = container_id,
+                .target_id = target_id,
+                .options = options,
+            };
+
+            try self.registerPostLayoutHook(.{
+                .userdata = data,
+                .callback = scrollIntoViewCallback,
+            });
+        }
 
         fn acquireScratch(self: *@This()) !*Scratch {
             if (self.recon_scratch_pool.pop()) |s| {

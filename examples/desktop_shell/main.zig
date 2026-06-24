@@ -255,7 +255,7 @@ const panel_transition = layout.TransitionStyle{
     .duration_ms = 240,
     .timing = .ease_out,
 };
-// Card slides only (opacity stays on the children — see buildPowerMenu).
+// Card slides only (opacity stays on the children - see buildPowerMenu).
 const card_transition = layout.TransitionStyle{
     .property = .{ .translate = true },
     .duration_ms = 300,
@@ -426,7 +426,7 @@ fn buildBar(ui: *T.UIContext, state: *const AppState) !*T.Node {
             .tint = bat_color.toArray(),
             .style = tw.style(.{tw.square(icon_px)}),
         }));
-            const bat_status = if (state.bat.charging) "+" else "";
+        const bat_status = if (state.bat.charging) "+" else "";
         try right_items.append(arena, try ux.text(.{
             .content = try std.fmt.allocPrint(arena, "{d}%{s}", .{ state.bat.capacity, bat_status }),
             .font = font,
@@ -1559,7 +1559,7 @@ fn slowPollWorker(io: std.Io) void {
         bg_bat = battery.poll();
         bg_vol = audio_mod.poll(io);
         bg_time = clock_mod.poll(io);
-        // Network polling is heavier (spawns nmcli) — refresh every ~5s.
+        // Network polling is heavier (spawns nmcli) - refresh every ~5s.
         if (net_poll_counter == 0) {
             bg_net = network_mod.poll(io);
         }
@@ -1847,14 +1847,16 @@ pub fn main(init: std.process.Init) !void {
 
     var app = try App.init(allocator, io, .{
         .backend = .wayland,
-        .surface_kind = .{ .layer_shell = .{
-            .layer = .top,
-            .anchors = .{ .top = true, .left = true, .right = true },
-            .exclusive_zone = 40,
-            // Bar takes no keyboard by default; grabbed at runtime for the launcher.
-            .keyboard_interactivity = .none,
-            .namespace = "ramiel-shell",
-        } },
+        .surface_kind = .{
+            .layer_shell = .{
+                .layer = .top,
+                .anchors = .{ .top = true, .left = true, .right = true },
+                .exclusive_zone = 40,
+                // Bar takes no keyboard by default; grabbed at runtime for the launcher.
+                .keyboard_interactivity = .none,
+                .namespace = "ramiel-shell",
+            },
+        },
         .transparent = true,
         .input_region = .auto_interactive,
         .width = 0,

@@ -81,7 +81,7 @@ static void read_string(GVariant *dict, const char *key, char *dst, size_t dst_l
 }
 
 /* Extract the human-readable title from a ToolTip variant.
- *   ToolTip signature: (sa(iiay)ss) — icon name, pixmaps, title, description. */
+ *   ToolTip signature: (sa(iiay)ss) - icon name, pixmaps, title, description. */
 static void read_tooltip_title(GVariant *dict, char *dst, size_t dst_len) {
     GVariant *tip = g_variant_lookup_value(dict, "ToolTip", G_VARIANT_TYPE("(sa(iiay)ss)"));
     if (!tip) return;
@@ -162,7 +162,7 @@ static void clear_menu_locked(int index) {
     memset(item->menu, 0, sizeof(item->menu));
 }
 
-/* `tuple` must be a GVariant of type "(ia{sv}av)" — dbusmenu's per-item
+/* `tuple` must be a GVariant of type "(ia{sv}av)" - dbusmenu's per-item
  * layout tuple. Appends one menu entry to the item if visible. */
 static void parse_menu_tuple(GVariant *tuple, TraySniItem *item) {
     if (item->menu_count >= TRAY_SNI_MAX_MENU) return;

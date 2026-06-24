@@ -1,3 +1,17 @@
+//! Single-selection dropdown: trigger label + anchored popup menu in a portal.
+//!
+//! **Stateless** - caller owns `is_open`, `active_index`, and `options`; re-pass them each rebuild.
+//!
+//! **Callbacks** (`on_toggle`, `on_select`) return `MessageT` values that are embedded into click
+//! bindings at build time. `on_select(i, …)` is invoked once per row during build with that row's
+//! index; handle selection in your message reducer, not inside the callback.
+//!
+//! **Scrolling** - all options are materialized as rows. For long lists set `menu.style` with
+//! `max_height` + `overflow_y = .scroll` (e.g. `tw.max_h(240)` + `tw.overflow_y_scroll`). For very
+//! large or searchable lists use `virtual_list.zig` instead.
+//!
+//! **Open layout** - when `is_open`, a portal renders a full-screen backdrop (click closes) and a
+//! menu with `position = .anchored` below the trigger. See `examples/components_showcase/main.zig`.
 const std = @import("std");
 const UIContext = @import("../context.zig").UIContext;
 const Node = @import("../node.zig").Node;
@@ -16,20 +30,31 @@ pub const ItemStyle = struct {
     hover_color: ?layout.Color = null,
 };
 
+/// Parameters for `build`. All fields are read each frame; nothing is stored inside the component.
 pub fn DropdownParams(comptime MessageT: type) type {
     return struct {
+        /// Stable id; child nodes use `deriveChildId(base_id, …)`.
         base_id: NodeId,
+        /// When true the portal (backdrop + menu) is rendered.
         is_open: bool,
+        /// Index into `options` for the trigger label and active row highlight.
         active_index: usize,
+        /// Row labels. Trigger shows `options[active_index]`; each entry becomes one menu row.
         options: []const []const u8,
+        /// `fn(open, userdata) MessageT` - trigger click sends `!is_open`; backdrop sends `false`.
         on_toggle: *const fn (bool, ?*const anyopaque) MessageT,
+        /// `fn(index, userdata) MessageT` - called at build time per row; `index` is the row number.
         on_select: *const fn (usize, ?*const anyopaque) MessageT,
         userdata: ?*const anyopaque = null,
 
         font: ?*FontData = null,
+        /// Root wrapper style (`direction` is forced to `.Column`).
         style: layout.Style = .{},
+        /// Closed-state button (`TriggerStyle.style`).
         trigger: TriggerStyle = .{},
+        /// Open popup panel (`MenuStyle.style`). Set `max_height` + `overflow_y = .scroll` here for long lists.
         menu: MenuStyle = .{},
+        /// Per-row styling and active/hover background overrides.
         item: ItemStyle = .{},
     };
 }

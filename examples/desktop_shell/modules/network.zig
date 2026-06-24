@@ -61,7 +61,7 @@ fn setField(buf: []u8, len: *u8, value: []const u8) void {
 pub fn poll(io: std.Io) State {
     var state: State = .{};
 
-    // Active connection: NAME:TYPE:DEVICE:STATE — pick the first wifi/ethernet.
+    // Active connection: NAME:TYPE:DEVICE:STATE - pick the first wifi/ethernet.
     var conn_buf: [4096]u8 = undefined;
     const conn_out = runCapture(io, &.{ "nmcli", "-t", "-c", "no", "-f", "NAME,TYPE,DEVICE,STATE", "connection", "show", "--active" }, &conn_buf) orelse return state;
     state.available = true;

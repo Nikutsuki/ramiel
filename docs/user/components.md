@@ -36,7 +36,93 @@ Single selection across N items. `RadioGroupContext` carries `selected_index` + 
 
 ## dropdown
 
-`DropdownParams(MessageT)`: `base_id`, `is_open: bool`, `active_index: usize`, `options: []const []const u8`, `font: *FontData`, `on_toggle: *const fn(bool, ?*const anyopaque) MessageT`, `on_select: *const fn(usize, ?*const anyopaque) MessageT`, optional `userdata`, plus `style`/`trigger: TriggerStyle`/`menu: MenuStyle`/`item: ItemStyle`. Menu node uses `position = .absolute` and lifts on z-index.
+Single-selection picker: a trigger button shows the current label; clicking opens a popup menu of
+options. State (`is_open`, `active_index`, option labels) lives in **your** app — the component is
+stateless and re-reads params every rebuild.
+
+`DropdownParams(MessageT)`:
+
+| field | role |
+|---|---|
+| `base_id` | Stable root id (`lib.declareIds`) |
+| `is_open` | Whether the menu portal is rendered |
+| `active_index` | Index into `options` shown on the trigger and highlighted in the menu |
+| `options` | `[]const []const u8` labels (trigger + one row each) |
+| `on_toggle` | `fn(bool, ?*const anyopaque) MessageT` — open (`true`) / close (`false`) |
+| `on_select` | `fn(usize, ?*const anyopaque) MessageT` — user picked option `i` |
+| `userdata` | Opaque pointer forwarded to both callbacks |
+| `font` | Optional label font |
+| `style` | Root wrapper (`direction` forced to column) |
+| `trigger` | `TriggerStyle{ .style }` — the closed-state button |
+| `menu` | `MenuStyle{ .style }` — the open popup panel |
+| `item` | `ItemStyle{ .style, .active_color, .hover_color }` — per-row styling |
+
+### Behaviour
+
+1. **Closed** — trigger shows `options[active_index]` (or `""` when empty / out of range).
+2. **Trigger click** — emits `on_toggle(!is_open, userdata)`; your reducer sets `is_open` and rebuilds.
+3. **Open** — renders a `portal` with:
+   - full-screen **backdrop** (click → `on_toggle(false, …)`),
+   - **menu** anchored below the trigger (`position = .anchored`, `anchor_id = trigger`, `z_index = 1000`).
+4. **Row click** — emits `on_select(i, userdata)` with the row index baked in at build time; you
+   typically set `active_index = i`, `is_open = false`, and rebuild.
+
+Callbacks return a `MessageT` value that is embedded into click bindings during `build` (not called
+at click time). Wire them with `lib.bindTag` in standalone apps:
+
+```zig
+const options = [_][]const u8{ "Windowed", "Borderless", "Fullscreen" };
+
+try b.dropdown(.{
+    .base_id = ids.display_mode,
+    .is_open = state.dropdown_open,
+    .active_index = state.dropdown_selected,
+    .options = &options,
+    .on_toggle = lib.bindTag(AppMessage, bool, .dropdown_toggle),
+    .on_select = lib.bindTag(AppMessage, usize, .dropdown_select),
+    .font = font,
+    .trigger = .{ .style = tw.style(.{ tw.w_full, tw.px(8), tw.py(6) }) },
+    .menu = .{ .style = tw.style(.{ tw.rounded(8), tw.p(1) }) },
+    .item = .{ .style = tw.style(.{ tw.px(8), tw.py(6), tw.rounded(4) }) },
+});
+```
+
+Reducer:
+
+```zig
+.dropdown_toggle => |open| { state.dropdown_open = open; return .rebuild; },
+.dropdown_select => |idx| {
+    if (idx < options.len) state.dropdown_selected = idx;
+    state.dropdown_open = false;
+    return .rebuild;
+},
+```
+
+See `examples/components_showcase/main.zig` (display-mode dropdown).
+
+### Scrollable menus
+
+The dropdown renders **every option as a real row** (no virtualization). For a long but modest list,
+cap menu height and enable overflow scroll on `menu.style`:
+
+```zig
+.menu = .{ .style = tw.style(.{
+    tw.max_h(240),
+    tw.overflow_y_scroll,
+}) },
+```
+
+Wheel / drag scrolling uses the normal layout overflow path. There is no built-in keyboard
+navigation. For hundreds of rows or search/filter, use `virtualList` instead.
+
+### Embedded hosts (e.g. Rei panels)
+
+When `MessageT` is a closed union you do not control, return messages your host already understands
+(e.g. `.command = .{ .id = "…", .args = … }`) from hand-written `on_toggle` / `on_select` functions
+instead of `lib.bindTag`. `CommandInvoke` slice fields are not copied — args must outlive dispatch
+(use stable strings from your state or the build arena).
+
+`src/ui/components/dropdown.zig`.
 
 ## color_picker
 
