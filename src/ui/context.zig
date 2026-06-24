@@ -871,6 +871,11 @@ pub fn UIContext(comptime MessageT: type) type {
             if (node.style.position == .anchored) {
                 if (node.style.anchor_id) |anchor_id| {
                     if (self.getById(anchor_id)) |anchor| {
+                        if (node.style.anchor_match_width and node.layout_result.width != anchor.layout_result.width) {
+                            node.layout_result.width = anchor.layout_result.width;
+                            node.flags.position = true;
+                            layout.arrangeNode(node, node.layout_result.x, node.layout_result.y);
+                        }
                         const target_x = anchor.layout_result.x + (node.style.left orelse 0.0);
                         var target_y = anchor.layout_result.y + anchor.layout_result.height + (node.style.top orelse 0.0);
                         const viewport_h = self.root.layout_result.height;

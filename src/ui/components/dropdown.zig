@@ -28,6 +28,10 @@ pub const ItemStyle = struct {
     style: layout.Style = .{},
     active_color: ?layout.Color = null,
     hover_color: ?layout.Color = null,
+    /// Row label color for non-active rows; unset leaves the text Style default.
+    text_color: ?layout.Color = null,
+    /// Row label color for the active row; unset leaves the text Style default.
+    active_text_color: ?layout.Color = null,
 };
 
 /// Parameters for `build`. All fields are read each frame; nothing is stored inside the component.
@@ -64,26 +68,11 @@ pub fn build(
     ctx: *UIContext(MessageT),
     params: DropdownParams(MessageT),
 ) !*Node(MessageT) {
-    const tokens = ctx.active_theme.tokens;
     const alloc = ctx.build_arena.allocator();
     const trigger_id = deriveChildId(params.base_id, "trigger");
 
     var trigger_style = params.trigger.style;
-    if (trigger_style.background_color.a == 0) {
-        trigger_style.background_color = tokens.bg_surface;
-    }
-    if (!trigger_style.border.hasAny()) {
-        trigger_style.border = layout.Border.all(1.0, tokens.border_subtle);
-    }
-    if (!trigger_style.corner_radius.hasAny()) {
-        trigger_style.corner_radius = layout.CornerRadius.all(4.0);
-    }
-    if (trigger_style.padding.horizontal() == 0.0 and trigger_style.padding.vertical() == 0.0) {
-        trigger_style.padding = layout.Spacing.all(8.0);
-    }
     trigger_style.direction = .Row;
-    trigger_style.align_items = .Center;
-    trigger_style.justify_content = .SpaceBetween;
     trigger_style.cursor = .pointer;
 
     const toggle_event = dupeMessageBinding(MessageT, .click, params.on_toggle(!params.is_open, params.userdata));
@@ -100,7 +89,8 @@ pub fn build(
         .font = params.font,
         .style = .{
             .pointer_events = .none,
-            .text_color = if (params.trigger.style.text_color.a == 0) tokens.text_main else params.trigger.style.text_color,
+            .white_space = .NoWrap,
+            .text_color = params.trigger.style.text_color,
         },
     });
 
@@ -130,34 +120,19 @@ pub fn build(
         });
 
         var menu_style = params.menu.style;
-        if (menu_style.background_color.a == 0) {
-            menu_style.background_color = tokens.bg_surface;
-        }
-        if (!menu_style.border.hasAny()) {
-            menu_style.border = layout.Border.all(1.0, tokens.border_subtle);
-        }
-        if (!menu_style.corner_radius.hasAny()) {
-            menu_style.corner_radius = layout.CornerRadius.all(4.0);
-        }
         menu_style.position = .anchored;
         menu_style.anchor_id = trigger_id;
         menu_style.z_index = 1000;
         menu_style.direction = .Column;
 
-        const active_item_color = params.item.active_color orelse tokens.action_default;
-        const hover_item_color = params.item.hover_color orelse tokens.action_hover;
-
         const menu_items = try alloc.alloc(?*Node(MessageT), params.options.len);
         for (params.options, 0..) |option, i| {
             var item_style = params.item.style;
-            if (item_style.padding.horizontal() == 0.0 and item_style.padding.vertical() == 0.0) {
-                item_style.padding = layout.Spacing.all(8.0);
-            }
             item_style.cursor = .pointer;
             if (i == params.active_index) {
-                item_style.background_color = active_item_color;
+                if (params.item.active_color) |c| item_style.background_color = c;
             }
-            item_style.hover_color = hover_item_color;
+            if (params.item.hover_color) |c| item_style.hover_color = c;
 
             const select_event = dupeMessageBinding(MessageT, .click, params.on_select(i, params.userdata));
             const item_events = try alloc.dupe(types.EventBinding(MessageT), &.{select_event});
@@ -168,9 +143,14 @@ pub fn build(
                 .id = deriveChildId(params.base_id, text_key),
                 .content = option,
                 .font = params.font,
-                .style = .{
-                    .pointer_events = .none,
-                    .text_color = if (i == params.active_index) tokens.text_inverse else tokens.text_main,
+                .style = blk: {
+                    var s: layout.Style = .{ .pointer_events = .none, .white_space = .NoWrap };
+                    const c = if (i == params.active_index)
+                        (params.item.active_text_color orelse params.item.text_color)
+                    else
+                        params.item.text_color;
+                    if (c) |col| s.text_color = col;
+                    break :blk s;
                 },
             });
 

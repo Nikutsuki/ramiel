@@ -75,6 +75,15 @@ fn applyPartial(result: *Style, partial: anytype) void {
         @compileError("theme-aware tw classes require active theme tokens; use uix `.class`, tw.styleTheme(tokens, ...), or tw.applyTheme(base, tokens, ...)");
     }
 
+    if (@TypeOf(partial) == SpacingPartial) {
+        const target = if (partial.is_margin) &result.margin else &result.padding;
+        if (partial.top) |v| target.top = v;
+        if (partial.right) |v| target.right = v;
+        if (partial.bottom) |v| target.bottom = v;
+        if (partial.left) |v| target.left = v;
+        return;
+    }
+
     const PartialT = @TypeOf(partial);
     const info = @typeInfo(PartialT);
     if (info != .@"struct" or info.@"struct".is_tuple) {
@@ -556,128 +565,137 @@ pub fn max_h(value_px: f32) struct { max_height: Size } {
     return .{ .max_height = .{ .exact = value_px } };
 }
 
-pub fn p(n: f32) struct { padding: Spacing } {
-    return .{ .padding = Spacing.all(unit(n)) };
-}
+/// Per-side spacing partial. Only the non-null sides are written into the target
+/// (`padding` or `margin`), so axis/side helpers like `px` + `py` compose instead of
+/// overwriting each other's `Spacing` struct.
+pub const SpacingPartial = struct {
+    is_margin: bool = false,
+    top: ?f32 = null,
+    right: ?f32 = null,
+    bottom: ?f32 = null,
+    left: ?f32 = null,
+};
 
-pub fn p_px(value_px: f32) struct { padding: Spacing } {
-    return .{ .padding = Spacing.all(value_px) };
-}
-
-pub fn px(n: f32) struct { padding: Spacing } {
+pub fn p(n: f32) SpacingPartial {
     const v = unit(n);
-    return .{ .padding = .{ .left = v, .right = v } };
+    return .{ .top = v, .right = v, .bottom = v, .left = v };
 }
 
-pub fn py(n: f32) struct { padding: Spacing } {
+pub fn p_px(value_px: f32) SpacingPartial {
+    return .{ .top = value_px, .right = value_px, .bottom = value_px, .left = value_px };
+}
+
+pub fn px(n: f32) SpacingPartial {
     const v = unit(n);
-    return .{ .padding = .{ .top = v, .bottom = v } };
+    return .{ .left = v, .right = v };
 }
 
-pub fn p_xy(x: f32, y: f32) struct { padding: Spacing } {
-    const xv = unit(x);
-    const yv = unit(y);
-    return .{ .padding = .{ .left = xv, .right = xv, .top = yv, .bottom = yv } };
-}
-
-pub fn p_xy_px(x_px: f32, y_px: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .left = x_px, .right = x_px, .top = y_px, .bottom = y_px } };
-}
-
-pub fn p_each_px(top_px: f32, right_px: f32, bottom_px: f32, left_px: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .top = top_px, .right = right_px, .bottom = bottom_px, .left = left_px } };
-}
-
-pub fn pt(n: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .top = unit(n) } };
-}
-
-pub fn pr(n: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .right = unit(n) } };
-}
-
-pub fn pb(n: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .bottom = unit(n) } };
-}
-
-pub fn pl(n: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .left = unit(n) } };
-}
-
-pub fn m(n: f32) struct { margin: Spacing } {
-    return .{ .margin = Spacing.all(unit(n)) };
-}
-
-pub fn mx(n: f32) struct { margin: Spacing } {
+pub fn py(n: f32) SpacingPartial {
     const v = unit(n);
-    return .{ .margin = .{ .left = v, .right = v } };
+    return .{ .top = v, .bottom = v };
 }
 
-pub fn my(n: f32) struct { margin: Spacing } {
+pub fn p_xy(x: f32, y: f32) SpacingPartial {
+    return .{ .left = unit(x), .right = unit(x), .top = unit(y), .bottom = unit(y) };
+}
+
+pub fn p_xy_px(x_px: f32, y_px: f32) SpacingPartial {
+    return .{ .left = x_px, .right = x_px, .top = y_px, .bottom = y_px };
+}
+
+pub fn p_each_px(top_px: f32, right_px: f32, bottom_px: f32, left_px: f32) SpacingPartial {
+    return .{ .top = top_px, .right = right_px, .bottom = bottom_px, .left = left_px };
+}
+
+pub fn pt(n: f32) SpacingPartial {
+    return .{ .top = unit(n) };
+}
+
+pub fn pr(n: f32) SpacingPartial {
+    return .{ .right = unit(n) };
+}
+
+pub fn pb(n: f32) SpacingPartial {
+    return .{ .bottom = unit(n) };
+}
+
+pub fn pl(n: f32) SpacingPartial {
+    return .{ .left = unit(n) };
+}
+
+pub fn m(n: f32) SpacingPartial {
     const v = unit(n);
-    return .{ .margin = .{ .top = v, .bottom = v } };
+    return .{ .is_margin = true, .top = v, .right = v, .bottom = v, .left = v };
 }
 
-pub fn m_xy(x: f32, y: f32) struct { margin: Spacing } {
-    const xv = unit(x);
-    const yv = unit(y);
-    return .{ .margin = .{ .left = xv, .right = xv, .top = yv, .bottom = yv } };
+pub fn mx(n: f32) SpacingPartial {
+    const v = unit(n);
+    return .{ .is_margin = true, .left = v, .right = v };
 }
 
-pub fn m_xy_px(x_px: f32, y_px: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .left = x_px, .right = x_px, .top = y_px, .bottom = y_px } };
+pub fn my(n: f32) SpacingPartial {
+    const v = unit(n);
+    return .{ .is_margin = true, .top = v, .bottom = v };
 }
 
-pub fn m_each_px(top_px: f32, right_px: f32, bottom_px: f32, left_px: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .top = top_px, .right = right_px, .bottom = bottom_px, .left = left_px } };
+pub fn m_xy(x: f32, y: f32) SpacingPartial {
+    return .{ .is_margin = true, .left = unit(x), .right = unit(x), .top = unit(y), .bottom = unit(y) };
 }
 
-pub fn mt_px(value_px: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .top = value_px } };
+pub fn m_xy_px(x_px: f32, y_px: f32) SpacingPartial {
+    return .{ .is_margin = true, .left = x_px, .right = x_px, .top = y_px, .bottom = y_px };
 }
 
-pub fn mr_px(value_px: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .right = value_px } };
+pub fn m_each_px(top_px: f32, right_px: f32, bottom_px: f32, left_px: f32) SpacingPartial {
+    return .{ .is_margin = true, .top = top_px, .right = right_px, .bottom = bottom_px, .left = left_px };
 }
 
-pub fn mb_px(value_px: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .bottom = value_px } };
+pub fn mt_px(value_px: f32) SpacingPartial {
+    return .{ .is_margin = true, .top = value_px };
 }
 
-pub fn ml_px(value_px: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .left = value_px } };
+pub fn mr_px(value_px: f32) SpacingPartial {
+    return .{ .is_margin = true, .right = value_px };
 }
 
-pub fn pt_px(value_px: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .top = value_px } };
+pub fn mb_px(value_px: f32) SpacingPartial {
+    return .{ .is_margin = true, .bottom = value_px };
 }
 
-pub fn pr_px(value_px: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .right = value_px } };
+pub fn ml_px(value_px: f32) SpacingPartial {
+    return .{ .is_margin = true, .left = value_px };
 }
 
-pub fn pb_px(value_px: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .bottom = value_px } };
+pub fn pt_px(value_px: f32) SpacingPartial {
+    return .{ .top = value_px };
 }
 
-pub fn pl_px(value_px: f32) struct { padding: Spacing } {
-    return .{ .padding = .{ .left = value_px } };
+pub fn pr_px(value_px: f32) SpacingPartial {
+    return .{ .right = value_px };
 }
 
-pub fn mt(n: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .top = unit(n) } };
+pub fn pb_px(value_px: f32) SpacingPartial {
+    return .{ .bottom = value_px };
 }
 
-pub fn mr(n: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .right = unit(n) } };
+pub fn pl_px(value_px: f32) SpacingPartial {
+    return .{ .left = value_px };
 }
 
-pub fn mb(n: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .bottom = unit(n) } };
+pub fn mt(n: f32) SpacingPartial {
+    return .{ .is_margin = true, .top = unit(n) };
 }
 
-pub fn ml(n: f32) struct { margin: Spacing } {
-    return .{ .margin = .{ .left = unit(n) } };
+pub fn mr(n: f32) SpacingPartial {
+    return .{ .is_margin = true, .right = unit(n) };
+}
+
+pub fn mb(n: f32) SpacingPartial {
+    return .{ .is_margin = true, .bottom = unit(n) };
+}
+
+pub fn ml(n: f32) SpacingPartial {
+    return .{ .is_margin = true, .left = unit(n) };
 }
 
 pub const box_border = .{ .box_sizing = layout.BoxSizing.border_box };

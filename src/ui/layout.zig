@@ -404,6 +404,7 @@ pub const Style = struct {
     zoom_override: ?f32 = null,
     transition: TransitionStyle = .{},
     anchor_id: ?NodeId = null,
+    anchor_match_width: bool = false,
 
     top: ?f32 = null,
     right: ?f32 = null,
