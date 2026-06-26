@@ -446,7 +446,7 @@ pub const Style = struct {
     scrollbar_width: f32 = 8.0,
     scrollbar_min_height: f32 = 20.0,
     scrollbar_color: Color = Color.from(.{ 1.0, 1.0, 1.0, 0.3 }),
-    scrollbar_radius: f32 = 4.0,
+    scrollbar_radius: f32 = 0.0,
 
     background_color: Color = .{},
     hover_color: ?Color = null,

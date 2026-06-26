@@ -1640,6 +1640,16 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             if (self.scroll_delta_x == 0.0 and self.scroll_delta_y == 0.0) return;
             if (self.active_drag_node != null) return;
 
+            const has_vertical_scroll_target = blk: {
+                var t = self.hovered_node;
+                while (t) |n| : (t = n.parent) {
+                    if (n.style.overflow_y == .scroll and
+                        (n.layout_result.content_height - n.layout_result.height) > 0.5)
+                        break :blk true;
+                }
+                break :blk false;
+            };
+
             var target = self.hovered_node;
             while (target) |node| {
                 var consumed = false;
@@ -1724,7 +1734,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                             }
                             consumed = true;
                         }
-                    } else if (node.style.overflow_x == .scroll and self.scroll_delta_x == 0.0) {
+                    } else if (node.style.overflow_x == .scroll and self.scroll_delta_x == 0.0 and !has_vertical_scroll_target) {
                         const max_scroll_x = @max(0.0, node.layout_result.content_width - node.layout_result.width);
                         if (max_scroll_x > 0.0) {
                             const next = std.math.clamp(

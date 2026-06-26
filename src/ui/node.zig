@@ -732,10 +732,11 @@ pub fn Node(comptime MessageT: type) type {
                         const cr = colorWithOpacity(bdr.right.color, combined_opacity);
                         const cb = colorWithOpacity(bdr.bottom.color, combined_opacity);
                         const cl = colorWithOpacity(bdr.left.color, combined_opacity);
+                        const mid_h = @max(0.0, h - wt - wb);
                         if (wt > 0 and ct[3] > 0) try batcher.addRect(abs_x, abs_y, w, wt, ct, 0, 0, .{ 0, 0, 0, 0 });
                         if (wb > 0 and cb[3] > 0) try batcher.addRect(abs_x, abs_y + h - wb, w, wb, cb, 0, 0, .{ 0, 0, 0, 0 });
-                        if (wl > 0 and cl[3] > 0) try batcher.addRect(abs_x, abs_y, wl, h, cl, 0, 0, .{ 0, 0, 0, 0 });
-                        if (wr > 0 and cr[3] > 0) try batcher.addRect(abs_x + w - wr, abs_y, wr, h, cr, 0, 0, .{ 0, 0, 0, 0 });
+                        if (wl > 0 and cl[3] > 0 and mid_h > 0) try batcher.addRect(abs_x, abs_y + wt, wl, mid_h, cl, 0, 0, .{ 0, 0, 0, 0 });
+                        if (wr > 0 and cr[3] > 0 and mid_h > 0) try batcher.addRect(abs_x + w - wr, abs_y + wt, wr, mid_h, cr, 0, 0, .{ 0, 0, 0, 0 });
                     }
                 } else {
                     const bdr_top = colorWithOpacity(bdr.top.color, combined_opacity);

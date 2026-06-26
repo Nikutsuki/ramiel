@@ -83,6 +83,7 @@ pub fn UIContext(comptime MessageT: type) type {
         delta_time: f64 = 0.0,
 
         build_arena: std.heap.ArenaAllocator,
+        post_layout_arena: std.heap.ArenaAllocator,
 
         use_arena: bool = false,
 
@@ -199,7 +200,7 @@ pub fn UIContext(comptime MessageT: type) type {
             target_id: NodeId,
             options: ScrollOptions,
         ) !void {
-            const allocator = self.build_arena.allocator();
+            const allocator = self.post_layout_arena.allocator();
             const data = try allocator.create(ScrollHookData);
             data.* = .{
                 .container_id = container_id,
@@ -274,6 +275,7 @@ pub fn UIContext(comptime MessageT: type) type {
                 .animation_registry = AnimationRegistry.init(child_allocator),
                 .post_layout_hooks = std.ArrayList(PostLayoutHook).empty,
                 .build_arena = std.heap.ArenaAllocator.init(child_allocator),
+                .post_layout_arena = std.heap.ArenaAllocator.init(child_allocator),
             };
         }
 
@@ -850,6 +852,7 @@ pub fn UIContext(comptime MessageT: type) type {
                 }
             }
             self.post_layout_hooks.clearRetainingCapacity();
+            _ = self.post_layout_arena.reset(.retain_capacity);
 
             if (needs_second_pass) {
                 self.layout_dirty = true;
@@ -1021,6 +1024,7 @@ pub fn UIContext(comptime MessageT: type) type {
             self.destroyTree(self.root);
             self.node_pool.deinit(self.gpa);
             self.build_arena.deinit();
+            self.post_layout_arena.deinit();
         }
 
         fn destroyTree(self: *@This(), node: *Node(MessageT)) void {
@@ -1074,6 +1078,7 @@ fn promoteToGPA(comptime MessageT: type, ctx: *UIContext(MessageT), desc: *Node(
 
     if (desc.events.len > 0) {
         node.events = try ctx.gpa.dupe(types.EventBinding(MessageT), desc.events);
+        for (@constCast(desc.events)) |*binding| binding.destroy_userdata = null;
     }
 
     switch (desc.payload) {

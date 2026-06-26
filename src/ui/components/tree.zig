@@ -472,6 +472,7 @@ pub fn onDropHandle(comptime MessageT: type) *const fn (?*const anyopaque, types
 pub const TreeDescriptor = struct {
     style: layout.Style = .{},
     row_style: layout.Style = .{},
+    content_width_rows: bool = false,
     indent_px: f32 = 16.0,
     expander_size: f32 = 20.0,
     expander_icon_id: u32 = CoreIcons.ArrowDropdown,
@@ -838,7 +839,7 @@ fn buildRow(
         .style = .{
             .direction = .Row,
             .align_self = .Center,
-            .flex_grow = 1,
+            .flex_grow = if (visuals.content_width_rows) 0 else 1,
             .padding = vertical_padding,
         },
         .children = &.{user_content},
@@ -847,7 +848,11 @@ fn buildRow(
     row_style.direction = .Row;
     row_style.align_items = .Stretch;
     row_style.cursor = .pointer;
-    row_style.width = .Full;
+    if (visuals.content_width_rows) {
+        row_style.min_width = .Full;
+    } else {
+        row_style.width = .Full;
+    }
     row_style.position = .relative;
     if (row_style.hover_color == null) {
         row_style.hover_color = hover_color;

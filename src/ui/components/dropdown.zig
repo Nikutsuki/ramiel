@@ -21,6 +21,32 @@ const NodeId = types.NodeId;
 const deriveChildId = @import("id.zig").deriveChildId;
 const dupeMessageBinding = @import("../node.zig").dupeMessageBinding;
 const FontData = @import("../../renderer/font/font_registry.zig").FontData;
+const icon_impl = @import("icon.zig");
+const hashIconId = @import("../../renderer/icon/id.zig").hashId;
+
+/// Built-in chevron icon (shared with the tree expander). Points down; rotate 180° to flip it up.
+pub const arrow_icon_id = hashIconId("ramiel:core:arrow_dropdown");
+
+/// Optional indicator chevron rendered inside the trigger. Disabled by default so existing
+/// callers (and callers without an icon resolver wired) are unaffected. To right-align it, set
+/// `tw.justify_between` on the trigger style; to space it from the label, set `arrow.style` margin.
+pub const ArrowStyle = struct {
+    /// Render the chevron in the trigger row.
+    enabled: bool = false,
+    /// Icon to draw; defaults to the built-in chevron-down.
+    icon_id: u32 = arrow_icon_id,
+    /// Square render size in px.
+    size: f32 = 16.0,
+    /// Tint; unset → follows the trigger `text_color`, else opaque white.
+    tint: ?[4]f32 = null,
+    /// Rotation (radians) applied while closed / open.
+    closed_rotation: f32 = 0.0,
+    open_rotation: f32 = std.math.pi,
+    /// Optional smooth rotate animation (e.g. `.forTransform(150)`). Null = snap instantly.
+    transition: ?layout.TransitionStyle = null,
+    /// Extra style merged onto the icon node (margins, etc.); size/rotation/transition are set here.
+    style: layout.Style = .{},
+};
 
 pub const TriggerStyle = struct { style: layout.Style = .{} };
 pub const MenuStyle = struct { style: layout.Style = .{} };
@@ -60,6 +86,8 @@ pub fn DropdownParams(comptime MessageT: type) type {
         menu: MenuStyle = .{},
         /// Per-row styling and active/hover background overrides.
         item: ItemStyle = .{},
+        /// Optional chevron indicator in the trigger; rotates between closed/open states.
+        arrow: ArrowStyle = .{},
     };
 }
 
@@ -94,11 +122,36 @@ pub fn build(
         },
     });
 
+    const trigger_children = if (params.arrow.enabled) blk: {
+        var arrow_style = params.arrow.style;
+        arrow_style.width = .{ .exact = params.arrow.size };
+        arrow_style.height = .{ .exact = params.arrow.size };
+        arrow_style.pointer_events = .none;
+        arrow_style.transform.rotate = if (params.is_open)
+            params.arrow.open_rotation
+        else
+            params.arrow.closed_rotation;
+        if (params.arrow.transition) |t| arrow_style.transition = t;
+
+        const arrow_tint = params.arrow.tint orelse blk_tint: {
+            const tc = params.trigger.style.text_color;
+            break :blk_tint if (tc.a != 0) tc.toArray() else .{ 1.0, 1.0, 1.0, 1.0 };
+        };
+
+        const arrow_icon = try icon_impl.build(MessageT, ctx, .{
+            .icon_id = params.arrow.icon_id,
+            .intrinsic_size = .{ params.arrow.size, params.arrow.size },
+            .style = arrow_style,
+            .tint = arrow_tint,
+        });
+        break :blk try alloc.dupe(?*Node(MessageT), &.{ trigger_text, arrow_icon });
+    } else try alloc.dupe(?*Node(MessageT), &.{trigger_text});
+
     const trigger_node = try ctx.div(.{
         .id = trigger_id,
         .style = trigger_style,
         .events = trigger_events,
-        .children = &.{trigger_text},
+        .children = trigger_children,
     });
 
     var portal_node: ?*Node(MessageT) = null;
