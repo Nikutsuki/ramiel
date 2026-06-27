@@ -9,6 +9,7 @@ const is_windows = builtin.os.tag == .windows;
 const is_linux = builtin.os.tag == .linux;
 const win32 = @import("../platform/win32_backend.zig");
 const x11 = @import("../platform/x11_backend.zig");
+const stb = @import("../thirdparty/stb_image/stb_image.zig");
 
 const glfwGetX11Display = if (is_linux)
     struct {
@@ -549,6 +550,19 @@ fn x11HotkeyLoop(self: *WindowContext) void {
     }
 }
 
+fn setWindowIcon(win: *glfw.Window, encoded: []const u8) void {
+    var w: c_int = 0;
+    var h: c_int = 0;
+    var channels: c_int = 0;
+    const pixels = stb.c.stbi_load_from_memory(encoded.ptr, @intCast(encoded.len), &w, &h, &channels, 4) orelse {
+        std.log.warn("failed to decode window icon image", .{});
+        return;
+    };
+    defer stb.c.stbi_image_free(pixels);
+    var images = [_]glfw.Image{.{ .width = w, .height = h, .pixels = @ptrCast(pixels) }};
+    glfw.setWindowIcon(win, 1, &images);
+}
+
 pub fn initWindow(allocator: std.mem.Allocator, config: platform.AppBackendConfig) !WindowContext {
     if (config.backend != .glfw) return error.UnsupportedBackend;
     try glfw_backend.validateSurfaceKind(config.surface_kind);
@@ -575,6 +589,7 @@ pub fn initWindow(allocator: std.mem.Allocator, config: platform.AppBackendConfi
     }
 
     const win = try glfw.createWindow(@intCast(config.width), @intCast(config.height), config.title, null, null);
+    if (config.icon) |icon_bytes| setWindowIcon(win, icon_bytes);
     std.log.info(
         "window transparency request={} glfw_transparent_framebuffer_attrib={d}",
         .{ config.transparent, glfw.getWindowAttrib(win, glfw.TransparentFramebuffer) },

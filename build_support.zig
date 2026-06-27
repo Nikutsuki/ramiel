@@ -24,6 +24,17 @@ pub const Runtime = struct {
         module.addImport("ramiel", self.module);
     }
 
+    pub fn configureWindowsApp(self: Runtime, exe: *std.Build.Step.Compile, opts: WindowsAppOptions) void {
+        if (!self.is_windows) return;
+        exe.subsystem = if (opts.console) .Console else .Windows;
+        if (opts.icon_png) |png| {
+            const wf = self.b.addWriteFiles();
+            const rc = wf.add("app.rc", "1 ICON \"app.ico\"\n");
+            _ = wf.add("app.ico", pngToIco(self.b, png));
+            exe.root_module.addWin32ResourceFile(.{ .file = rc });
+        }
+    }
+
     pub fn bindRunEnvironment(self: Runtime, run_cmd: *std.Build.Step.Run) void {
         const env = run_cmd.getEnvMap();
         if (self.is_windows) {
@@ -124,6 +135,28 @@ pub const Runtime = struct {
         };
     }
 };
+
+pub const WindowsAppOptions = struct {
+    console: bool = false,
+    icon_png: ?[]const u8 = null,
+};
+
+fn pngToIco(b: *std.Build, png: []const u8) []const u8 {
+    const width = std.mem.readInt(u32, png[16..20], .big);
+    const height = std.mem.readInt(u32, png[20..24], .big);
+    const ico = b.allocator.alloc(u8, 22 + png.len) catch @panic("OOM");
+    @memset(ico[0..22], 0);
+    std.mem.writeInt(u16, ico[2..4], 1, .little);
+    std.mem.writeInt(u16, ico[4..6], 1, .little);
+    ico[6] = if (width >= 256) 0 else @intCast(width);
+    ico[7] = if (height >= 256) 0 else @intCast(height);
+    std.mem.writeInt(u16, ico[10..12], 1, .little);
+    std.mem.writeInt(u16, ico[12..14], 32, .little);
+    std.mem.writeInt(u32, ico[14..18], @intCast(png.len), .little);
+    std.mem.writeInt(u32, ico[18..22], 22, .little);
+    @memcpy(ico[22..], png);
+    return ico;
+}
 
 pub const HotReloadableAppOptions = struct {
     exe_name: []const u8,

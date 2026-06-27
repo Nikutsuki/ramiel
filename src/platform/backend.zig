@@ -117,6 +117,7 @@ pub const AppBackendConfig = struct {
     input_region: InputRegionMode = .default,
     maximize: bool = false,
     custom_titlebar: bool = false,
+    icon: ?[]const u8 = null,
 };
 
 pub fn waylandLayerShell(options: LayerShellOptions) AppBackendConfig {
