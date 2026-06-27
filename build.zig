@@ -166,17 +166,21 @@ pub fn build(b: *std.Build) void {
         ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libavutil"));
     }
 
-    const shaderc_base_path = switch (target.result.os.tag) {
+    const shaderc_base_path: ?[]const u8 = switch (target.result.os.tag) {
         .windows => b.option([]const u8, "shaderc-sdk", "Path to a Shaderc/Vulkan SDK root on Windows (defaults to VULKAN_SDK or VK_SDK_PATH).") orelse
             b.graph.environ_map.get("VULKAN_SDK") orelse
             b.graph.environ_map.get("VK_SDK_PATH") orelse
             "src/thirdparty/shaderc_windows_x64",
-        .linux => "src/thirdparty/shaderc_linux_x64",
+        .linux => null,
         else => @panic("Unsupported OS for libshaderc integration"),
     };
-    ramiel_mod.addSystemIncludePath(lazyPath(b, b.pathJoin(&.{ shaderc_base_path, "include" })));
-    ramiel_mod.addLibraryPath(lazyPath(b, b.pathJoin(&.{ shaderc_base_path, "lib" })));
-    ramiel_mod.linkSystemLibrary("shaderc_shared", .{ .use_pkg_config = .no });
+    if (shaderc_base_path) |base| {
+        ramiel_mod.addSystemIncludePath(lazyPath(b, b.pathJoin(&.{ base, "include" })));
+        ramiel_mod.addLibraryPath(lazyPath(b, b.pathJoin(&.{ base, "lib" })));
+        ramiel_mod.linkSystemLibrary("shaderc_shared", .{ .use_pkg_config = .no });
+    } else {
+        ramiel_mod.linkSystemLibrary("shaderc", .{ .use_pkg_config = .force });
+    }
 
     switch (target.result.os.tag) {
         .macos => {
@@ -188,19 +192,13 @@ pub fn build(b: *std.Build) void {
             ramiel_mod.linkSystemLibrary("pthread", .{});
             ramiel_mod.linkSystemLibrary("m", .{});
             ramiel_mod.linkSystemLibrary("dl", .{});
-            const install_shaderc_lib = b.addInstallDirectory(.{
-                .source_dir = lazyPath(b, b.pathJoin(&.{ shaderc_base_path, "lib" })),
-                .install_dir = .lib,
-                .install_subdir = "",
-            });
-            b.getInstallStep().dependOn(&install_shaderc_lib.step);
         },
         .windows => {
             ramiel_mod.linkSystemLibrary("bcrypt", .{});
             ramiel_mod.linkSystemLibrary("secur32", .{});
             ramiel_mod.linkSystemLibrary("ws2_32", .{});
 
-            const shaderc_dll_path = b.pathJoin(&.{ shaderc_base_path, "bin", "shaderc_shared.dll" });
+            const shaderc_dll_path = b.pathJoin(&.{ shaderc_base_path.?, "bin", "shaderc_shared.dll" });
             if (pathExists(b, shaderc_dll_path)) {
                 const install_shaderc_dll = b.addInstallBinFile(lazyPath(b, shaderc_dll_path), "shaderc_shared.dll");
                 b.getInstallStep().dependOn(&install_shaderc_dll.step);
@@ -217,26 +215,17 @@ pub fn build(b: *std.Build) void {
             shaderc_install: ?*std.Build.Step,
             is_win: bool,
         ) void {
-            if (is_win) {
-                const step = shaderc_install orelse return;
-                run_cmd.step.dependOn(step);
+            if (!is_win) return;
+            const step = shaderc_install orelse return;
+            run_cmd.step.dependOn(step);
 
-                const env = run_cmd.getEnvMap();
-                const current_path = env.get("PATH") orelse "";
-                const install_bin = builder.getInstallPath(.bin, "");
-                env.put(
-                    "PATH",
-                    builder.fmt("{s}{c}{s}", .{ install_bin, std.fs.path.delimiter, current_path }),
-                ) catch @panic("OOM");
-            } else {
-                const env = run_cmd.getEnvMap();
-                const current_ld = env.get("LD_LIBRARY_PATH") orelse "";
-                const shaderc_lib = builder.pathJoin(&.{"src/thirdparty/shaderc_linux_x64/lib"});
-                env.put(
-                    "LD_LIBRARY_PATH",
-                    builder.fmt("{s}{c}{s}", .{ shaderc_lib, std.fs.path.delimiter, current_ld }),
-                ) catch @panic("OOM");
-            }
+            const env = run_cmd.getEnvMap();
+            const current_path = env.get("PATH") orelse "";
+            const install_bin = builder.getInstallPath(.bin, "");
+            env.put(
+                "PATH",
+                builder.fmt("{s}{c}{s}", .{ install_bin, std.fs.path.delimiter, current_path }),
+            ) catch @panic("OOM");
         }
     }.apply;
 

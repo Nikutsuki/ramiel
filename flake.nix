@@ -50,6 +50,7 @@
 
           alsa-lib
           libGL
+          shaderc
           vulkan-headers
           vulkan-loader
           wayland
@@ -66,6 +67,7 @@
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [
           alsa-lib
           libGL
+          shaderc
           vulkan-loader
           wayland
           libxkbcommon
