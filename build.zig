@@ -157,12 +157,14 @@ pub fn build(b: *std.Build) void {
     ramiel_mod.addCSourceFile(.{ .file = b.path("src/thirdparty/miniaudio/miniaudio_impl.c"), .flags = &[_][]const u8{ "-std=c99", "-O3", "-fno-sanitize=undefined" } });
 
     const ffmpeg_dep = b.dependency("ffmpeg", .{ .prebuilt = ffmpeg_prebuilt });
-    ramiel_mod.addSystemIncludePath(ffmpeg_dep.namedLazyPath("include"));
-    ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libavformat"));
-    ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libavcodec"));
-    ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libdav1d"));
-    ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libswresample"));
-    ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libavutil"));
+    if (ffmpeg_dep.builder.named_lazy_paths.get("include") != null) {
+        ramiel_mod.addSystemIncludePath(ffmpeg_dep.namedLazyPath("include"));
+        ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libavformat"));
+        ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libavcodec"));
+        ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libdav1d"));
+        ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libswresample"));
+        ramiel_mod.addObjectFile(ffmpeg_dep.namedLazyPath("libavutil"));
+    }
 
     const shaderc_base_path = switch (target.result.os.tag) {
         .windows => b.option([]const u8, "shaderc-sdk", "Path to a Shaderc/Vulkan SDK root on Windows (defaults to VULKAN_SDK or VK_SDK_PATH).") orelse
