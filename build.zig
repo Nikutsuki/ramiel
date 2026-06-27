@@ -257,18 +257,19 @@ pub fn build(b: *std.Build) void {
     ramiel_mod.addCSourceFile(.{ .file = b.path("src/renderer/font/msdf_bridge.cpp"), .flags = msdf_flags });
 
     // Shader Compilation
-    const shader_compile_step = b.step("shaders", "Compile Vulkan shaders");
-    const shaders = [_]struct { input: []const u8, output: []const u8 }{
-        .{ .input = "shader.vert", .output = "vert.spv" },
-        .{ .input = "shader.frag", .output = "frag.spv" },
-        .{ .input = "kawase.vert", .output = "kawase.vert.spv" },
-        .{ .input = "kawase.frag", .output = "kawase.frag.spv" },
-        .{ .input = "video.frag", .output = "video.frag.spv" },
+    const shaders = [_]struct { input: []const u8, import: []const u8 }{
+        .{ .input = "shader.vert", .import = "vert_spv" },
+        .{ .input = "shader.frag", .import = "frag_spv" },
+        .{ .input = "kawase.vert", .import = "kawase_vert_spv" },
+        .{ .input = "kawase.frag", .import = "kawase_frag_spv" },
+        .{ .input = "video.frag", .import = "video_frag_spv" },
     };
     for (shaders) |shader| {
-        const cmd = b.addSystemCommand(&.{ "glslc", b.fmt("src/renderer/vulkan/shaders/{s}", .{shader.input}), "-o", b.fmt("src/renderer/vulkan/shaders/{s}", .{shader.output}) });
-        cmd.addFileInput(b.path(b.fmt("src/renderer/vulkan/shaders/{s}", .{shader.input})));
-        shader_compile_step.dependOn(&cmd.step);
+        const cmd = b.addSystemCommand(&.{"glslc"});
+        cmd.addFileArg(b.path(b.fmt("src/renderer/vulkan/shaders/{s}", .{shader.input})));
+        cmd.addArg("-o");
+        const spv = cmd.addOutputFileArg(b.fmt("{s}.spv", .{shader.input}));
+        ramiel_mod.addAnonymousImport(shader.import, .{ .root_source_file = spv });
     }
 
     // Shared Executable Configuration Logic
@@ -337,7 +338,6 @@ pub fn build(b: *std.Build) void {
         .name = "ramiel",
         .root_module = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize }),
     });
-    main_exe.step.dependOn(shader_compile_step);
     bindExecutableConfig(main_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = false, .shell = false });
     b.installArtifact(main_exe);
 
@@ -351,7 +351,6 @@ pub fn build(b: *std.Build) void {
         .name = "ramiel_check",
         .root_module = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize }),
     });
-    main_exe_check.step.dependOn(shader_compile_step);
     bindExecutableConfig(main_exe_check, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .is_win = is_windows, .net = false, .shell = false });
     check_step.dependOn(&main_exe_check.step);
 
@@ -384,7 +383,6 @@ pub fn build(b: *std.Build) void {
             .name = b.fmt("{s}_check", .{ex.name}),
             .root_module = b.createModule(.{ .root_source_file = b.path(ex.path), .target = target, .optimize = optimize }),
         });
-        ex_check.step.dependOn(shader_compile_step);
         const wl_mod: ?*std.Build.Module = if (ex.requires_wayland) wayland_mod else null;
         bindExecutableConfig(ex_check, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
         if (std.mem.eql(u8, ex.name, "desktop_shell")) {
@@ -397,7 +395,6 @@ pub fn build(b: *std.Build) void {
             .name = ex.name,
             .root_module = b.createModule(.{ .root_source_file = b.path(ex.path), .target = target, .optimize = optimize, .link_libc = ex.requires_wayland }),
         });
-        ex_exe.step.dependOn(shader_compile_step);
         bindExecutableConfig(ex_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
         if (std.mem.eql(u8, ex.name, "desktop_shell")) {
             ex_exe.root_module.addCSourceFile(.{ .file = b.path("examples/desktop_shell/modules/tray_sni.c"), .flags = &.{"-std=c99"} });
@@ -426,7 +423,6 @@ pub fn build(b: *std.Build) void {
                     .link_libc = true,
                 }),
             });
-            app_lib.step.dependOn(shader_compile_step);
             bindExecutableConfig(app_lib, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
             const install_app_lib = b.addInstallArtifact(app_lib, .{});
             b.getInstallStep().dependOn(&install_app_lib.step);
@@ -440,7 +436,6 @@ pub fn build(b: *std.Build) void {
                     .link_libc = ex.requires_wayland,
                 }),
             });
-            host_exe.step.dependOn(shader_compile_step);
             bindExecutableConfig(host_exe, ramiel_mod, .{ .nfd = nfd_mod, .glfw = glfw_mod, .tracy = tracy_dep.module("tracy"), .tracy_impl = tracy_impl_module, .wss = wss_mod, .build_options = build_options_module, .wayland = wl_mod, .is_win = is_windows, .net = ex.requires_network, .shell = ex.requires_shell32 });
             const install_host = b.addInstallArtifact(host_exe, .{});
             b.getInstallStep().dependOn(&install_host.step);
@@ -507,11 +502,9 @@ pub fn build(b: *std.Build) void {
 
     // Testing
     const mod_tests = b.addTest(.{ .root_module = ramiel_mod });
-    mod_tests.step.dependOn(shader_compile_step);
     const run_mod_tests = b.addRunArtifact(mod_tests);
 
     const exe_tests = b.addTest(.{ .root_module = main_exe.root_module });
-    exe_tests.step.dependOn(shader_compile_step);
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
     const test_step = b.step("test", "Run tests");

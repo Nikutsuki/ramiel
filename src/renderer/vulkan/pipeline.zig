@@ -1,8 +1,8 @@
-const vert_spv align(@alignOf(u32)) = @embedFile("shaders/vert.spv").*;
-const frag_spv align(@alignOf(u32)) = @embedFile("shaders/frag.spv").*;
-const video_frag_spv align(@alignOf(u32)) = @embedFile("shaders/video.frag.spv").*;
-const kawase_vert_spv align(@alignOf(u32)) = @embedFile("shaders/kawase.vert.spv").*;
-const kawase_frag_spv align(@alignOf(u32)) = @embedFile("shaders/kawase.frag.spv").*;
+const vert_spv align(@alignOf(u32)) = @embedFile("vert_spv").*;
+const frag_spv align(@alignOf(u32)) = @embedFile("frag_spv").*;
+const video_frag_spv align(@alignOf(u32)) = @embedFile("video_frag_spv").*;
+const kawase_vert_spv align(@alignOf(u32)) = @embedFile("kawase_vert_spv").*;
+const kawase_frag_spv align(@alignOf(u32)) = @embedFile("kawase_frag_spv").*;
 
 const std = @import("std");
 const vk = @import("../../vk.zig");
