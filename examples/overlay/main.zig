@@ -55,10 +55,10 @@ const ResultListContext = struct {
 };
 
 fn buildResultRow(ui: *AppUIContext, ctx: ResultListContext, index: usize) !?*AppNode {
-    const PANEL: [4]f32 = comptime Color.parse("oklch(45% 0.1 270 / 0.95)");
-    const TEXT: [4]f32 = comptime Color.parse("oklch(80% 0.1 270 / 0.95)");
-    const DIM: [4]f32 = comptime Color.parse("oklch(70% 0.1 270 / 0.95)");
-    const EDGE: [4]f32 = comptime Color.parse("oklch(60% 0.1 270 / 0.95)");
+    const PANEL = comptime Color.parse("oklch(45% 0.1 270 / 0.95)");
+    const TEXT = comptime Color.parse("oklch(80% 0.1 270 / 0.95)");
+    const DIM = comptime Color.parse("oklch(70% 0.1 270 / 0.95)");
+    const EDGE = comptime Color.parse("oklch(60% 0.1 270 / 0.95)");
 
     const item = ctx.state.results[index];
     const has_image = !item.is_folder and isImagePath(item.full_path);
@@ -71,7 +71,7 @@ fn buildResultRow(ui: *AppUIContext, ctx: ResultListContext, index: usize) !?*Ap
             .style = tw.style(.{
                 tw.square(PREVIEW_IMAGE_SIZE),
                 tw.rounded(6),
-                tw.bg_value(.{ EDGE[0], EDGE[1], EDGE[2], 0.20 }),
+                tw.bg_value(EDGE.withAlpha(0.20)),
                 tw.text_color_value(DIM),
                 tw.p_px(3),
             }),
@@ -103,14 +103,14 @@ fn buildResultRow(ui: *AppUIContext, ctx: ResultListContext, index: usize) !?*Ap
             tw.justify_between,
             tw.gap_px(10),
             tw.p_xy_px(12, 8),
-            tw.bg_value(.{ PANEL[0], PANEL[1], PANEL[2], 0.0 }),
+            tw.bg_value(PANEL.withAlpha(0.0)),
             tw.hover_value(PANEL),
             tw.transition(.{
                 .property = .{ .hover_color = true, .background_color = true },
                 .duration_ms = 200,
                 .timing = .ease_out,
             }),
-            tw.border_b_value(1, .{ EDGE[0], EDGE[1], EDGE[2], 0.45 }),
+            tw.border_b_value(1, EDGE.withAlpha(0.45)),
         }),
         .events = &.{
             .{ .event = .click, .msg = .{ .result_click = index } },
@@ -310,13 +310,13 @@ fn refreshResults(app: *App) !void {
 fn build(ui: *AppUIContext, state: *const AppState) !*AppNode {
     const font = state.font;
 
-    const BG: [4]f32 = comptime Color.parse("oklch(50% 0.1 270 / 0.95)");
-    const PANEL: [4]f32 = comptime Color.parse("oklch(45% 0.1 270 / 0.95)");
-    const PANEL_ALT: [4]f32 = comptime Color.parse("oklch(40% 0.1 270 / 0.95)");
-    const INPUT_BG: [4]f32 = comptime Color.parse("oklch(50% 0.1 260 / 0.95)");
-    const TEXT: [4]f32 = comptime Color.parse("oklch(80% 0.1 270 / 0.95)");
-    const DIM: [4]f32 = comptime Color.parse("oklch(70% 0.1 270 / 0.95)");
-    const EDGE: [4]f32 = comptime Color.parse("oklch(60% 0.1 270 / 0.95)");
+    const BG = comptime Color.parse("oklch(50% 0.1 270 / 0.95)");
+    const PANEL = comptime Color.parse("oklch(45% 0.1 270 / 0.95)");
+    const PANEL_ALT = comptime Color.parse("oklch(40% 0.1 270 / 0.95)");
+    const INPUT_BG = comptime Color.parse("oklch(50% 0.1 260 / 0.95)");
+    const TEXT = comptime Color.parse("oklch(80% 0.1 270 / 0.95)");
+    const DIM = comptime Color.parse("oklch(70% 0.1 270 / 0.95)");
+    const EDGE = comptime Color.parse("oklch(60% 0.1 270 / 0.95)");
 
     const header = try ui.ux().div(.{
         .style = tw.style(.{

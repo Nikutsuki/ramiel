@@ -9,6 +9,7 @@ const is_windows = builtin.os.tag == .windows;
 const is_linux = builtin.os.tag == .linux;
 const win32 = @import("../platform/win32_backend.zig");
 const x11 = @import("../platform/x11_backend.zig");
+const stb = @import("../thirdparty/stb_image/stb_image.zig");
 
 const glfwGetX11Display = if (is_linux)
     struct {
@@ -39,7 +40,6 @@ pub const CharFn = *const fn (ptr: *anyopaque, codepoint: u21) void;
 pub const ResizeFn = *const fn (ptr: *anyopaque) void;
 
 pub const HotkeyFn = *const fn (user_ptr: ?*anyopaque) void;
-
 
 const PROP_NAME = std.unicode.utf8ToUtf16LeStringLiteral("ZigWindowContext");
 
@@ -93,6 +93,11 @@ pub const WindowContext = struct {
     hotkeys_mutex: std.Io.Mutex = .init,
     next_hotkey_id: i32 = 1,
     original_wndproc: ?win32.WNDPROC = null,
+
+    custom_frame_requested: bool = false,
+    custom_frame: bool = false,
+    caption_query_ctx: ?*anyopaque = null,
+    caption_query_fn: ?*const fn (?*anyopaque, x: i32, y: i32) callconv(.c) bool = null,
 
     // dedicated X11 connection for the hotkey listener thread; lazy on first registerGlobalHotkey
     x11_hotkey_display: ?*anyopaque = null,
@@ -275,6 +280,54 @@ pub const WindowContext = struct {
         }
     }
 
+    fn ensureSubclassed(self: *WindowContext, hwnd: win32.HWND) void {
+        if (comptime !is_windows) return;
+        if (self.original_wndproc != null) return;
+        _ = win32.setPropW(hwnd, PROP_NAME, @ptrCast(self));
+        const prev = win32.getWindowLongPtrW(hwnd, win32.GWLP_WNDPROC);
+        self.original_wndproc = @ptrFromInt(@as(usize, @bitCast(prev)));
+        _ = win32.setWindowLongPtrW(hwnd, win32.GWLP_WNDPROC, @bitCast(@intFromPtr(&hookedWndProc)));
+    }
+
+    pub fn enableCustomFrame(self: *WindowContext) void {
+        if (!self.custom_frame_requested) return;
+        if (comptime !is_windows) return;
+        const hwnd = glfwGetWin32Window(self.window) orelse return;
+        self.ensureSubclassed(hwnd);
+        self.custom_frame = true;
+        win32.enableCustomFrame(hwnd);
+    }
+
+    pub fn setCaptionQuery(
+        self: *WindowContext,
+        ctx: ?*anyopaque,
+        query: *const fn (?*anyopaque, x: i32, y: i32) callconv(.c) bool,
+    ) void {
+        self.caption_query_ctx = ctx;
+        self.caption_query_fn = query;
+    }
+
+    pub fn minimizeWindow(self: *WindowContext) void {
+        glfw.iconifyWindow(self.window);
+    }
+
+    pub fn isMaximized(self: *const WindowContext) bool {
+        return glfw.getWindowAttrib(self.window, glfw.Maximized) != 0;
+    }
+
+    pub fn toggleMaximize(self: *WindowContext) void {
+        if (self.isMaximized()) {
+            glfw.restoreWindow(self.window);
+        } else {
+            glfw.maximizeWindow(self.window);
+        }
+    }
+
+    pub fn closeWindow(self: *WindowContext) void {
+        glfw.setWindowShouldClose(self.window, true);
+        glfw.postEmptyEvent();
+    }
+
     // Win32: subclasses the wndproc on first call to intercept WM_HOTKEY.
     // X11: spawns a listener thread with its own Display for root-window key grabs.
     pub fn registerGlobalHotkey(
@@ -293,12 +346,7 @@ pub const WindowContext = struct {
             const hwnd = glfwGetWin32Window(self.window) orelse return error.NoNativeHandle;
 
             // GLFW discards WM_HOTKEY; subclass to intercept before that.
-            if (self.original_wndproc == null) {
-                _ = win32.setPropW(hwnd, PROP_NAME, @ptrCast(self));
-                const prev = win32.getWindowLongPtrW(hwnd, win32.GWLP_WNDPROC);
-                self.original_wndproc = @ptrFromInt(@as(usize, @bitCast(prev)));
-                _ = win32.setWindowLongPtrW(hwnd, win32.GWLP_WNDPROC, @bitCast(@intFromPtr(&hookedWndProc)));
-            }
+            self.ensureSubclassed(hwnd);
 
             const id = self.next_hotkey_id;
             self.next_hotkey_id += 1;
@@ -357,6 +405,10 @@ pub const WindowContext = struct {
 
     fn glfwCharCallback(win: *glfw.Window, codepoint: u32) callconv(.c) void {
         const ctx: *WindowContext = @ptrCast(@alignCast(glfw.getWindowUserPointer(win) orelse return));
+        const mods = ctx.getMods();
+        const ctrl = (mods & glfw.ModifierControl) != 0;
+        const alt = (mods & glfw.ModifierAlt) != 0;
+        if (ctrl != alt) return;
         if (ctx.char_fn) |f| if (ctx.user_ptr) |p| f(p, @intCast(codepoint));
     }
 
@@ -384,6 +436,16 @@ const hookedWndProc = if (is_windows) struct {
         const prop = win32.getPropW(hwnd, PROP_NAME);
         if (prop) |p| {
             const ctx: *WindowContext = @ptrCast(@alignCast(p));
+
+            if (ctx.custom_frame) {
+                const tester = win32.HitTester{
+                    .ctx = ctx.caption_query_ctx,
+                    .is_caption = ctx.caption_query_fn,
+                };
+                if (win32.handleCustomFrame(hwnd, msg, wParam, lParam, tester)) |result| {
+                    return result;
+                }
+            }
 
             if (msg == win32.WM_HOTKEY) {
                 const hotkey_id: i32 = @intCast(wParam);
@@ -488,6 +550,19 @@ fn x11HotkeyLoop(self: *WindowContext) void {
     }
 }
 
+fn setWindowIcon(win: *glfw.Window, encoded: []const u8) void {
+    var w: c_int = 0;
+    var h: c_int = 0;
+    var channels: c_int = 0;
+    const pixels = stb.c.stbi_load_from_memory(encoded.ptr, @intCast(encoded.len), &w, &h, &channels, 4) orelse {
+        std.log.warn("failed to decode window icon image", .{});
+        return;
+    };
+    defer stb.c.stbi_image_free(pixels);
+    var images = [_]glfw.Image{.{ .width = w, .height = h, .pixels = @ptrCast(pixels) }};
+    glfw.setWindowIcon(win, 1, &images);
+}
+
 pub fn initWindow(allocator: std.mem.Allocator, config: platform.AppBackendConfig) !WindowContext {
     if (config.backend != .glfw) return error.UnsupportedBackend;
     try glfw_backend.validateSurfaceKind(config.surface_kind);
@@ -502,9 +577,11 @@ pub fn initWindow(allocator: std.mem.Allocator, config: platform.AppBackendConfi
 
     glfw.windowHint(glfw.ClientAPI, glfw.NoAPI);
     glfw.windowHint(glfw.TransparentFramebuffer, if (config.transparent) 1 else 0);
-    glfw.windowHint(glfw.Decorated, if (config.borderless) 0 else 1);
+    const decorated = !config.borderless and !(config.custom_titlebar and !is_windows);
+    glfw.windowHint(glfw.Decorated, if (decorated) 1 else 0);
     glfw.windowHint(glfw.Floating, if (config.topmost) 1 else 0);
     glfw.windowHint(glfw.Visible, if (config.visible_on_start) 1 else 0);
+    glfw.windowHint(glfw.Maximized, if (config.maximize) 1 else 0);
 
     // GLFW_SCALE_FRAMEBUFFER=0x0002200D off; matches X11/Windows behaviour, compositor upscales.
     if (comptime is_linux) {
@@ -512,6 +589,7 @@ pub fn initWindow(allocator: std.mem.Allocator, config: platform.AppBackendConfi
     }
 
     const win = try glfw.createWindow(@intCast(config.width), @intCast(config.height), config.title, null, null);
+    if (config.icon) |icon_bytes| setWindowIcon(win, icon_bytes);
     std.log.info(
         "window transparency request={} glfw_transparent_framebuffer_attrib={d}",
         .{ config.transparent, glfw.getWindowAttrib(win, glfw.TransparentFramebuffer) },
@@ -544,6 +622,7 @@ pub fn initWindow(allocator: std.mem.Allocator, config: platform.AppBackendConfi
         .window = win,
         .backend = config.backend,
         .surface_kind = config.surface_kind,
+        .custom_frame_requested = config.custom_titlebar,
         .allocator = allocator,
         .hotkeys = std.AutoHashMap(i32, HotkeyEntry).init(allocator),
         .cursor_arrow = glfw.createStandardCursor(glfw.Arrow),

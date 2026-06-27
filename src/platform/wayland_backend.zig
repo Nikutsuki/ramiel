@@ -161,7 +161,7 @@ pub const WaylandClient = struct {
 
     // Key repeat state (client-side, per Wayland protocol)
     repeat_key: ?u32 = null,
-    repeat_rate: i32 = 25,  // keys per second
+    repeat_rate: i32 = 25, // keys per second
     repeat_delay: i32 = 600, // ms before first repeat
     repeat_deadline_ns: i96 = 0,
 
@@ -173,7 +173,7 @@ pub const WaylandClient = struct {
     on_configure: ?*const fn (width: u32, height: u32) void = null,
 
     /// Initialize the Wayland client. Must be called on a stable (non-moving)
-    /// pointer — allocate or declare as `var` at the call site, then call `setup()`.
+    /// pointer - allocate or declare as `var` at the call site, then call `setup()`.
     pub fn init(config: Config) WaylandClient {
         return .{
             .display = undefined,
@@ -570,7 +570,7 @@ pub const WaylandClient = struct {
         layer_surface.setListener(*WaylandClient, layerSurfaceListener, self);
 
         // Size. For a bar anchored to an edge + perpendiculars (e.g. top+left+
-        // right) the protocol needs an explicit non-zero height — 0 only works
+        // right) the protocol needs an explicit non-zero height - 0 only works
         // when opposite edges are anchored. So when the caller leaves height 0,
         // fill the output's LOGICAL height (physical mode / scale), giving a
         // full-height surface that overlays/modals can center within.
@@ -836,10 +836,10 @@ pub const WaylandClient = struct {
     /// Map Linux evdev scancodes to GLFW-compatible keycodes.
     fn evdevToGlfw(evdev: u32) u32 {
         return switch (evdev) {
-            1 => 256,   // ESC -> GLFW_KEY_ESCAPE
-            14 => 259,  // BACKSPACE
-            15 => 258,  // TAB
-            28 => 257,  // ENTER
+            1 => 256, // ESC -> GLFW_KEY_ESCAPE
+            14 => 259, // BACKSPACE
+            15 => 258, // TAB
+            28 => 257, // ENTER
             103 => 265, // UP
             108 => 264, // DOWN
             105 => 263, // LEFT

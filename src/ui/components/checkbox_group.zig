@@ -25,8 +25,8 @@ pub const CheckboxGroupDescriptor = struct {
     label_style: layout.Style = .{},
     box: struct {
         style: layout.Style = .{},
-        active_color: ?[4]f32 = null,
-        inactive_color: ?[4]f32 = null,
+        active_color: ?layout.Color = null,
+        inactive_color: ?layout.Color = null,
     } = .{},
 };
 

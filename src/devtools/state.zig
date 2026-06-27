@@ -49,7 +49,7 @@ pub const StyleOverride = struct {
     direction: ?FlexDirection = null,
     justify: ?JustifyContent = null,
     align_items: ?FlexAlign = null,
-    bg: ?[4]f32 = null,
+    bg: ?layout.Color = null,
     hidden: bool = false,
 
     pub fn isEmpty(self: StyleOverride) bool {
@@ -223,6 +223,18 @@ pub fn DevToolsState(comptime MessageT: type) type {
             }
         }
 
+        pub fn clearDestroyedSubtree(self: *Self, node: *Node(MessageT)) void {
+            if (self.hovered_node == node) self.hovered_node = null;
+            if (self.selected_node == node) self.selected_node = null;
+            if (self.inspect_hover_node == node) self.inspect_hover_node = null;
+            if (self.prev_highlight == node) self.prev_highlight = null;
+            self.removeCollapsed(node);
+            self.clearOverrideFor(node);
+            for (node.children.items) |child| {
+                self.clearDestroyedSubtree(child);
+            }
+        }
+
         /// Scroll offset that reveals (and roughly centers) the selected row in the
         /// inspector tree. Rows are uniform height so a flat index is enough.
         pub fn computeTreeScroll(self: *Self, root: *Node(MessageT)) ?f32 {
@@ -316,14 +328,12 @@ pub fn DevToolsState(comptime MessageT: type) type {
                 .justify_cycle => ov.justify = cycleEnum(JustifyContent, ov.justify orelse s.justify_content),
                 .align_cycle => ov.align_items = cycleEnum(FlexAlign, ov.align_items orelse s.align_items),
                 .bg_alpha_dec => {
-                    var c = ov.bg orelse s.background_color;
-                    c[3] = std.math.clamp(c[3] - 0.1, 0.0, 1.0);
-                    ov.bg = c;
+                    const c = ov.bg orelse s.background_color;
+                    ov.bg = c.withAlpha(std.math.clamp(c.toArray()[3] - 0.1, 0.0, 1.0));
                 },
                 .bg_alpha_inc => {
-                    var c = ov.bg orelse s.background_color;
-                    c[3] = std.math.clamp(c[3] + 0.1, 0.0, 1.0);
-                    ov.bg = c;
+                    const c = ov.bg orelse s.background_color;
+                    ov.bg = c.withAlpha(std.math.clamp(c.toArray()[3] + 0.1, 0.0, 1.0));
                 },
                 .toggle_hidden => ov.hidden = !ov.hidden,
                 .reset => unreachable,

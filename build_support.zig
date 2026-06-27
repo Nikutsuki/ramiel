@@ -17,30 +17,29 @@ pub const Runtime = struct {
     optimize: std.builtin.OptimizeMode,
     is_windows: bool,
     is_linux: bool,
-    ffmpeg_bin_install: ?*std.Build.Step.InstallDir = null,
-    shaderc_bin_install: ?*std.Build.Step.InstallDir = null,
-    ffmpeg_linux_lib_dir: ?[]const u8 = null,
+    shaderc_bin_install: ?*std.Build.Step = null,
     shaderc_linux_lib_dir: ?[]const u8 = null,
-    ffmpeg_linux_patchelf: ?*std.Build.Step = null,
 
     pub fn addRamielImport(self: Runtime, module: *std.Build.Module) void {
         module.addImport("ramiel", self.module);
     }
 
+    pub fn configureWindowsApp(self: Runtime, exe: *std.Build.Step.Compile, opts: WindowsAppOptions) void {
+        if (!self.is_windows) return;
+        exe.subsystem = if (opts.console) .Console else .Windows;
+        if (opts.icon_png) |png| {
+            const wf = self.b.addWriteFiles();
+            const rc = wf.add("app.rc", "1 ICON \"app.ico\"\n");
+            _ = wf.add("app.ico", pngToIco(self.b, png));
+            exe.root_module.addWin32ResourceFile(.{ .file = rc });
+        }
+    }
+
     pub fn bindRunEnvironment(self: Runtime, run_cmd: *std.Build.Step.Run) void {
-        if (self.ffmpeg_linux_patchelf) |step| run_cmd.step.dependOn(step);
         const env = run_cmd.getEnvMap();
         if (self.is_windows) {
-            var needs_install_bin = false;
-            if (self.ffmpeg_bin_install) |install| {
-                run_cmd.step.dependOn(&install.step);
-                needs_install_bin = true;
-            }
-            if (self.shaderc_bin_install) |install| {
-                run_cmd.step.dependOn(&install.step);
-                needs_install_bin = true;
-            }
-            if (!needs_install_bin) return;
+            const step = self.shaderc_bin_install orelse return;
+            run_cmd.step.dependOn(step);
 
             const current_path = env.get("PATH") orelse "";
             const install_bin = self.b.getInstallPath(.bin, "");
@@ -49,10 +48,7 @@ pub const Runtime = struct {
                 self.b.fmt("{s}{c}{s}", .{ install_bin, std.fs.path.delimiter, current_path }),
             ) catch @panic("OOM");
         } else {
-            var prefix: ?[]const u8 = null;
-            if (self.ffmpeg_linux_lib_dir) |dir| prefix = appendPath(self.b, prefix, dir);
-            if (self.shaderc_linux_lib_dir) |dir| prefix = appendPath(self.b, prefix, dir);
-            const lib_prefix = prefix orelse return;
+            const lib_prefix = self.shaderc_linux_lib_dir orelse return;
             const current_ld = env.get("LD_LIBRARY_PATH") orelse "";
             env.put(
                 "LD_LIBRARY_PATH",
@@ -75,7 +71,6 @@ pub const Runtime = struct {
         });
         const install_exe = self.b.addInstallArtifact(exe, .{});
         if (options.install_to_default_step) self.b.getInstallStep().dependOn(&install_exe.step);
-        if (self.ffmpeg_linux_patchelf) |step| install_exe.step.dependOn(step);
 
         const app_lib = self.b.addLibrary(.{
             .name = options.lib_name,
@@ -84,7 +79,6 @@ pub const Runtime = struct {
         });
         const install_app_lib = self.b.addInstallArtifact(app_lib, .{});
         if (options.install_to_default_step) self.b.getInstallStep().dependOn(&install_app_lib.step);
-        if (self.ffmpeg_linux_patchelf) |step| install_app_lib.step.dependOn(step);
 
         const host_exe = self.b.addExecutable(.{
             .name = options.host_name,
@@ -92,7 +86,6 @@ pub const Runtime = struct {
         });
         const install_host = self.b.addInstallArtifact(host_exe, .{});
         if (options.install_to_default_step) self.b.getInstallStep().dependOn(&install_host.step);
-        if (self.ffmpeg_linux_patchelf) |step| install_host.step.dependOn(step);
 
         const hot_lib_step = self.b.step(options.hot_lib_step_name, options.hot_lib_step_description);
         hot_lib_step.dependOn(&install_app_lib.step);
@@ -142,6 +135,28 @@ pub const Runtime = struct {
         };
     }
 };
+
+pub const WindowsAppOptions = struct {
+    console: bool = false,
+    icon_png: ?[]const u8 = null,
+};
+
+fn pngToIco(b: *std.Build, png: []const u8) []const u8 {
+    const width = std.mem.readInt(u32, png[16..20], .big);
+    const height = std.mem.readInt(u32, png[20..24], .big);
+    const ico = b.allocator.alloc(u8, 22 + png.len) catch @panic("OOM");
+    @memset(ico[0..22], 0);
+    std.mem.writeInt(u16, ico[2..4], 1, .little);
+    std.mem.writeInt(u16, ico[4..6], 1, .little);
+    ico[6] = if (width >= 256) 0 else @intCast(width);
+    ico[7] = if (height >= 256) 0 else @intCast(height);
+    std.mem.writeInt(u16, ico[10..12], 1, .little);
+    std.mem.writeInt(u16, ico[12..14], 32, .little);
+    std.mem.writeInt(u32, ico[14..18], @intCast(png.len), .little);
+    std.mem.writeInt(u32, ico[18..22], 22, .little);
+    @memcpy(ico[22..], png);
+    return ico;
+}
 
 pub const HotReloadableAppOptions = struct {
     exe_name: []const u8,
@@ -213,46 +228,16 @@ pub fn dependency(b: *std.Build, options: DependencyOptions) Runtime {
     };
 
     if (is_windows) {
-        runtime.ffmpeg_bin_install = installRuntimeDirIfExists(
+        runtime.shaderc_bin_install = installShadercDll(
             b,
-            dep.builder.pathFromRoot("src/thirdparty/ffmpeg_windows_x64/bin"),
-            options.install_runtime_to_default_step,
-        );
-        runtime.shaderc_bin_install = installRuntimeDirIfExists(
-            b,
-            b.pathJoin(&.{ shadercWindowsBasePath(b, dep), "bin" }),
+            shadercWindowsBasePath(b, dep),
             options.install_runtime_to_default_step,
         );
     } else if (is_linux) {
-        runtime.ffmpeg_linux_lib_dir = dep.builder.pathFromRoot("src/thirdparty/ffmpeg_linux_x64/lib");
         runtime.shaderc_linux_lib_dir = dep.builder.pathFromRoot("src/thirdparty/shaderc_linux_x64/lib");
-        runtime.ffmpeg_linux_patchelf = createFfmpegPatchelfStep(b, runtime.ffmpeg_linux_lib_dir.?);
     }
 
     return runtime;
-}
-
-pub fn createFfmpegPatchelfStep(b: *std.Build, lib_dir_abs: []const u8) ?*std.Build.Step {
-    const io = b.graph.io;
-    var dir = std.Io.Dir.openDirAbsolute(io, lib_dir_abs, .{ .iterate = true }) catch return null;
-    defer dir.close(io);
-
-    const group = b.step(
-        "patch-ffmpeg-rpath",
-        "Set RUNPATH=$ORIGIN on vendored ffmpeg .so files (Linux, idempotent).",
-    );
-
-    var iter = dir.iterate();
-    var found_any = false;
-    while (iter.next(io) catch null) |entry| {
-        if (entry.kind != .file) continue;
-        if (std.mem.indexOf(u8, entry.name, ".so") == null) continue;
-        const file_abs = b.pathJoin(&.{ lib_dir_abs, entry.name });
-        const cmd = b.addSystemCommand(&.{ "patchelf", "--set-rpath", "$ORIGIN", file_abs });
-        group.dependOn(&cmd.step);
-        found_any = true;
-    }
-    return if (found_any) group else null;
 }
 
 fn shadercWindowsBasePath(b: *std.Build, dep: *std.Build.Dependency) []const u8 {
@@ -261,40 +246,22 @@ fn shadercWindowsBasePath(b: *std.Build, dep: *std.Build.Dependency) []const u8 
         dep.builder.pathFromRoot("src/thirdparty/shaderc_windows_x64");
 }
 
-fn installRuntimeDirIfExists(
+fn installShadercDll(
     b: *std.Build,
-    source_dir_path: []const u8,
+    base_path: []const u8,
     install_to_default_step: bool,
-) ?*std.Build.Step.InstallDir {
-    if (std.fs.path.isAbsolute(source_dir_path)) {
-        std.Io.Dir.accessAbsolute(b.graph.io, source_dir_path, .{}) catch return null;
+) ?*std.Build.Step {
+    const dll_path = b.pathJoin(&.{ base_path, "bin", "shaderc_shared.dll" });
+    if (std.fs.path.isAbsolute(dll_path)) {
+        std.Io.Dir.accessAbsolute(b.graph.io, dll_path, .{}) catch return null;
     } else {
-        std.Io.Dir.cwd().access(b.graph.io, source_dir_path, .{}) catch return null;
+        std.Io.Dir.cwd().access(b.graph.io, dll_path, .{}) catch return null;
     }
-    return installRuntimeDir(b, lazyPath(b, source_dir_path), install_to_default_step);
-}
-
-fn installRuntimeDir(
-    b: *std.Build,
-    source_dir: std.Build.LazyPath,
-    install_to_default_step: bool,
-) *std.Build.Step.InstallDir {
-    const install = b.addInstallDirectory(.{
-        .source_dir = source_dir,
-        .install_dir = .bin,
-        .install_subdir = "",
-    });
+    const install = b.addInstallBinFile(lazyPath(b, dll_path), "shaderc_shared.dll");
     if (install_to_default_step) b.getInstallStep().dependOn(&install.step);
-    return install;
+    return &install.step;
 }
 
 fn lazyPath(b: *std.Build, path: []const u8) std.Build.LazyPath {
     return if (std.fs.path.isAbsolute(path)) .{ .cwd_relative = path } else b.path(path);
-}
-
-fn appendPath(b: *std.Build, prefix: ?[]const u8, path: []const u8) []const u8 {
-    return if (prefix) |p|
-        b.fmt("{s}{c}{s}", .{ p, std.fs.path.delimiter, path })
-    else
-        path;
 }

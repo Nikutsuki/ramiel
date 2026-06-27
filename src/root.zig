@@ -1,6 +1,32 @@
 const std = @import("std");
 
 pub const tracy_impl = @import("tracy_impl");
+pub const tracy = @import("tracy");
+
+pub const TracyDynZone = struct {
+    ctx: if (tracy.enabled) tracy_impl.c.TracyCZoneCtx else void,
+
+    pub inline fn begin(src: std.builtin.SourceLocation, category: []const u8, name: []const u8) TracyDynZone {
+        if (tracy.enabled) {
+            const srcloc = tracy_impl.c.___tracy_alloc_srcloc_name(
+                src.line,
+                src.file.ptr,
+                src.file.len,
+                category.ptr,
+                category.len,
+                name.ptr,
+                name.len,
+                0,
+            );
+            return .{ .ctx = tracy_impl.c.___tracy_emit_zone_begin_alloc(srcloc, 1) };
+        }
+        return .{ .ctx = {} };
+    }
+
+    pub inline fn end(self: TracyDynZone) void {
+        if (tracy.enabled) tracy_impl.c.___tracy_emit_zone_end(self.ctx);
+    }
+};
 
 pub const UIContext = @import("ui/context.zig").UIContext;
 pub const Node = @import("ui/node.zig").Node;

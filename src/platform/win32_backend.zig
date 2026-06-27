@@ -22,6 +22,10 @@ const native = if (available) @import("../window/win32.zig") else struct {
         cyTopHeight: c_int = 0,
         cyBottomHeight: c_int = 0,
     };
+    pub const HitTester = struct {
+        ctx: ?*anyopaque = null,
+        is_caption: ?*const fn (?*anyopaque, x: i32, y: i32) callconv(.c) bool = null,
+    };
 };
 
 pub const HWND = native.HWND;
@@ -32,6 +36,7 @@ pub const LPARAM = native.LPARAM;
 pub const LRESULT = native.LRESULT;
 pub const LONG_PTR = native.LONG_PTR;
 pub const MARGINS = native.MARGINS;
+pub const HitTester = native.HitTester;
 
 pub const GWLP_WNDPROC = if (available) native.GWLP_WNDPROC else -4;
 pub const WM_HOTKEY = if (available) native.WM_HOTKEY else 0x0312;
@@ -52,6 +57,8 @@ pub const defWindowProcW = if (available) native.defWindowProcW else unavailable
 pub const registerHotKey = if (available) native.registerHotKey else unavailableRegisterHotKey;
 pub const unregisterHotKey = if (available) native.unregisterHotKey else unavailableUnregisterHotKey;
 pub const dwmExtendFrameIntoClientArea = if (available) native.dwmExtendFrameIntoClientArea else unavailableDwmExtendFrameIntoClientArea;
+pub const handleCustomFrame = if (available) native.handleCustomFrame else unavailableHandleCustomFrame;
+pub const enableCustomFrame = if (available) native.enableCustomFrame else unavailableEnableCustomFrame;
 
 pub fn configureAsOverlay(hwnd: HWND) void {
     if (!available) return;
@@ -102,3 +109,7 @@ fn unavailableUnregisterHotKey(_: ?HWND, _: i32) callconv(.c) c_int {
 fn unavailableDwmExtendFrameIntoClientArea(_: HWND, _: *const MARGINS) callconv(.c) c_long {
     return 0;
 }
+fn unavailableHandleCustomFrame(_: HWND, _: UINT, _: WPARAM, _: LPARAM, _: HitTester) ?LRESULT {
+    return null;
+}
+fn unavailableEnableCustomFrame(_: HWND) void {}

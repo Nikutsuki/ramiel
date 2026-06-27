@@ -18,7 +18,7 @@ fn guildButton(
     const tw = core.tw;
     const tokens = ui.active_theme.tokens;
     const accent = tokens.action_default;
-    const idle_bg: [4]f32 = .{ 0.19, 0.20, 0.23, 1.0 };
+    const idle_bg = core.lib.layout.Color.from(.{ 0.19, 0.20, 0.23, 1.0 });
     const active_bg = if (selected) accent else idle_bg;
     const radius: f32 = if (selected) 16.0 else 24.0;
 

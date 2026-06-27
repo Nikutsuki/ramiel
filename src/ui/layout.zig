@@ -247,6 +247,8 @@ pub const TransitionStyle = struct {
     }
 };
 
+pub const Color = @import("color.zig").Color;
+
 pub const CornerRadius = struct {
     top_left: f32 = 0,
     top_right: f32 = 0,
@@ -269,7 +271,7 @@ pub const CornerRadius = struct {
 
 pub const BorderSide = struct {
     width: f32 = 0,
-    color: [4]f32 = .{ 0, 0, 0, 0 },
+    color: Color = .{},
 };
 
 pub const Border = struct {
@@ -278,7 +280,7 @@ pub const Border = struct {
     bottom: BorderSide = .{},
     left: BorderSide = .{},
 
-    pub fn all(width: f32, color: [4]f32) Border {
+    pub fn all(width: f32, color: Color) Border {
         const s = BorderSide{ .width = width, .color = color };
         return .{ .top = s, .right = s, .bottom = s, .left = s };
     }
@@ -336,7 +338,7 @@ pub const TextDecoration = struct {
     line: TextDecorationLine = .{},
     shape: TextDecorationShape = .solid,
     /// null -> inherit text_color.
-    color: ?[4]f32 = null,
+    color: ?Color = null,
     /// 0 -> use font.underline_thickness.
     thickness: f32 = 0,
     offset: f32 = 0,
@@ -399,8 +401,10 @@ pub const Style = struct {
     z_index: i32 = 0,
     opacity: f32 = 1.0,
     transform: Transform = .{},
+    zoom_override: ?f32 = null,
     transition: TransitionStyle = .{},
     anchor_id: ?NodeId = null,
+    anchor_match_width: bool = false,
 
     top: ?f32 = null,
     right: ?f32 = null,
@@ -417,8 +421,8 @@ pub const Style = struct {
     gap: f32 = 0,
 
     grid_columns: u16 = 0,
-    grid_template_columns: GridTemplate = .{},
-    grid_template_rows: GridTemplate = .{},
+    grid_template_columns: ?*const GridTemplate = null,
+    grid_template_rows: ?*const GridTemplate = null,
     grid_auto_rows: GridTrack = .{ .Auto = {} },
 
     grid_column_start: ?u16 = null,
@@ -427,6 +431,7 @@ pub const Style = struct {
     grid_row_span: u16 = 1,
 
     box_sizing: BoxSizing = .border_box,
+    window_drag: bool = false,
     width: Size = .Auto,
     height: Size = .Auto,
     min_width: Size = .Auto,
@@ -440,11 +445,11 @@ pub const Style = struct {
 
     scrollbar_width: f32 = 8.0,
     scrollbar_min_height: f32 = 20.0,
-    scrollbar_color: [4]f32 = .{ 1.0, 1.0, 1.0, 0.3 },
-    scrollbar_radius: f32 = 4.0,
+    scrollbar_color: Color = Color.from(.{ 1.0, 1.0, 1.0, 0.3 }),
+    scrollbar_radius: f32 = 0.0,
 
-    background_color: [4]f32 = .{ 0, 0, 0, 0 },
-    hover_color: ?[4]f32 = null,
+    background_color: Color = .{},
+    hover_color: ?Color = null,
     _hover_blend: f32 = 0.0,
     corner_radius: CornerRadius = .{},
     corner_softness: f32 = 1.0,
@@ -452,12 +457,13 @@ pub const Style = struct {
     outline: Border = .{},
     blur: f32 = 0,
     backdrop_blur: f32 = 0,
+    noise: f32 = 0,
 
-    shadow_color: [4]f32 = .{ 0, 0, 0, 0 },
+    shadow_color: Color = .{},
     shadow_offset: [2]f32 = .{ 0, 0 },
     shadow_blur: f32 = 0,
 
-    text_color: [4]f32 = .{ 1, 1, 1, 1 },
+    text_color: Color = Color.from(.{ 1, 1, 1, 1 }),
     /// null -> UIContext's default family.
     font_family: ?[]const u8 = null,
     font_weight: FontWeight = .normal,
@@ -571,11 +577,26 @@ const AxisBounds = struct {
     max: f32,
 };
 
+pub var active_zoom: f32 = 1.0;
+
+inline fn zpx(value: f32) f32 {
+    return value * active_zoom;
+}
+
+fn scaledSpacing(s: Spacing) Spacing {
+    return .{
+        .top = s.top * active_zoom,
+        .right = s.right * active_zoom,
+        .bottom = s.bottom * active_zoom,
+        .left = s.left * active_zoom,
+    };
+}
+
 fn resolveAxisBound(size: Size, available: f32, comptime is_min: bool) f32 {
     const bounded_available = @max(0.0, available);
     return switch (size) {
         .Auto => if (is_min) 0.0 else std.math.inf(f32),
-        .exact => |v| @max(0.0, v),
+        .exact => |v| @max(0.0, v * active_zoom),
         .percent => |p| bounded_available * @max(0.0, p),
         .Full, .screen => bounded_available,
     };
@@ -598,35 +619,41 @@ fn clampAxisByStyle(value: f32, min_size: Size, max_size: Size, available: f32) 
 
 fn contentInsets(style: Style) Spacing {
     return .{
-        .top = style.padding.top + @max(0.0, style.border.top.width),
-        .right = style.padding.right + @max(0.0, style.border.right.width),
-        .bottom = style.padding.bottom + @max(0.0, style.border.bottom.width),
-        .left = style.padding.left + @max(0.0, style.border.left.width),
+        .top = (style.padding.top + @max(0.0, style.border.top.width)) * active_zoom,
+        .right = (style.padding.right + @max(0.0, style.border.right.width)) * active_zoom,
+        .bottom = (style.padding.bottom + @max(0.0, style.border.bottom.width)) * active_zoom,
+        .left = (style.padding.left + @max(0.0, style.border.left.width)) * active_zoom,
     };
 }
 
+fn gridColCount(style: Style) usize {
+    return if (style.grid_template_columns) |t| t.count() else 0;
+}
+
+fn gridRowCount(style: Style) usize {
+    return if (style.grid_template_rows) |t| t.count() else 0;
+}
+
 fn isGridLayoutEnabled(style: Style) bool {
-    return style.grid_columns > 0 or style.grid_template_columns.count() > 0;
+    return style.grid_columns > 0 or gridColCount(style) > 0;
 }
 
 fn effectiveGridColumnCount(style: Style) usize {
-    const template_cols = style.grid_template_columns.count();
+    const template_cols = gridColCount(style);
     if (template_cols > 0) return template_cols;
     return @as(usize, @intCast(style.grid_columns));
 }
 
 fn getGridColumnTrack(style: Style, column_index: usize) GridTrack {
-    const template_cols = style.grid_template_columns.count();
-    if (template_cols > 0 and column_index < template_cols) {
-        return style.grid_template_columns.trackAt(column_index);
+    if (style.grid_template_columns) |t| {
+        if (column_index < t.count()) return t.trackAt(column_index);
     }
     return .{ .fr = 1.0 };
 }
 
 fn getGridRowTrack(style: Style, row_index: usize) GridTrack {
-    const template_rows = style.grid_template_rows.count();
-    if (row_index < template_rows) {
-        return style.grid_template_rows.trackAt(row_index);
+    if (style.grid_template_rows) |t| {
+        if (row_index < t.count()) return t.trackAt(row_index);
     }
     return style.grid_auto_rows;
 }
@@ -653,8 +680,8 @@ fn resolveTextMeasureOptions(style: Style, requested_max_width: f32, available_w
         .max_width = @max(0.0, max_width),
         .wrap = wrap,
         .ellipsis = ellipsis,
-        .line_height = style.line_height,
-        .font_size = style.font_size,
+        .line_height = style.line_height * active_zoom,
+        .font_size = style.font_size * active_zoom,
     };
 }
 
@@ -674,7 +701,7 @@ fn updateTextLayoutCache(node: anytype, text_layouter: anytype, font: anytype, t
             .max_width = options.max_width,
             .wrap = options.wrap,
             .ellipsis = options.ellipsis,
-            .font_size = node.style.font_size,
+            .font_size = options.font_size,
             .line_height = options.line_height,
         })
     else if (@hasDecl(Layouter, "measureTextWithOptions"))
@@ -682,7 +709,7 @@ fn updateTextLayoutCache(node: anytype, text_layouter: anytype, font: anytype, t
             .max_width = options.max_width,
             .wrap = options.wrap,
             .ellipsis = options.ellipsis,
-            .font_size = node.style.font_size,
+            .font_size = options.font_size,
             .line_height = options.line_height,
         })
     else
@@ -720,6 +747,10 @@ fn updateTextLayoutCache(node: anytype, text_layouter: anytype, font: anytype, t
 
 // text_layouter is anytype so tests can stub without HarfBuzz/Vulkan.
 pub fn measureNode(node: anytype, text_layouter: anytype, max_w: f32, max_h: f32, force_recalculate: bool) void {
+    const zoom_saved = active_zoom;
+    if (node.style.zoom_override) |z| active_zoom = z;
+    defer active_zoom = zoom_saved;
+
     if (node.style.display == .none) {
         node.layout_result.width = 0;
         node.layout_result.height = 0;
@@ -751,7 +782,7 @@ pub fn measureNode(node: anytype, text_layouter: anytype, max_w: f32, max_h: f32
     const is_content_box = node.style.box_sizing == .content_box;
 
     const resolved_width_raw: ?f32 = switch (node.style.width) {
-        .exact => |w| w,
+        .exact => |w| w * active_zoom,
         .Full => max_w,
         .percent => |p| max_w * @max(0.0, p),
         .screen => max_w,
@@ -764,7 +795,7 @@ pub fn measureNode(node: anytype, text_layouter: anytype, max_w: f32, max_h: f32
     } else null;
 
     const resolved_height_raw: ?f32 = switch (node.style.height) {
-        .exact => |h| h,
+        .exact => |h| h * active_zoom,
         .Full => max_h,
         .percent => |p| max_h * @max(0.0, p),
         .screen => max_h,
@@ -988,7 +1019,7 @@ fn measureFlexContentNoWrap(
         if (child.style.position == .absolute or child.style.position == .anchored) continue;
         if (child.style.display == .none) continue;
         flow_count += 1;
-        const margin = child.style.margin;
+        const margin = scaledSpacing(child.style.margin);
         const margin_main = if (is_row) margin.left + margin.right else margin.top + margin.bottom;
         if (child.style.flex_grow > 0) {
             total_flex_grow += child.style.flex_grow;
@@ -1003,7 +1034,7 @@ fn measureFlexContentNoWrap(
     }
 
     const total_gap: f32 = if (flow_count > 1)
-        node.style.gap * @as(f32, @floatFromInt(flow_count - 1))
+        zpx(node.style.gap) * @as(f32, @floatFromInt(flow_count - 1))
     else
         0;
 
@@ -1052,10 +1083,10 @@ fn measureFlexContentNoWrap(
         if (child.style.position == .absolute or child.style.position == .anchored) continue;
         if (child.style.display == .none) continue;
 
-        if (!first) main_size += node.style.gap;
+        if (!first) main_size += zpx(node.style.gap);
         first = false;
 
-        const margin = child.style.margin;
+        const margin = scaledSpacing(child.style.margin);
         const child_main = if (is_row)
             child.layout_result.width + margin.left + margin.right
         else
@@ -1105,7 +1136,7 @@ fn measureFlexContentWrap(
         if (child.style.position == .absolute or child.style.position == .anchored) continue;
         if (child.style.display == .none) continue;
 
-        const margin = child.style.margin;
+        const margin = scaledSpacing(child.style.margin);
         const child_main = if (is_row)
             child.layout_result.width + margin.left + margin.right
         else
@@ -1117,21 +1148,21 @@ fn measureFlexContentWrap(
             child.layout_result.width + margin.left + margin.right;
 
         const tentative_main = if (line_has_items)
-            line_main + node.style.gap + child_main
+            line_main + zpx(node.style.gap) + child_main
         else
             child_main;
 
         const should_wrap = line_has_items and main_limit > 0.0 and tentative_main > main_limit;
         if (should_wrap) {
             max_line_main = @max(max_line_main, line_main);
-            if (line_count > 0) total_cross += node.style.gap;
+            if (line_count > 0) total_cross += zpx(node.style.gap);
             total_cross += line_cross;
             line_count += 1;
 
             line_main = child_main;
             line_cross = child_cross;
         } else {
-            if (line_has_items) line_main += node.style.gap;
+            if (line_has_items) line_main += zpx(node.style.gap);
             line_main += child_main;
             line_cross = @max(line_cross, child_cross);
         }
@@ -1141,7 +1172,7 @@ fn measureFlexContentWrap(
 
     if (line_has_items) {
         max_line_main = @max(max_line_main, line_main);
-        if (line_count > 0) total_cross += node.style.gap;
+        if (line_count > 0) total_cross += zpx(node.style.gap);
         total_cross += line_cross;
         line_count += 1;
     }
@@ -1425,7 +1456,7 @@ fn buildGridPlacements(
 }
 
 fn requiredGridRowCount(style: Style, placements: anytype) usize {
-    var row_count = style.grid_template_rows.count();
+    var row_count = gridRowCount(style);
     for (placements) |placement| {
         row_count = @max(row_count, placement.row_start + placement.row_span);
     }
@@ -1463,7 +1494,7 @@ fn resolveGridColumnSizes(
 
         switch (track) {
             .exact => |px| {
-                size = @max(0.0, px);
+                size = @max(0.0, px * active_zoom);
                 fixed_total += size;
             },
             .percent => |pct| {
@@ -1512,7 +1543,7 @@ fn initGridRowSizing(
 
         switch (track) {
             .exact => |px| {
-                row.size = @max(0.0, px);
+                row.size = @max(0.0, px * active_zoom);
                 row.growable = false;
             },
             .percent => |pct| {
@@ -1675,7 +1706,7 @@ fn measureGridContent(
         return;
     }
 
-    var column_sizes = resolveGridColumnSizes(node.style, node.allocator, cols, content_w, node.style.gap) catch
+    var column_sizes = resolveGridColumnSizes(node.style, node.allocator, cols, content_w, zpx(node.style.gap)) catch
         @panic("OOM while resolving grid column sizes");
     defer column_sizes.deinit(node.allocator);
 
@@ -1691,8 +1722,8 @@ fn measureGridContent(
 
     for (placements.items) |placement| {
         const child = placement.child;
-        const area_w = gridTrackSpanSize(column_sizes.items, node.style.gap, placement.column_start, placement.column_span);
-        const child_available_w = @max(0.0, area_w - child.style.margin.horizontal());
+        const area_w = gridTrackSpanSize(column_sizes.items, zpx(node.style.gap), placement.column_start, placement.column_span);
+        const child_available_w = @max(0.0, area_w - scaledSpacing(child.style.margin).horizontal());
 
         measureNode(child, text_layouter, child_available_w, content_h, false);
 
@@ -1705,18 +1736,22 @@ fn measureGridContent(
             );
         }
 
-        const required_h = child.layout_result.height + child.style.margin.top + child.style.margin.bottom;
-        growGridRowsForPlacement(row_sizes.items, placement, required_h, node.style.gap);
+        const required_h = child.layout_result.height + scaledSpacing(child.style.margin).vertical();
+        growGridRowsForPlacement(row_sizes.items, placement, required_h, zpx(node.style.gap));
     }
 
-    applyGridFrRows(row_sizes.items, content_h, node.style.gap, has_explicit_height);
+    applyGridFrRows(row_sizes.items, content_h, zpx(node.style.gap), has_explicit_height);
 
     node.layout_result.text_cache.clear(node.allocator);
     out_w.* = content_w;
-    out_h.* = totalGridRowHeight(row_sizes.items, node.style.gap);
+    out_h.* = totalGridRowHeight(row_sizes.items, zpx(node.style.gap));
 }
 
 pub fn arrangeNode(node: anytype, start_x: f32, start_y: f32) void {
+    const zoom_saved = active_zoom;
+    if (node.style.zoom_override) |z| active_zoom = z;
+    defer active_zoom = zoom_saved;
+
     if (node.style.display == .none) return;
 
     if (!node.flags.position) {
@@ -1755,25 +1790,25 @@ pub fn arrangeNode(node: anytype, start_x: f32, start_y: f32) void {
         var child_y = parent_origin_y;
 
         if (child.style.left) |l| {
-            child_x = parent_origin_x + l;
+            child_x = parent_origin_x + l * active_zoom;
             if (child.style.right) |r| {
                 if (child.style.width == .Auto) {
-                    child.layout_result.width = @max(0.0, parent_far_x - r - child_x);
+                    child.layout_result.width = @max(0.0, parent_far_x - r * active_zoom - child_x);
                 }
             }
         } else if (child.style.right) |r| {
-            child_x = parent_far_x - child.layout_result.width - r;
+            child_x = parent_far_x - child.layout_result.width - r * active_zoom;
         }
 
         if (child.style.top) |t| {
-            child_y = parent_origin_y + t;
+            child_y = parent_origin_y + t * active_zoom;
             if (child.style.bottom) |b| {
                 if (child.style.height == .Auto) {
-                    child.layout_result.height = @max(0.0, parent_far_y - b - child_y);
+                    child.layout_result.height = @max(0.0, parent_far_y - b * active_zoom - child_y);
                 }
             }
         } else if (child.style.bottom) |b| {
-            child_y = parent_far_y - child.layout_result.height - b;
+            child_y = parent_far_y - child.layout_result.height - b * active_zoom;
         }
 
         arrangeNode(child, child_x, child_y);
@@ -1819,11 +1854,13 @@ fn arrangeFlexChildrenNoWrap(node: anytype, start_x: f32, start_y: f32, w: f32, 
 
     var children_main_sum: f32 = 0;
     var flow_count: usize = 0;
+    var total_flex_grow: f32 = 0;
     for (node.children.items, 0..) |child, i| {
         prefetchNextChildIfEnabled(node.children.items, i);
         if (!isFlowChild(child)) continue;
         flow_count += 1;
-        const margin = child.style.margin;
+        total_flex_grow += child.style.flex_grow;
+        const margin = scaledSpacing(child.style.margin);
         children_main_sum += if (is_row)
             child.layout_result.width + margin.left + margin.right
         else
@@ -1833,11 +1870,28 @@ fn arrangeFlexChildrenNoWrap(node: anytype, start_x: f32, start_y: f32, w: f32, 
     const inner_main: f32 = if (is_row) w - pad.horizontal() else h - pad.vertical();
     const inner_cross: f32 = if (is_row) h - pad.vertical() else w - pad.horizontal();
 
-    var between_gap: f32 = node.style.gap;
+    const total_gap = zpx(node.style.gap) * @as(f32, @floatFromInt(if (flow_count > 1) flow_count - 1 else 0));
+
+    if (total_flex_grow > 0) {
+        const slack = inner_main - children_main_sum - total_gap;
+        if (slack > 0) {
+            for (node.children.items) |child| {
+                if (!isFlowChild(child) or child.style.flex_grow <= 0) continue;
+                const add = slack * (child.style.flex_grow / total_flex_grow);
+                if (is_row) {
+                    child.layout_result.width += add;
+                } else {
+                    child.layout_result.height += add;
+                }
+            }
+            children_main_sum += slack;
+        }
+    }
+
+    var between_gap: f32 = zpx(node.style.gap);
     var start_offset: f32 = 0;
 
     if (flow_count > 0) {
-        const total_gap = node.style.gap * @as(f32, @floatFromInt(if (flow_count > 1) flow_count - 1 else 0));
         const total_children = children_main_sum + total_gap;
         const remaining = inner_main - total_children;
 
@@ -1870,7 +1924,7 @@ fn arrangeFlexChildrenNoWrap(node: anytype, start_x: f32, start_y: f32, w: f32, 
         if (!first) cursor += between_gap;
         first = false;
 
-        const margin = child.style.margin;
+        const margin = scaledSpacing(child.style.margin);
         const main_margin_start = if (is_row) margin.left else margin.top;
         const main_margin_end = if (is_row) margin.right else margin.bottom;
         const child_main_start = cursor + main_margin_start;
@@ -1951,7 +2005,7 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
             const child = node.children.items[j];
             if (!isFlowChild(child)) continue;
 
-            const margin = child.style.margin;
+            const margin = scaledSpacing(child.style.margin);
             const child_main = if (is_row)
                 child.layout_result.width + margin.left + margin.right
             else
@@ -1963,7 +2017,7 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
                 child.layout_result.width + margin.left + margin.right;
 
             const tentative_main = if (line_flow_count > 0)
-                line_main + node.style.gap + child_main
+                line_main + zpx(node.style.gap) + child_main
             else
                 child_main;
 
@@ -1971,14 +2025,14 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
                 break;
             }
 
-            if (line_flow_count > 0) line_main += node.style.gap;
+            if (line_flow_count > 0) line_main += zpx(node.style.gap);
             line_main += child_main;
             line_children_main_sum += child_main;
             line_cross = @max(line_cross, child_cross);
             line_flow_count += 1;
         }
 
-        var between_gap: f32 = node.style.gap;
+        var between_gap: f32 = zpx(node.style.gap);
         var start_offset: f32 = 0;
 
         if (line_flow_count > 0) {
@@ -2014,7 +2068,7 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
             if (!first_in_line) cursor += between_gap;
             first_in_line = false;
 
-            const margin = child.style.margin;
+            const margin = scaledSpacing(child.style.margin);
             const main_margin_start = if (is_row) margin.left else margin.top;
             const main_margin_end = if (is_row) margin.right else margin.bottom;
             const child_main_start = cursor + main_margin_start;
@@ -2066,7 +2120,7 @@ fn arrangeFlexChildrenWrap(node: anytype, start_x: f32, start_y: f32, w: f32, h:
                 child.layout_result.height) + main_margin_start + main_margin_end;
         }
 
-        line_cross_cursor += line_cross + node.style.gap;
+        line_cross_cursor += line_cross + zpx(node.style.gap);
         i = j;
     }
 }
@@ -2092,7 +2146,7 @@ fn arrangeGridChildren(node: anytype, start_x: f32, start_y: f32, w: f32, h: f32
         else => true,
     };
 
-    var column_sizes = resolveGridColumnSizes(node.style, node.allocator, cols, content_w, node.style.gap) catch
+    var column_sizes = resolveGridColumnSizes(node.style, node.allocator, cols, content_w, zpx(node.style.gap)) catch
         @panic("OOM while resolving grid columns during arrangement");
     defer column_sizes.deinit(node.allocator);
 
@@ -2107,10 +2161,10 @@ fn arrangeGridChildren(node: anytype, start_x: f32, start_y: f32, w: f32, h: f32
 
     for (placements.items) |placement| {
         const child = placement.child;
-        const required_h = child.layout_result.height + child.style.margin.top + child.style.margin.bottom;
-        growGridRowsForPlacement(row_sizes.items, placement, required_h, node.style.gap);
+        const required_h = child.layout_result.height + scaledSpacing(child.style.margin).vertical();
+        growGridRowsForPlacement(row_sizes.items, placement, required_h, zpx(node.style.gap));
     }
-    applyGridFrRows(row_sizes.items, content_h, node.style.gap, has_explicit_height);
+    applyGridFrRows(row_sizes.items, content_h, zpx(node.style.gap), has_explicit_height);
 
     const origin_x = start_x + pad.left - node.scroll_x;
     const origin_y = start_y + pad.top - node.scroll_y;
@@ -2118,11 +2172,11 @@ fn arrangeGridChildren(node: anytype, start_x: f32, start_y: f32, w: f32, h: f32
     for (placements.items) |placement| {
         const child = placement.child;
         const x = origin_x +
-            gridTrackStartOffset(column_sizes.items, node.style.gap, placement.column_start) +
-            child.style.margin.left;
+            gridTrackStartOffset(column_sizes.items, zpx(node.style.gap), placement.column_start) +
+            scaledSpacing(child.style.margin).left;
         const y = origin_y +
-            gridRowStartOffset(row_sizes.items, node.style.gap, placement.row_start) +
-            child.style.margin.top;
+            gridRowStartOffset(row_sizes.items, zpx(node.style.gap), placement.row_start) +
+            scaledSpacing(child.style.margin).top;
         arrangeNode(child, x, y);
     }
 }
@@ -2270,8 +2324,8 @@ const OptionTrackingTextLayouter = struct {
         self.last_ellipsis = options.ellipsis;
         self.last_line_height = options.line_height;
 
-        const char_w: f32 = 8.0;
-        const line_h: f32 = if (options.line_height > 0.0) options.line_height else 16.0;
+        const char_w: f32 = 8.0 * active_zoom;
+        const line_h: f32 = if (options.line_height > 0.0) options.line_height else 16.0 * active_zoom;
         const full_width: f32 = @as(f32, @floatFromInt(text.len)) * char_w;
 
         if (options.wrap and options.max_width > 0.0) {
@@ -2365,20 +2419,20 @@ test "TextDecoration.merge: non-default fields win" {
     const a = TextDecoration{ .line = .{ .underline = true } };
     const b = TextDecoration{
         .shape = .wavy,
-        .color = .{ 1, 0, 0, 1 },
+        .color = Color.from(.{ 1, 0, 0, 1 }),
         .thickness = 3,
     };
     const out = a.merge(b);
     try testing.expect(out.line.underline);
     try testing.expectEqual(TextDecorationShape.wavy, out.shape);
-    try testing.expectEqualSlices(f32, &.{ 1, 0, 0, 1 }, &out.color.?);
+    try testing.expect(out.color.?.eql(Color.from(.{ 1, 0, 0, 1 })));
     try testing.expectApproxEqAbs(@as(f32, 3), out.thickness, 0.001);
 }
 
 test "Style.mix: text_decoration deep-merges across partials" {
     const underline_partial = .{ .text_decoration = TextDecoration{ .line = .{ .underline = true } } };
     const wavy_partial = .{ .text_decoration = TextDecoration{ .shape = .wavy } };
-    const red_partial = .{ .text_decoration = TextDecoration{ .color = .{ 1, 0, 0, 1 } } };
+    const red_partial = .{ .text_decoration = TextDecoration{ .color = Color.from(.{ 1, 0, 0, 1 }) } };
     const merged = Style.mix(.{ underline_partial, wavy_partial, red_partial });
     try testing.expect(merged.text_decoration.line.underline);
     try testing.expectEqual(TextDecorationShape.wavy, merged.text_decoration.shape);
@@ -2389,7 +2443,7 @@ test "tw.style: text_decoration deep-merges across helpers" {
     // tw.style and Style.mix both need the deep-merge carve-out; this guards
     // the path apps actually take (tw.style flat-overwrote before the fix).
     const tw = @import("tw.zig");
-    const a = tw.style(.{ tw.underline, tw.decoration_color_value(.{ 1, 0, 0, 1 }) });
+    const a = tw.style(.{ tw.underline, tw.decoration_color_value(Color.from(.{ 1, 0, 0, 1 })) });
     try testing.expect(a.text_decoration.line.underline);
     try testing.expect(a.text_decoration.color != null);
 
@@ -2397,7 +2451,7 @@ test "tw.style: text_decoration deep-merges across helpers" {
     try testing.expect(b.text_decoration.line.line_through);
     try testing.expectApproxEqAbs(@as(f32, 2.0), b.text_decoration.thickness, 0.001);
 
-    const c = tw.style(.{ tw.underline, tw.line_through, tw.overline, tw.decoration_color_value(.{ 0.5, 0.5, 0.5, 1 }) });
+    const c = tw.style(.{ tw.underline, tw.line_through, tw.overline, tw.decoration_color_value(Color.from(.{ 0.5, 0.5, 0.5, 1 })) });
     try testing.expect(c.text_decoration.line.underline);
     try testing.expect(c.text_decoration.line.line_through);
     try testing.expect(c.text_decoration.line.overline);
@@ -2588,7 +2642,7 @@ test "measureNode: border contributes to intrinsic size" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 
-    const parent = try makeNode(alloc, .{ .direction = .Column, .border = Border.all(5, .{ 1, 1, 1, 1 }) });
+    const parent = try makeNode(alloc, .{ .direction = .Column, .border = Border.all(5, Color.from(.{ 1, 1, 1, 1 })) });
     defer parent.deinit();
 
     const child = try makeNode(alloc, .{ .width = .{ .exact = 50 }, .height = .{ .exact = 20 } });
@@ -2865,18 +2919,20 @@ test "measureNode: grid template rows mix fixed and auto tracks" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 
+    const col_tmpl = GridTemplate.fromSlice(&.{
+        .{ .fr = 1.0 },
+        .{ .fr = 1.0 },
+    });
+    const row_tmpl = GridTemplate.fromSlice(&.{
+        .{ .exact = 30.0 },
+        .{ .Auto = {} },
+    });
     const parent = try makeNode(alloc, .{
         .display = .grid,
         .width = .{ .exact = 210 },
         .gap = 10,
-        .grid_template_columns = GridTemplate.fromSlice(&.{
-            .{ .fr = 1.0 },
-            .{ .fr = 1.0 },
-        }),
-        .grid_template_rows = GridTemplate.fromSlice(&.{
-            .{ .exact = 30.0 },
-            .{ .Auto = {} },
-        }),
+        .grid_template_columns = &col_tmpl,
+        .grid_template_rows = &row_tmpl,
     });
     defer parent.deinit();
 
@@ -2897,15 +2953,16 @@ test "measureNode: grid column span stretches auto-width child across tracks" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 
+    const col_tmpl = GridTemplate.fromSlice(&.{
+        .{ .fr = 1.0 },
+        .{ .fr = 1.0 },
+        .{ .fr = 1.0 },
+    });
     const parent = try makeNode(alloc, .{
         .display = .grid,
         .width = .{ .exact = 320 },
         .gap = 10,
-        .grid_template_columns = GridTemplate.fromSlice(&.{
-            .{ .fr = 1.0 },
-            .{ .fr = 1.0 },
-            .{ .fr = 1.0 },
-        }),
+        .grid_template_columns = &col_tmpl,
     });
     defer parent.deinit();
 
@@ -3229,7 +3286,7 @@ test "arrangeNode: border offsets children like CSS" {
     const alloc = testing.allocator;
     var tl = PanicTextLayouter{};
 
-    const parent = try makeNode(alloc, .{ .direction = .Column, .border = Border.all(8, .{ 1, 1, 1, 1 }), .width = .{ .exact = 200 }, .height = .{ .exact = 200 } });
+    const parent = try makeNode(alloc, .{ .direction = .Column, .border = Border.all(8, Color.from(.{ 1, 1, 1, 1 })), .width = .{ .exact = 200 }, .height = .{ .exact = 200 } });
     defer parent.deinit();
 
     const child = try makeNode(alloc, .{ .width = .{ .exact = 50 }, .height = .{ .exact = 20 } });
@@ -3250,7 +3307,7 @@ test "arrangeNode: absolute positioning uses inset box" {
         .width = .{ .exact = 400 },
         .height = .{ .exact = 300 },
         .padding = Spacing.all(6),
-        .border = Border.all(4, .{ 1, 1, 1, 1 }),
+        .border = Border.all(4, Color.from(.{ 1, 1, 1, 1 })),
     });
     defer parent.deinit();
 
@@ -3736,7 +3793,7 @@ test "arrangeNode: display none children are skipped" {
 
 test "style: default background_color is transparent" {
     const style = Style{};
-    try testing.expectEqual(@as(f32, 0), style.background_color[3]);
+    try testing.expectEqual(@as(f32, 0), style.background_color.toArray()[3]);
 }
 
 test "style: default opacity is fully opaque" {
@@ -3747,18 +3804,18 @@ test "style: default opacity is fully opaque" {
 test "style: visual properties can be set inline" {
     const s = Style{
         .opacity = 0.35,
-        .background_color = .{ 1, 0, 0, 1 },
-        .border = Border.all(2, .{ 0, 0, 1, 1 }),
+        .background_color = Color.from(.{ 1, 0, 0, 1 }),
+        .border = Border.all(2, Color.from(.{ 0, 0, 1, 1 })),
         .corner_radius = CornerRadius.all(8),
-        .shadow_color = .{ 0, 0, 0, 0.5 },
+        .shadow_color = Color.from(.{ 0, 0, 0, 0.5 }),
         .shadow_offset = .{ 4, 4 },
         .shadow_blur = 6,
-        .text_color = .{ 1, 1, 1, 1 },
+        .text_color = Color.from(.{ 1, 1, 1, 1 }),
     };
-    try testing.expectApproxEqAbs(@as(f32, 1), s.background_color[3], 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 1), s.background_color.toArray()[3], 0.01);
     try testing.expectApproxEqAbs(@as(f32, 2), s.border.top.width, 0.01);
     try testing.expectApproxEqAbs(@as(f32, 8), s.corner_radius.top_left, 0.01);
-    try testing.expectApproxEqAbs(@as(f32, 0.5), s.shadow_color[3], 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), s.shadow_color.toArray()[3], 0.01);
     try testing.expectApproxEqAbs(@as(f32, 0.35), s.opacity, 0.01);
 }
 

@@ -1,14 +1,68 @@
 const std = @import("std");
 
-pub fn parse(comptime input_str: []const u8) [4]f32 {
+pub const Color = packed struct(u32) {
+    r: u8 = 0,
+    g: u8 = 0,
+    b: u8 = 0,
+    a: u8 = 0,
+
+    pub const transparent: Color = .{};
+
+    pub fn rgbaU8(r: u8, g: u8, b: u8, a: u8) Color {
+        return .{ .r = r, .g = g, .b = b, .a = a };
+    }
+
+    pub fn from(c: [4]f32) Color {
+        return .{ .r = chan(c[0]), .g = chan(c[1]), .b = chan(c[2]), .a = chan(c[3]) };
+    }
+
+    pub fn toArray(self: Color) [4]f32 {
+        return .{ f(self.r), f(self.g), f(self.b), f(self.a) };
+    }
+
+    pub fn bits(self: Color) u32 {
+        return @bitCast(self);
+    }
+
+    pub fn eql(a: Color, b: Color) bool {
+        return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
+    }
+
+    pub fn withAlpha(self: Color, alpha: f32) Color {
+        return .{ .r = self.r, .g = self.g, .b = self.b, .a = chan(alpha) };
+    }
+
+    pub fn scaleAlpha(self: Color, factor: f32) Color {
+        return .{ .r = self.r, .g = self.g, .b = self.b, .a = chan(f(self.a) * factor) };
+    }
+
+    pub fn lerp(a: Color, b: Color, t: f32) Color {
+        return .{
+            .r = chan(f(a.r) + (f(b.r) - f(a.r)) * t),
+            .g = chan(f(a.g) + (f(b.g) - f(a.g)) * t),
+            .b = chan(f(a.b) + (f(b.b) - f(a.b)) * t),
+            .a = chan(f(a.a) + (f(b.a) - f(a.a)) * t),
+        };
+    }
+
+    fn chan(v: f32) u8 {
+        return @intFromFloat(@max(0.0, @min(255.0, v * 255.0 + 0.5)));
+    }
+
+    fn f(c: u8) f32 {
+        return @as(f32, @floatFromInt(c)) / 255.0;
+    }
+};
+
+pub fn parse(comptime input_str: []const u8) Color {
     @setEvalBranchQuota(100000);
 
     const str = comptime std.mem.trim(u8, input_str, " \t\r\n");
 
     comptime if (std.mem.startsWith(u8, str, "#")) {
-        return parseHex(str);
+        return Color.from(parseHex(str));
     } else if (std.mem.startsWith(u8, str, "oklch")) {
-        return parseOklch(str);
+        return Color.from(parseOklch(str));
     } else {
         @compileError("Unsupported color format. Expected hex or oklch, found: '" ++ str ++ "'");
     };
@@ -95,8 +149,8 @@ fn parseNumberOrPercent(comptime str: []const u8) f32 {
     }
 }
 
-pub fn oklch(l: f32, c: f32, h: f32, alpha: f32) [4]f32 {
-    return oklchToRgb(l, c, h, alpha);
+pub fn oklch(l: f32, c: f32, h: f32, alpha: f32) Color {
+    return Color.from(oklchToRgb(l, c, h, alpha));
 }
 
 pub fn oklchToRgb(l: f32, c: f32, h: f32, alpha: f32) [4]f32 {
@@ -197,4 +251,149 @@ pub fn rgbToHex(allocator: std.mem.Allocator, r: f32, g: f32, b: f32) ![]u8 {
     const g_byte: u8 = @intFromFloat(std.math.clamp(g * 255.0, 0.0, 255.0));
     const b_byte: u8 = @intFromFloat(std.math.clamp(b * 255.0, 0.0, 255.0));
     return std.fmt.allocPrint(allocator, "#{x:0>2}{x:0>2}{x:0>2}", .{ r_byte, g_byte, b_byte });
+}
+
+/// Parse `#hex` or `oklch(...)` at runtime; `null` when unrecognized or invalid.
+pub fn parseRuntime(input_str: []const u8) ?Color {
+    const str = std.mem.trim(u8, input_str, " \t\r\n");
+    if (str.len == 0) return null;
+    if (str[0] == '#') return parseHexRuntime(str);
+    if (str.len >= 5 and std.ascii.eqlIgnoreCase(str[0..5], "oklch")) return parseOklchRuntime(str);
+    return null;
+}
+
+/// Foreground text color with sufficient contrast on `bg` (relative luminance threshold).
+/// When `backdrop` is set, translucent `bg` is composited over it before measuring luminance.
+pub fn readableForegroundOn(bg: Color, backdrop: ?Color) Color {
+    const src = bg.toArray();
+    const dst = (backdrop orelse Color.from(.{ 0.05, 0.05, 0.07, 1.0 })).toArray();
+    const a = src[3];
+    const r = src[0] * a + dst[0] * (1.0 - a);
+    const g = src[1] * a + dst[1] * (1.0 - a);
+    const b = src[2] * a + dst[2] * (1.0 - a);
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return if (lum > 0.55)
+        Color.from(.{ 0.05, 0.06, 0.08, 1.0 })
+    else
+        Color.from(.{ 0.96, 0.97, 1.0, 1.0 });
+}
+
+fn parseHexRuntime(str: []const u8) ?Color {
+    const hex_str = if (str[0] == '#') str[1..] else str;
+    const rgba = parseHexSlice(hex_str) orelse return null;
+    return Color.from(rgba);
+}
+
+fn parseHexSlice(hex_str: []const u8) ?[4]f32 {
+    if (hex_str.len == 3) {
+        return .{
+            hexCharToFloatRuntime(hex_str[0]),
+            hexCharToFloatRuntime(hex_str[1]),
+            hexCharToFloatRuntime(hex_str[2]),
+            1.0,
+        };
+    }
+    if (hex_str.len == 4) {
+        return .{
+            hexCharToFloatRuntime(hex_str[0]),
+            hexCharToFloatRuntime(hex_str[1]),
+            hexCharToFloatRuntime(hex_str[2]),
+            hexCharToFloatRuntime(hex_str[3]),
+        };
+    }
+    if (hex_str.len == 6) {
+        return .{
+            hexPairToFloat(hex_str[0..2]) orelse return null,
+            hexPairToFloat(hex_str[2..4]) orelse return null,
+            hexPairToFloat(hex_str[4..6]) orelse return null,
+            1.0,
+        };
+    }
+    if (hex_str.len == 8) {
+        return .{
+            hexPairToFloat(hex_str[0..2]) orelse return null,
+            hexPairToFloat(hex_str[2..4]) orelse return null,
+            hexPairToFloat(hex_str[4..6]) orelse return null,
+            hexPairToFloat(hex_str[6..8]) orelse return null,
+        };
+    }
+    return null;
+}
+
+fn hexCharToFloatRuntime(c: u8) f32 {
+    const pair = [_]u8{ c, c };
+    return hexPairToFloat(&pair) orelse 0.0;
+}
+
+fn hexPairToFloat(hex: []const u8) ?f32 {
+    const val = std.fmt.parseInt(u8, hex, 16) catch return null;
+    return @as(f32, @floatFromInt(val)) / 255.0;
+}
+
+fn parseOklchRuntime(str: []const u8) ?Color {
+    const open_idx = std.mem.indexOfScalar(u8, str, '(') orelse return null;
+    const close_idx = std.mem.lastIndexOfScalar(u8, str, ')') orelse return null;
+    if (open_idx >= close_idx) return null;
+
+    const inner = str[open_idx + 1 .. close_idx];
+    var it = std.mem.tokenizeAny(u8, inner, " /,\t\n\r");
+
+    const l_str = it.next() orelse return null;
+    const c_str = it.next() orelse return null;
+    const h_str = it.next() orelse return null;
+    const a_str = it.next();
+
+    const l = if (std.mem.eql(u8, l_str, "none")) 0.0 else (parseNumberOrPercentRuntime(l_str) orelse return null);
+    const c = if (std.mem.eql(u8, c_str, "none")) 0.0 else (parseNumberOrPercentRuntime(c_str) orelse return null);
+    const h = if (std.mem.eql(u8, h_str, "none")) 0.0 else (parseNumberOrPercentRuntime(h_str) orelse return null);
+    const alpha = if (a_str) |a|
+        if (std.mem.eql(u8, a, "none")) 1.0 else (parseNumberOrPercentRuntime(a) orelse return null)
+    else
+        1.0;
+
+    return Color.from(oklchToRgb(l, c, h, alpha));
+}
+
+fn parseNumberOrPercentRuntime(str: []const u8) ?f32 {
+    if (std.mem.endsWith(u8, str, "%")) {
+        const val_str = str[0 .. str.len - 1];
+        const val = std.fmt.parseFloat(f32, val_str) catch return null;
+        return val / 100.0;
+    }
+    return std.fmt.parseFloat(f32, str) catch null;
+}
+
+const testing = std.testing;
+
+test "parseRuntime hex" {
+    const c6 = parseRuntime("#ff8040").?;
+    try testing.expect(Color.eql(c6, Color.from(.{ 1.0, 0.502, 0.251, 1.0 })));
+
+    const c3 = parseRuntime("#f80").?;
+    try testing.expect(Color.eql(c3, Color.from(.{ 1.0, 0.533, 0.0, 1.0 })));
+
+    try testing.expect(parseRuntime("#gg") == null);
+    try testing.expect(parseRuntime("#12") == null);
+}
+
+test "parseRuntime oklch" {
+    const expected = oklch(0.8700, 0.0600, 235.00, 0.851);
+    const got = parseRuntime("oklch(0.8700 0.0600 235.00 / 0.851)").?;
+    try testing.expect(Color.eql(expected, got));
+
+    const no_alpha = oklch(0.5, 0.1, 200.0, 1.0);
+    const got2 = parseRuntime("oklch(0.5 0.1 200)").?;
+    try testing.expect(Color.eql(no_alpha, got2));
+
+    try testing.expect(parseRuntime("oklch(bad)") == null);
+}
+
+test "readableForegroundOn" {
+    const dark_bg = Color.from(.{ 0.1, 0.1, 0.15, 1.0 });
+    const light_fg = readableForegroundOn(dark_bg, null);
+    try testing.expect(light_fg.eql(Color.from(.{ 0.96, 0.97, 1.0, 1.0 })));
+
+    const light_bg = Color.from(.{ 0.9, 0.92, 0.95, 1.0 });
+    const dark_fg = readableForegroundOn(light_bg, null);
+    try testing.expect(dark_fg.eql(Color.from(.{ 0.05, 0.06, 0.08, 1.0 })));
 }

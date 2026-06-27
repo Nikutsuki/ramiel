@@ -10,6 +10,7 @@ const FontData = lib.FontData;
 const FontWeight = lib.FontWeight;
 const FontStyle = lib.FontStyle;
 const tw = lib.tw;
+const Color = lib.layout.Color;
 const UpdateAction = lib.UpdateAction;
 
 const AppMessage = union(enum) {
@@ -28,21 +29,21 @@ const AppState = struct {
 
 const App = lib.Application(AppState, AppMessage);
 
-const BG: [4]f32 = .{ 0.07, 0.08, 0.11, 1.0 };
-const PANEL_BG: [4]f32 = .{ 0.12, 0.13, 0.18, 1.0 };
-const TEXT_MAIN: [4]f32 = .{ 0.93, 0.95, 0.98, 1.0 };
-const TEXT_DIM: [4]f32 = .{ 0.60, 0.64, 0.72, 1.0 };
-const TEXT_ACCENT: [4]f32 = .{ 0.55, 0.78, 1.00, 1.0 };
-const COL_ERROR: [4]f32 = .{ 0.95, 0.40, 0.46, 1.0 };
-const COL_WARN: [4]f32 = .{ 0.96, 0.78, 0.36, 1.0 };
-const COL_HINT: [4]f32 = .{ 0.58, 0.76, 0.96, 1.0 };
-const COL_OK: [4]f32 = .{ 0.46, 0.86, 0.62, 1.0 };
+const BG = Color.from(.{ 0.07, 0.08, 0.11, 1.0 });
+const PANEL_BG = Color.from(.{ 0.12, 0.13, 0.18, 1.0 });
+const TEXT_MAIN = Color.from(.{ 0.93, 0.95, 0.98, 1.0 });
+const TEXT_DIM = Color.from(.{ 0.60, 0.64, 0.72, 1.0 });
+const TEXT_ACCENT = Color.from(.{ 0.55, 0.78, 1.00, 1.0 });
+const COL_ERROR = Color.from(.{ 0.95, 0.40, 0.46, 1.0 });
+const COL_WARN = Color.from(.{ 0.96, 0.78, 0.36, 1.0 });
+const COL_HINT = Color.from(.{ 0.58, 0.76, 0.96, 1.0 });
+const COL_OK = Color.from(.{ 0.46, 0.86, 0.62, 1.0 });
 
 fn label(
     ui: *AppUIContext,
     _: *FontData,
     content: []const u8,
-    label_color: [4]f32,
+    label_color: Color,
 ) !*AppNode {
     return ui.ux().text(.{
         .content = content,
@@ -120,7 +121,7 @@ fn shapeLine(
     font: *FontData,
     name: []const u8,
     shape: lib.TextDecorationShape,
-    deco_color: [4]f32,
+    deco_color: Color,
 ) !*AppNode {
     const lbl = try label(ui, font, name, TEXT_DIM);
     const sample = try ui.ux().text(.{
@@ -143,7 +144,7 @@ fn diagnosticLine(
     severity: []const u8,
     code: []const u8,
     shape: lib.TextDecorationShape,
-    deco_color: [4]f32,
+    deco_color: Color,
 ) !*AppNode {
     _ = font;
     const sev = try ui.ux().text(.{
@@ -170,8 +171,8 @@ fn diagnosticLine(
 }
 
 fn hoverPanel(ui: *AppUIContext, font: *FontData, palette: u8) !*AppNode {
-    const colors_a: [3][4]f32 = .{ COL_ERROR, COL_WARN, COL_HINT };
-    const colors_b: [3][4]f32 = .{ COL_OK, TEXT_ACCENT, COL_WARN };
+    const colors_a: [3]Color = .{ COL_ERROR, COL_WARN, COL_HINT };
+    const colors_b: [3]Color = .{ COL_OK, TEXT_ACCENT, COL_WARN };
     const palette_colors = if (palette == 0) colors_a else colors_b;
     const palette_name = if (palette == 0) "palette: red / amber / blue" else "palette: green / blue / amber";
 

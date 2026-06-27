@@ -40,8 +40,8 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
 
     const btn_style = tw.style(.{
         tw.p_px(4),
-        tw.bg_value(.{ 0.20, 0.22, 0.30, 1.0 }),
-        tw.hover_value(.{ 0.25, 0.28, 0.38, 1.0 }),
+        tw.bg_value(lib.layout.Color.from(.{ 0.20, 0.22, 0.30, 1.0 })),
+        tw.hover_value(lib.layout.Color.from(.{ 0.25, 0.28, 0.38, 1.0 })),
         tw.rounded(6.0),
         tw.cursor_pointer,
     });
@@ -62,7 +62,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             tw.justify_start,
             tw.p_px(16.0),
             tw.gap_px(12.0),
-            tw.bg_value(.{ 0.12, 0.13, 0.18, 1.0 }),
+            tw.bg_value(lib.layout.Color.from(.{ 0.12, 0.13, 0.18, 1.0 })),
         }),
         .children = &.{open_btn},
     });
@@ -98,7 +98,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     } else {
         const empty_text = try ux.text(.{
             .content = "No video loaded. Click 'Open Video' to select a file.",
-            .style = tw.style(.{tw.text_color_value(.{ 0.5, 0.5, 0.5, 1.0 })}),
+            .style = tw.style(.{tw.text_color_value(lib.layout.Color.from(.{ 0.5, 0.5, 0.5, 1.0 }))}),
         });
         try video_children.append(ui.build_arena.allocator(), empty_text);
     }
@@ -118,7 +118,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .style = tw.style(.{
             tw.size_screen,
             tw.flex_col,
-            tw.bg_value(.{ 0.08, 0.09, 0.12, 1.0 }),
+            tw.bg_value(lib.layout.Color.from(.{ 0.08, 0.09, 0.12, 1.0 })),
         }),
         .children = &.{ controls_bar, video_area },
     });

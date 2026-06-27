@@ -90,8 +90,8 @@ fn build(ctx: *AppUIContext, state: *const AppState) anyerror!*AppNode {
         .visuals = comp.TreeDescriptor{
             .style = tw.style(.{ tw.w_full, tw.h_full, tw.p(2) }),
             .row_style = tw.style(.{ tw.px(2), tw.py(1), tw.pl(1.5), tw.rounded(4.0) }),
-            .active_row_color = .{ 0.17, 0.45, 0.95, 0.22 },
-            .hover_row_color = .{ 0.3, 0.4, 0.55, 0.14 },
+            .active_row_color = lib.layout.Color.from(.{ 0.17, 0.45, 0.95, 0.22 }),
+            .hover_row_color = lib.layout.Color.from(.{ 0.3, 0.4, 0.55, 0.14 }),
         },
     });
 
@@ -110,9 +110,9 @@ fn buildRowContent(ctx: *AppUIContext, item: comp.TreeItem, userdata: ?*const an
         .style = tw.style(.{
             tw.pointer_events_none,
             tw.text_color_value(if (item.is_selected)
-                @as([4]f32, .{ 1.0, 1.0, 1.0, 1.0 })
+                lib.layout.Color.from(.{ 1.0, 1.0, 1.0, 1.0 })
             else
-                @as([4]f32, .{ 0.92, 0.95, 0.98, 1.0 })),
+                lib.layout.Color.from(.{ 0.92, 0.95, 0.98, 1.0 })),
         }),
     });
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const Node = @import("node.zig").Node;
 const TextSelection = @import("node.zig").TextSelection;
 const Style = @import("layout.zig").Style;
+const Color = @import("layout.zig").Color;
 const window_mod = @import("../window/window.zig");
 const platform = @import("../platform/backend.zig");
 const app_backend = @import("../platform/app_backend.zig");
@@ -26,6 +27,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
         hovered_node: ?*Node(MessageT) = null,
 
+        portals: []const *Node(MessageT) = &.{},
         /// Cursor-containment chain from root → deepest hovered node, captured each
         /// frame. Used to fire hover_enter/hover_exit on every node that gained or
         /// lost containment, not only the deepest hit. Without this, an inner div
@@ -52,6 +54,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         active_drag_axis: enum { None, Vertical, Horizontal } = .None,
         active_drag_has_moved: bool = false,
         pointer_locked_for_drag: bool = false,
+        cursor_locked: bool = false,
 
         cursor_lock_origin_x: f64 = 0.0,
         cursor_lock_origin_y: f64 = 0.0,
@@ -393,6 +396,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         pub fn resetForNewTree(self: *Self) void {
             self.hovered_node = null;
             self.focused_node = null;
+            self.portals = &.{};
             self.hover_chain.clearRetainingCapacity();
             self.prev_hover_chain.clearRetainingCapacity();
             self.active_drag_node = null;
@@ -601,6 +605,13 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
             const mouse_is_down = self.previous_mouse_down;
             var suppress_click_this_frame = false;
+            var drag_was_active = false;
+
+            if (self.cursor_locked and self.active_drag_node == null) {
+                if (win) |w| w.setCursorModeDisabled(false);
+                self.cursor_locked = false;
+                self.pointer_locked_for_drag = false;
+            }
 
             if (self.active_drag_node) |drag_node| {
                 if (mouse_is_down) {
@@ -637,11 +648,9 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                     self.previous_drag_y = self.mouse_y;
                 } else {
                     const released_axis = self.active_drag_axis;
-                    const had_scroll_capture = released_axis != .None;
+                    drag_was_active = true;
                     suppress_click_this_frame = self.active_drag_has_moved;
-                    if (self.mouse_just_released and drag_node.hasEventBinding(.pointer_up) and
-                        (had_scroll_capture or drag_node.lock_pointer_on_drag))
-                    {
+                    if (self.mouse_just_released and drag_node.hasEventBinding(.pointer_up)) {
                         self.dispatchNodeEvent(drag_node, .pointer_up, .{ .mouse = .{
                             .x = @floatCast(self.mouse_x),
                             .y = @floatCast(self.mouse_y),
@@ -674,6 +683,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                         if (win) |w| {
                             w.setCursorModeDisabled(false);
                             w.setCursorPos(restore_x, restore_y);
+                            self.cursor_locked = false;
                         }
                         self.mouse_x = restore_x;
                         self.mouse_y = restore_y;
@@ -752,6 +762,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                                 self.cursor_lock_origin_x = origin.x;
                                 self.cursor_lock_origin_y = origin.y;
                                 w.setCursorModeDisabled(true);
+                                self.cursor_locked = true;
                             }
                             self.pointer_locked_for_drag = true;
                         }
@@ -869,7 +880,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                 }
             }
 
-            if (self.mouse_just_released and self.active_drag_node == null) {
+            if (self.mouse_just_released and self.active_drag_node == null and !drag_was_active) {
                 if (self.hovered_node) |target| {
                     var up_target: ?*Node(MessageT) = target;
                     while (up_target) |n| {
@@ -973,8 +984,11 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             else
                 0.0;
 
-            const local_x = @as(f32, @floatCast(self.mouse_x)) - (tn.layout_result.x + inset_left);
-            const raw_local_y = @as(f32, @floatCast(self.mouse_y)) - (tn.layout_result.y + inset_top) + text_scroll_y;
+            const tr = tn.getTransformedRect();
+            const s = if (tr.local_scale > 1e-6) tr.local_scale else 1.0;
+
+            const local_x = (@as(f32, @floatCast(self.mouse_x)) - tr.x) / s - inset_left;
+            const raw_local_y = (@as(f32, @floatCast(self.mouse_y)) - tr.y) / s - inset_top + text_scroll_y;
 
             const text_top: f32 = metrics[0].y;
             const last = metrics[metrics.len - 1];
@@ -1118,8 +1132,10 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             const border = tn.style.border;
             const inset_left = padding.left + @max(0.0, border.left.width);
             const inset_top = padding.top + @max(0.0, border.top.width);
-            const local_x = @as(f32, @floatCast(self.mouse_x)) - (tn.layout_result.x + inset_left);
-            const local_y = @as(f32, @floatCast(self.mouse_y)) - (tn.layout_result.y + inset_top);
+            const tr = tn.getTransformedRect();
+            const s = if (tr.local_scale > 1e-6) tr.local_scale else 1.0;
+            const local_x = (@as(f32, @floatCast(self.mouse_x)) - tr.x) / s - inset_left;
+            const local_y = (@as(f32, @floatCast(self.mouse_y)) - tr.y) / s - inset_top;
 
             var found_line = false;
             var line_min_x: f32 = 0.0;
@@ -1260,8 +1276,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         pub fn pushChar(self: *Self, codepoint: u21) void {
             if (self.focused_node) |node| {
                 if (editableTextRef(node)) |edit| {
-                    if (!edit.multiline and (codepoint == '\n' or codepoint == '\r')) {
-                    } else {
+                    if (!edit.multiline and (codepoint == '\n' or codepoint == '\r')) {} else {
                         _ = self.deleteSelectedRange(node);
 
                         var utf8_buf: [4]u8 = undefined;
@@ -1283,7 +1298,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             }
         }
 
-        pub fn pushKey(self: *Self, root: *Node(MessageT), key: i32, action: i32, is_ctrl: bool, is_shift: bool) void {
+        pub fn pushKey(self: *Self, root: *Node(MessageT), key: i32, action: i32, is_ctrl: bool, is_shift: bool, is_alt: bool) void {
             if (self.shortcut_handler) |handler| {
                 if (handler(self.shortcut_context, self, key, action, is_ctrl, is_shift)) return;
             }
@@ -1317,6 +1332,8 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             if (self.focused_node) |node| {
                 if (action == glfw.Press or action == glfw.Repeat) {
                     if (editableTextRef(node)) |edit| {
+                        const len_before = edit.buffer.items.len;
+                        var paste_changed = false;
                         if (is_ctrl and key == glfw.KeyA) {
                             if (edit.buffer.items.len > 0) {
                                 edit.selection_anchor.* = 0;
@@ -1343,6 +1360,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                                     edit.buffer.insertSlice(node.allocator, edit.cursor_index.*, content) catch return;
                                     edit.cursor_index.* += content.len;
                                     edit.selection_anchor.* = null;
+                                    paste_changed = true;
                                     node.markDirty();
                                     self.layout_requested = true;
                                     self.updateTextAreaNavigationX(node);
@@ -1468,12 +1486,19 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                             self.updateTextAreaNavigationX(node);
                             self.ensureTextAreaCursorVisible(node);
                         }
+
+                        if (edit.buffer.items.len != len_before or paste_changed) {
+                            if (node.hasEventBinding(.text_input)) {
+                                self.dispatchNodeEvent(node, .text_input, .{ .text = .{ .codepoint = 0 } });
+                            }
+                        }
                     }
 
                     if (node.hasEventBinding(.key_down)) {
                         // Forward real modifier state (GLFW mod bits: shift=0x1,
-                        // ctrl=0x2) so handlers can bind chords like ctrl+z.
-                        const dispatch_mods: i32 = (if (is_shift) @as(i32, 0x0001) else 0) | (if (is_ctrl) @as(i32, 0x0002) else 0);
+                        // ctrl=0x2, alt=0x4) so handlers can bind chords like
+                        // ctrl+z or alt+s.
+                        const dispatch_mods: i32 = (if (is_shift) @as(i32, 0x0001) else 0) | (if (is_ctrl) @as(i32, 0x0002) else 0) | (if (is_alt) @as(i32, 0x0004) else 0);
                         self.dispatchNodeEvent(node, .key_down, .{ .key = .{ .key = key, .action = action, .mods = dispatch_mods } });
                     }
                 }
@@ -1615,6 +1640,16 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             if (self.scroll_delta_x == 0.0 and self.scroll_delta_y == 0.0) return;
             if (self.active_drag_node != null) return;
 
+            const has_vertical_scroll_target = blk: {
+                var t = self.hovered_node;
+                while (t) |n| : (t = n.parent) {
+                    if (n.style.overflow_y == .scroll and
+                        (n.layout_result.content_height - n.layout_result.height) > 0.5)
+                        break :blk true;
+                }
+                break :blk false;
+            };
+
             var target = self.hovered_node;
             while (target) |node| {
                 var consumed = false;
@@ -1699,7 +1734,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                             }
                             consumed = true;
                         }
-                    } else if (node.style.overflow_x == .scroll and self.scroll_delta_x == 0.0) {
+                    } else if (node.style.overflow_x == .scroll and self.scroll_delta_x == 0.0 and !has_vertical_scroll_target) {
                         const max_scroll_x = @max(0.0, node.layout_result.content_width - node.layout_result.width);
                         if (max_scroll_x > 0.0) {
                             const next = std.math.clamp(
@@ -1794,8 +1829,10 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             best: *?HitCandidate,
             render_order: *u64,
             parent_z: i32,
+            is_portal_pass: bool,
         ) void {
             if (node.style.display == .none) return;
+            if (node.payload == .portal and !is_portal_pass) return;
             const effective_z = parent_z + node.style.z_index;
 
             const mouse_x: f32 = @floatCast(self.mouse_x);
@@ -1815,7 +1852,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             }
 
             for (node.children.items) |child| {
-                self.collectHitCandidate(child, best, render_order, effective_z);
+                self.collectHitCandidate(child, best, render_order, effective_z, false);
             }
 
             if (node.getVerticalScrollbarThumbRect()) |thumb| {
@@ -1840,7 +1877,11 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
         fn hitTest(self: *Self, node: *Node(MessageT)) bool {
             var best: ?HitCandidate = null;
             var render_order: u64 = 0;
-            self.collectHitCandidate(node, &best, &render_order, 0);
+            self.collectHitCandidate(node, &best, &render_order, 0, false);
+
+            for (self.portals) |portal_node| {
+                self.collectHitCandidate(portal_node, &best, &render_order, 0, true);
+            }
 
             if (best) |candidate| {
                 self.hovered_node = candidate.node;
@@ -1963,7 +2004,7 @@ test "hover chain: ancestor with hover_enter binding receives event when descend
         .{ .event = .hover_exit, .msg = 99 },
     });
 
-    const inner = try makeHitTestNode(allocator, .{ .hover_color = .{ 1, 1, 1, 1 } }, 10, 10, 50, 50);
+    const inner = try makeHitTestNode(allocator, .{ .hover_color = Color.from(.{ 1, 1, 1, 1 }) }, 10, 10, 50, 50);
 
     try outer.addChild(inner);
     try root.addChild(outer);
@@ -2010,7 +2051,7 @@ test "hover chain: cursor moves between gap and inner; outer fires no spurious e
         .{ .event = .hover_exit, .msg = 2 },
     });
 
-    const inner = try makeHitTestNode(allocator, .{ .hover_color = .{ 1, 1, 1, 1 } }, 25, 25, 50, 50);
+    const inner = try makeHitTestNode(allocator, .{ .hover_color = Color.from(.{ 1, 1, 1, 1 }) }, 25, 25, 50, 50);
 
     try outer.addChild(inner);
     try root.addChild(outer);

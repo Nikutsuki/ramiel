@@ -54,7 +54,7 @@ fn buildRowContent(ctx: *core.AppUIContext, item: core.components.TreeItem, user
             .id = null,
             .content = "Unknown",
             .font = state.font_data,
-            .style = tw.style(.{tw.text_color_value(.{ 1.0, 0.0, 0.0, 1.0 })}), // Visually flag structural desyncs
+            .style = tw.style(.{tw.text_color_value(core.layout.Color.from(.{ 1.0, 0.0, 0.0, 1.0 }))}), // Visually flag structural desyncs
         });
     };
 

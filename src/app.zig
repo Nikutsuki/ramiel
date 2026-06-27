@@ -83,6 +83,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         tick_interval_s: ?f64 = null,
 
         last_frame_time: f64 = 0.0,
+        refresh_hz: f64 = 0.0,
         initial_tree_mounted: bool = false,
 
         build_fn: ?*const fn (ui: *UIContext(MessageType), state: *const StateType) anyerror!*Node(MessageType) = null,
@@ -766,6 +767,10 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             return self.engine.getImageState(name);
         }
 
+        pub fn getImageSize(self: *Self, name: []const u8) ?[2]u32 {
+            return self.engine.getImageSize(name);
+        }
+
         pub fn getResolvedImageState(self: *Self, name: []const u8) TextureState {
             const state = self.engine.getImageState(name);
             if (state == .ready) {
@@ -848,9 +853,16 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             self.build_fn = build;
         }
 
+        fn devtoolsDestroyHook(ctx: *anyopaque, node: *Node(MessageType)) void {
+            const ds: *DevToolsState(MessageType) = @ptrCast(@alignCast(ctx));
+            ds.clearDestroyedSubtree(node);
+        }
+
         pub fn mountRoot(self: *Self) !void {
             if (self.initial_tree_mounted) return;
             const build = self.build_fn orelse return error.NoRootBuilder;
+            self.ui.on_node_destroyed = &devtoolsDestroyHook;
+            self.ui.on_node_destroyed_ctx = &self.devtools_state;
             self.ui.building = true;
             self.ui.has_animated_images = false;
             self.ui.min_animated_frame_ms = 0;
@@ -939,7 +951,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             const wrap_w = @max(120.0, @as(f32, @floatFromInt(fb.width)) - 32.0);
 
             var text_style: layout.Style = .{};
-            text_style.text_color = .{ 1.0, 0.86, 0.86, 1.0 };
+            text_style.text_color = layout.Color.from(.{ 1.0, 0.86, 0.86, 1.0 });
             text_style.font_size = 13.0;
             const text_node = try self.ui.text(.{ .content = msg, .font = font, .style = text_style, .max_width = wrap_w });
 
@@ -948,7 +960,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             banner_style.left = 0.0;
             banner_style.top = 0.0;
             banner_style.right = 0.0;
-            banner_style.background_color = .{ 0.16, 0.02, 0.03, 0.95 };
+            banner_style.background_color = layout.Color.from(.{ 0.16, 0.02, 0.03, 0.95 });
             banner_style.padding = .{ .top = 12.0, .bottom = 12.0, .left = 16.0, .right = 16.0 };
             banner_style.direction = .Column;
             const banner = try self.ui.div(.{ .style = banner_style, .children = &.{text_node} });
@@ -992,6 +1004,21 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 .getResolvedState = @ptrCast(&resolveImageState),
                 .getAnimation = @ptrCast(&resolveAnimation),
             };
+            self.ui.image_loader = .{
+                .context = @ptrCast(self),
+                .loadFromDisk = @ptrCast(&loaderLoadFromDisk),
+                .getSize = @ptrCast(&loaderGetSize),
+            };
+        }
+
+        fn loaderLoadFromDisk(self: *Self, name: []const u8, path: []const u8, max_bytes: usize) void {
+            self.loadImageFromDiskAsync(name, path, max_bytes) catch |err| {
+                std.log.warn("image_loader: disk load request failed name='{s}' err={s}", .{ name, @errorName(err) });
+            };
+        }
+
+        fn loaderGetSize(self: *Self, name: []const u8) ?[2]u32 {
+            return self.getImageSize(name);
         }
 
         fn wireIconResolver(self: *Self) void {
@@ -999,6 +1026,13 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 .context = @ptrCast(self),
                 .getTexId = resolveIconTexIdWrapper,
             };
+        }
+
+        fn uiFrameTimeoutSeconds(self: *Self) f64 {
+            const hz = if (self.refresh_hz > 1.0) self.refresh_hz else 120.0;
+            const period = 1.0 / hz;
+            const elapsed = self.backend.timeSeconds() - self.last_frame_time;
+            return @max(0.0, period - elapsed);
         }
 
         fn computeWaitTimeoutSeconds(self: *Self) ?f64 {
@@ -1009,8 +1043,11 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 timeout = std.math.clamp(frame_s, 0.001, 0.25);
             }
 
-            if (!self.ui.animation_registry.isEmpty() or self.ui.interaction_registry.hover_anim_active) {
-                const ui_timeout = 1.0 / 120.0;
+            if (!self.ui.animation_registry.isEmpty() or
+                self.ui.interaction_registry.hover_anim_active or
+                self.ui.continuous_render_requested)
+            {
+                const ui_timeout = self.uiFrameTimeoutSeconds();
                 timeout = if (timeout) |t| @min(t, ui_timeout) else ui_timeout;
             }
 
@@ -1298,9 +1335,58 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             try self.backend.registerGlobalHotkey(modifier, key, self, callback);
         }
 
+        pub fn minimizeWindow(self: *Self) void {
+            self.backend.minimizeWindow();
+        }
+
+        pub fn toggleMaximizeWindow(self: *Self) void {
+            self.backend.toggleMaximizeWindow();
+        }
+
+        pub fn isWindowMaximized(self: *const Self) bool {
+            return self.backend.isWindowMaximized();
+        }
+
+        pub fn requestClose(self: *Self) void {
+            self.backend.requestClose();
+        }
+
+        fn captionHitTest(ctx: ?*anyopaque, x: i32, y: i32) callconv(.c) bool {
+            const self: *Self = @ptrCast(@alignCast(ctx orelse return false));
+            const fx: f32 = @floatFromInt(x);
+            const fy: f32 = @floatFromInt(y);
+            if (pointOverInteractive(self.ui.root, fx, fy)) return false;
+            return pointOverDragRegion(self.ui.root, fx, fy);
+        }
+
+        fn rectContains(rect: Node(MessageType).TransformedRect, x: f32, y: f32) bool {
+            if (rect.width <= 0.0 or rect.height <= 0.0) return false;
+            return x >= rect.x and x < rect.x + rect.width and y >= rect.y and y < rect.y + rect.height;
+        }
+
+        fn pointOverInteractive(node: *Node(MessageType), x: f32, y: f32) bool {
+            if (node.style.pointer_events != .none and nodeNeedsInput(node) and rectContains(node.getTransformedRect(), x, y)) {
+                return true;
+            }
+            for (node.children.items) |child| {
+                if (pointOverInteractive(child, x, y)) return true;
+            }
+            return false;
+        }
+
+        fn pointOverDragRegion(node: *Node(MessageType), x: f32, y: f32) bool {
+            if (node.style.window_drag and rectContains(node.getTransformedRect(), x, y)) return true;
+            for (node.children.items) |child| {
+                if (pointOverDragRegion(child, x, y)) return true;
+            }
+            return false;
+        }
+
         pub fn run(self: *Self) !void {
             self.backend.rebindListeners();
             self.backend.registerCallbacks(self, onKey, onChar, onResize);
+            self.backend.setCaptionQuery(self, captionHitTest);
+            self.backend.enableCustomFrame();
             self.ui.interaction_registry.clipboard_ctx = &self.backend;
             self.ui.interaction_registry.clipboard_get_fn = clipboardGet;
             self.ui.interaction_registry.clipboard_set_fn = clipboardSet;
@@ -1310,6 +1396,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             try self.ui.calculateLayout(&self.font_system.text_layouter, @floatFromInt(initial_fb.width), @floatFromInt(initial_fb.height));
             var last_fb = initial_fb;
             self.last_frame_time = self.backend.timeSeconds();
+            self.refresh_hz = self.backend.primaryRefreshRateHz() orelse 0.0;
             // Wayland: waitEvents() blocks until the first surface commit.
             self.ui.requestPaint();
             var first_iteration = true;
@@ -1357,6 +1444,8 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 } else {
                     self.backend.waitEvents();
                 }
+
+                self.ui.continuous_render_requested = false;
 
                 const video_frame_ready = try self.video_manager.tick(
                     self.engine.frames.current_frame_index,
@@ -1533,7 +1622,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                         var layout_passes: u8 = 0;
                         while (self.ui.layout_dirty and layout_passes < 2) {
                             self.ui.layout_dirty = false;
-                            self.ui.animation_registry.applyAnimatedValuesToTree(self.ui.root, current_time);
+                            self.ui.applyAnimations(current_time);
                             try self.ui.calculateLayout(&self.font_system.text_layouter, @floatFromInt(current_fb.width), @floatFromInt(current_fb.height));
                             layout_passes += 1;
                         }
@@ -1541,7 +1630,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 }
 
                 if (self.ui.paint_dirty) {
-                    self.ui.animation_registry.applyAnimatedValuesToTree(self.ui.root, current_time);
+                    self.ui.applyAnimations(current_time);
                     self.syncAutoInputRegion();
 
                     const current_time_f32 = @as(f32, @floatCast(current_time));
@@ -1562,6 +1651,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                     const frame_rendered = try self.engine.draw(&self.batcher, self.canvases.items, &self.video_manager, &self.font_system.font_registry);
                     if (frame_rendered) {
                         self.ui.paint_dirty = false;
+                        tracy.frameMark(null);
                     }
                 }
             }
@@ -1607,7 +1697,8 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             }
             const is_ctrl = app.backend.isKeyDown(glfw.KeyLeftControl) or app.backend.isKeyDown(glfw.KeyRightControl);
             const is_shift = app.backend.isKeyDown(glfw.KeyLeftShift) or app.backend.isKeyDown(glfw.KeyRightShift);
-            app.ui.interaction_registry.pushKey(app.ui.root, key, action, is_ctrl, is_shift);
+            const is_alt = app.backend.isKeyDown(glfw.KeyLeftAlt) or app.backend.isKeyDown(glfw.KeyRightAlt);
+            app.ui.interaction_registry.pushKey(app.ui.root, key, action, is_ctrl, is_shift, is_alt);
         }
 
         fn onChar(ptr: *anyopaque, codepoint: u21) void {

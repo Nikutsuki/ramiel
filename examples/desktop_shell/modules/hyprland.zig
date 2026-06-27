@@ -168,7 +168,7 @@ pub fn eventLoop(io: std.Io, env: *std.process.Environ.Map, state: *State, ready
             std.mem.startsWith(u8, event_line, "closewindow>>") or
             std.mem.startsWith(u8, event_line, "movewindow>>"))
         {
-            // Window count changed — re-poll workspaces
+            // Window count changed - re-poll workspaces
             const sock = getSocketPath(env) orelse continue;
             if (ipcCommand(io, sock, "j/workspaces")) |json| {
                 parseWorkspaces(state, json);

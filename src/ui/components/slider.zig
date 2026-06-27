@@ -75,7 +75,7 @@ pub fn build(
         .Auto => rail_style.height = .{ .exact = 8.0 },
         else => {},
     }
-    if (rail_style.background_color[3] == 0.0) {
+    if (rail_style.background_color.a == 0) {
         rail_style.background_color = tokens.bg_elevated;
     }
     const rail_h = switch (rail_style.height) {
@@ -109,7 +109,7 @@ pub fn build(
     };
     const half_handle = handle_dia * 0.5;
 
-    if (handle_style.background_color[3] == 0.0) {
+    if (handle_style.background_color.a == 0) {
         handle_style.background_color = tokens.text_main;
     }
     if (!handle_style.corner_radius.hasAny()) {
@@ -127,7 +127,7 @@ pub fn build(
     });
 
     var fill_style = params.fill.style;
-    if (fill_style.background_color[3] == 0.0) {
+    if (fill_style.background_color.a == 0) {
         fill_style.background_color = tokens.action_default;
     }
     fill_style.width = .{ .percent = visual_value };
@@ -149,7 +149,7 @@ pub fn build(
     track_style.direction = .Row;
     track_style.align_items = .Center;
     track_style.cursor = .pointer;
-    track_style.background_color = .{ 0.0, 0.0, 0.0, 0.0 };
+    track_style.background_color = layout.Color.transparent;
     track_style.corner_radius = .{};
 
     const Payload = struct {

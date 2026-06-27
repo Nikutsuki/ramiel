@@ -206,7 +206,7 @@ pub fn poll() ?State {
         }
 
         // Electron tray icons (Discord/Vesktop, Slack, …) don't expose a
-        // dbusmenu — only the legacy SNI Activate/ContextMenu callbacks.
+        // dbusmenu - only the legacy SNI Activate/ContextMenu callbacks.
         // Synthesize a two-entry fallback so the popup isn't empty.
         if (item.real and item.menu_count == 0) {
             item.menu[0] = .{ .action = .{ .activate_item = item.id } };

@@ -23,8 +23,8 @@ pub fn CheckboxParams(comptime MessageT: type) type {
 
 pub const BoxStyle = struct {
     style: layout.Style = .{},
-    active_color: ?[4]f32 = null,
-    inactive_color: ?[4]f32 = null,
+    active_color: ?layout.Color = null,
+    inactive_color: ?layout.Color = null,
 };
 
 pub fn build(

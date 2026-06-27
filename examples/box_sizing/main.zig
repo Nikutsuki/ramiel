@@ -22,10 +22,10 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
 
     const PANEL_WIDTH: f32 = 300;
     const PADDING: f32 = 20;
-    const PANEL_BG: [4]f32 = .{ 0.18, 0.20, 0.28, 1.0 };
-    const INNER_COLOR: [4]f32 = .{ 0.25, 0.55, 0.90, 1.0 };
-    const LABEL_COLOR: [4]f32 = .{ 0.85, 0.90, 1.00, 1.0 };
-    const DIM_COLOR: [4]f32 = .{ 0.60, 0.65, 0.78, 1.0 };
+    const PANEL_BG = lib.layout.Color.from(.{ 0.18, 0.20, 0.28, 1.0 });
+    const INNER_COLOR = lib.layout.Color.from(.{ 0.25, 0.55, 0.90, 1.0 });
+    const LABEL_COLOR = lib.layout.Color.from(.{ 0.85, 0.90, 1.00, 1.0 });
+    const DIM_COLOR = lib.layout.Color.from(.{ 0.60, 0.65, 0.78, 1.0 });
 
     const bb_outer_w: f32 = PANEL_WIDTH;
     const bb_content_w: f32 = bb_outer_w - PADDING * 2;
@@ -104,7 +104,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
     const title = try ui.ux().text(.{
         .content = "box-sizing demo",
         .font = font,
-        .style = tw.style(.{tw.text_color_value(.{ 1.0, 1.0, 1.0, 1.0 })}),
+        .style = tw.style(.{tw.text_color_value(lib.layout.Color.from(.{ 1.0, 1.0, 1.0, 1.0 }))}),
     });
 
     const subtitle = try ui.ux().text(.{
@@ -125,7 +125,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             tw.items_center,
             tw.justify_center,
             tw.gap_px(24),
-            tw.bg_value(.{ 0.09, 0.10, 0.14, 1.0 }),
+            tw.bg_value(lib.layout.Color.from(.{ 0.09, 0.10, 0.14, 1.0 })),
         }),
         .children = &.{ title, subtitle, panels_row },
     });

@@ -29,7 +29,7 @@ fn pageRoot(ctx: anytype, children: anytype) !*lib.Node(@TypeOf(ctx.*).Message) 
             tw.justify_center,
             tw.items_center,
             tw.gap_px(14.0),
-            tw.bg_value(.{ 0.08, 0.09, 0.12, 1.0 }),
+            tw.bg_value(lib.layout.Color.from(.{ 0.08, 0.09, 0.12, 1.0 })),
         }),
         .children = children,
     });
@@ -39,7 +39,7 @@ fn label(ctx: anytype, content: []const u8) !*lib.Node(@TypeOf(ctx.*).Message) {
     return ctx.ux.text(.{
         .content = content,
         .font = ctx.runtime.font_data,
-        .style = tw.style(.{tw.text_color_value(.{ 0.86, 0.9, 0.98, 1.0 })}),
+        .style = tw.style(.{tw.text_color_value(lib.layout.Color.from(.{ 0.86, 0.9, 0.98, 1.0 }))}),
     });
 }
 
@@ -48,7 +48,7 @@ fn button(ctx: anytype, content: []const u8, on_click: anytype) !*lib.Node(@Type
         .style = tw.style(.{
             tw.px(16.0),
             tw.py(9.0),
-            tw.bg_value(.{ 0.30, 0.70, 0.5, 1.0 }),
+            tw.bg_value(lib.layout.Color.from(.{ 0.30, 0.70, 0.5, 1.0 })),
             tw.rounded(8.0),
             tw.cursor_pointer,
         }),
@@ -56,7 +56,7 @@ fn button(ctx: anytype, content: []const u8, on_click: anytype) !*lib.Node(@Type
         .children = .{try ctx.ux.text(.{
             .content = content,
             .font = ctx.runtime.font_data,
-            .style = tw.style(.{tw.text_color_value(.{ 0.04, 0.06, 0.1, 1.0 })}),
+            .style = tw.style(.{tw.text_color_value(lib.layout.Color.from(.{ 0.04, 0.06, 0.1, 1.0 }))}),
         })},
     });
 }

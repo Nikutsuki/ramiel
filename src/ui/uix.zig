@@ -283,7 +283,7 @@ pub fn TextInputOptionsFor(comptime MessageT: type) type {
         max_width: f32 = 0.0,
         initial_text: []const u8 = "",
         placeholder: []const u8 = "",
-        placeholder_color: ?[4]f32 = null,
+        placeholder_color: ?layout.Color = null,
         events: []const types.EventBinding(MessageT) = &.{},
         on_click: ?MessageT = null,
         on_pointer_down: ?MessageT = null,
@@ -588,7 +588,7 @@ pub fn Builder(comptime MessageT: type) type {
                 .max_width = optionalField(opts, "max_width", f32, 0.0),
                 .initial_text = optionalField(opts, "initial_text", []const u8, ""),
                 .placeholder = optionalField(opts, "placeholder", []const u8, ""),
-                .placeholder_color = optionalField(opts, "placeholder_color", ?[4]f32, null),
+                .placeholder_color = optionalField(opts, "placeholder_color", ?layout.Color, null),
                 .events = try self.eventsFrom(opts),
             });
         }
@@ -824,7 +824,7 @@ pub fn ScopedBuilder(comptime AppMessageT: type, comptime LocalMessageT: type, c
                 .max_width = optionalField(opts, "max_width", f32, 0.0),
                 .initial_text = optionalField(opts, "initial_text", []const u8, ""),
                 .placeholder = optionalField(opts, "placeholder", []const u8, ""),
-                .placeholder_color = optionalField(opts, "placeholder_color", ?[4]f32, null),
+                .placeholder_color = optionalField(opts, "placeholder_color", ?layout.Color, null),
                 .events = try self.eventsFrom(opts),
             });
         }

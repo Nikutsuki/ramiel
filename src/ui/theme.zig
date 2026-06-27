@@ -157,7 +157,7 @@ pub const SemanticTokens = struct {
 };
 
 fn withAlpha(color: Color, alpha: f32) Color {
-    return .{ color[0], color[1], color[2], alpha };
+    return color.withAlpha(alpha);
 }
 
 pub const Theme = struct {

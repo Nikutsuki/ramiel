@@ -155,6 +155,8 @@ pub fn Builder(comptime MessageT: type) type {
             return checkbox_group_impl.build(MessageT, self.ui, params.logic, params.visuals);
         }
 
+        /// Single-selection picker (trigger + anchored menu). Caller owns `is_open` / `active_index` /
+        /// `options`. See `dropdown.zig` and `docs/user/components.md#dropdown`.
         pub inline fn dropdown(self: Self, params: DropdownParams(MessageT)) !*Node(MessageT) {
             return dropdown_impl.build(MessageT, self.ui, params);
         }

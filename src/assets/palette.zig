@@ -1,7 +1,7 @@
 const std = @import("std");
 const color_math = @import("../ui/color.zig");
 
-pub const Color = [4]f32;
+pub const Color = color_math.Color;
 
 pub const ColorScale = struct {
     step_50: Color,
@@ -53,16 +53,16 @@ pub const Palette = struct {
         const l_offset = base_l - 0.60;
 
         return .{
-            .step_50 = color_math.oklchToRgb(@max(0.98 + l_offset, 0.90), base_c * 0.2, h, 1.0),
-            .step_100 = color_math.oklchToRgb(@max(0.95 + l_offset, 0.85), base_c * 0.4, h, 1.0),
-            .step_200 = color_math.oklchToRgb(@max(0.88 + l_offset, 0.75), base_c * 0.7, h, 1.0),
-            .step_300 = color_math.oklchToRgb(@max(0.80 + l_offset, 0.65), base_c * 0.9, h, 1.0),
-            .step_400 = color_math.oklchToRgb(@max(0.70 + l_offset, 0.55), base_c, h, 1.0),
-            .step_500 = color_math.oklchToRgb(base_l, base_c, h, 1.0),
-            .step_600 = color_math.oklchToRgb(@min(0.50 + l_offset, 0.65), base_c, h, 1.0),
-            .step_700 = color_math.oklchToRgb(@min(0.40 + l_offset, 0.55), base_c * 0.9, h, 1.0),
-            .step_800 = color_math.oklchToRgb(@min(0.30 + l_offset, 0.45), base_c * 0.7, h, 1.0),
-            .step_900 = color_math.oklchToRgb(@min(0.20 + l_offset, 0.35), base_c * 0.4, h, 1.0),
+            .step_50 = color_math.oklch(@max(0.98 + l_offset, 0.90), base_c * 0.2, h, 1.0),
+            .step_100 = color_math.oklch(@max(0.95 + l_offset, 0.85), base_c * 0.4, h, 1.0),
+            .step_200 = color_math.oklch(@max(0.88 + l_offset, 0.75), base_c * 0.7, h, 1.0),
+            .step_300 = color_math.oklch(@max(0.80 + l_offset, 0.65), base_c * 0.9, h, 1.0),
+            .step_400 = color_math.oklch(@max(0.70 + l_offset, 0.55), base_c, h, 1.0),
+            .step_500 = color_math.oklch(base_l, base_c, h, 1.0),
+            .step_600 = color_math.oklch(@min(0.50 + l_offset, 0.65), base_c, h, 1.0),
+            .step_700 = color_math.oklch(@min(0.40 + l_offset, 0.55), base_c * 0.9, h, 1.0),
+            .step_800 = color_math.oklch(@min(0.30 + l_offset, 0.45), base_c * 0.7, h, 1.0),
+            .step_900 = color_math.oklch(@min(0.20 + l_offset, 0.35), base_c * 0.4, h, 1.0),
         };
     }
 };

@@ -5,6 +5,7 @@ const assets = @import("../../assets.zig");
 const EFFECT_BACKDROP_BLUR = assets.EFFECT_BACKDROP_BLUR;
 const EFFECT_ELEMENT_BLUR = assets.EFFECT_ELEMENT_BLUR;
 const EFFECT_SDF_ROUNDED = assets.EFFECT_SDF_ROUNDED;
+const EFFECT_NOISE_DITHER = assets.EFFECT_NOISE_DITHER;
 const EFFECT_DECORATION_LINE = assets.EFFECT_DECORATION_LINE;
 const NO_TEXTURE = assets.NO_TEXTURE;
 
@@ -74,6 +75,7 @@ pub const QuadProperties = struct {
     border_colors: [4]u32 = .{ 0, 0, 0, 0 },
     outline_colors: [4]u32 = .{ 0, 0, 0, 0 },
     command_params: [4]f32 = .{ 0, 0, 0, 0 },
+    noise: f32 = 0,
     video_descriptor_set: ?vk.DescriptorSet = null,
     expansion: f32 = 0.0,
     // CW radians around quad centre. Verts rotated CPU-side; UVs stay axis-aligned for SDF.
@@ -92,6 +94,7 @@ pub const RoundedRectStyle = struct {
 
     backdrop_blur: f32 = 0,
     element_blur: f32 = 0,
+    noise: f32 = 0,
 };
 
 pub const QuadBatcher = struct {
@@ -363,6 +366,7 @@ pub const QuadBatcher = struct {
                     .sdf_params = p.sdf_params,
                     .border_colors = p.border_colors,
                     .outline_colors = p.outline_colors,
+                    .noise = p.noise,
                 };
             }
         };
@@ -502,6 +506,7 @@ pub const QuadBatcher = struct {
         var effect_flags: u32 = EFFECT_SDF_ROUNDED;
         if (style.backdrop_blur > 0.0) effect_flags |= EFFECT_BACKDROP_BLUR;
         if (style.element_blur > 0.0) effect_flags |= EFFECT_ELEMENT_BLUR;
+        if (style.noise > 0.0) effect_flags |= EFFECT_NOISE_DITHER;
 
         const sm = @max(style.softness, 1.0);
         const max_ow = @max(
@@ -526,6 +531,7 @@ pub const QuadBatcher = struct {
             .border_colors = style.border_colors,
             .outline_colors = style.outline_colors,
             .command_params = .{ style.backdrop_blur, style.element_blur, 0.0, 0.0 },
+            .noise = style.noise,
             .expansion = expansion,
             .rotation = rotation,
         });

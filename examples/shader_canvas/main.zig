@@ -12,8 +12,8 @@ const SIZE: u32 = 512;
 const SIZE_F: f32 = 512;
 const CYCLE_TICKS: u64 = 180;
 
-const BG: [4]f32 = .{ 0.04, 0.04, 0.06, 1.0 };
-const FG: [4]f32 = .{ 0.85, 0.88, 0.96, 1.0 };
+const BG = lib.layout.Color.from(.{ 0.04, 0.04, 0.06, 1.0 });
+const FG = lib.layout.Color.from(.{ 0.85, 0.88, 0.96, 1.0 });
 
 const Effect = struct { name: []const u8, glsl: []const u8 };
 

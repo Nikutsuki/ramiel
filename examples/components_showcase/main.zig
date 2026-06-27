@@ -74,11 +74,11 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             .item_style = .{},
             .box = .{
                 .style = tw.style(.{
-                    tw.border_value(1.0, .{ 0.28, 0.33, 0.44, 1.0 }),
+                    tw.border_value(1.0, layout.Color.from(.{ 0.28, 0.33, 0.44, 1.0 })),
                     tw.transition_colors(150),
                 }),
             },
-            .label_style = tw.style(.{tw.text_color_value(.{ 0.86, 0.9, 0.96, 1.0 })}),
+            .label_style = tw.style(.{tw.text_color_value(layout.Color.from(.{ 0.86, 0.9, 0.96, 1.0 }))}),
         },
     });
 
@@ -167,7 +167,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
             tw.flex_col,
             tw.items_center,
             tw.justify_center,
-            tw.bg_value(.{ 0.07, 0.08, 0.11, 1.0 }),
+            tw.bg_value(layout.Color.from(.{ 0.07, 0.08, 0.11, 1.0 })),
         }),
         .children = &.{
             try ui.ux().div(.{
@@ -175,7 +175,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
                     tw.w(520.0),
                     tw.flex_col,
                     tw.p_px(18.0),
-                    tw.bg_value(.{ 0.11, 0.13, 0.19, 1.0 }),
+                    tw.bg_value(layout.Color.from(.{ 0.11, 0.13, 0.19, 1.0 })),
                     tw.rounded(10.0),
                     tw.gap_px(4.0),
                 }),
@@ -183,17 +183,17 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
                     try ui.ux().text(.{
                         .content = "components showcase",
                         .font = font,
-                        .style = tw.style(.{tw.text_color_value(.{ 0.93, 0.96, 1.0, 1.0 })}),
+                        .style = tw.style(.{tw.text_color_value(layout.Color.from(.{ 0.93, 0.96, 1.0, 1.0 }))}),
                     }),
                     try ui.ux().text(.{
                         .content = "Checkbox group, radio group, and slider (atomic primitives composed in-library)",
                         .font = font,
-                        .style = tw.style(.{tw.text_color_value(.{ 0.66, 0.72, 0.84, 1.0 })}),
+                        .style = tw.style(.{tw.text_color_value(layout.Color.from(.{ 0.66, 0.72, 0.84, 1.0 }))}),
                     }),
                     try ui.ux().text(.{
                         .content = "Color emoji via font fallback: hi 😀 🎉 🚀 ❤️ 🔥",
                         .font = font,
-                        .style = tw.style(.{tw.text_color_value(.{ 0.93, 0.96, 1.0, 1.0 })}),
+                        .style = tw.style(.{tw.text_color_value(layout.Color.from(.{ 0.93, 0.96, 1.0, 1.0 }))}),
                     }),
                     checkbox_group_node,
                     radio_group_node,
@@ -202,7 +202,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
                         .font = font,
                         .style = tw.style(.{
                             tw.mt_px(12.0),
-                            tw.text_color_value(.{ 0.8, 0.86, 0.96, 1.0 }),
+                            tw.text_color_value(layout.Color.from(.{ 0.8, 0.86, 0.96, 1.0 })),
                         }),
                     }),
                     slider_node,
@@ -211,7 +211,7 @@ fn build(ui: *AppUIContext, state: *const AppState) anyerror!*AppNode {
                         .font = font,
                         .style = tw.style(.{
                             tw.mt_px(14.0),
-                            tw.text_color_value(.{ 0.8, 0.86, 0.96, 1.0 }),
+                            tw.text_color_value(layout.Color.from(.{ 0.8, 0.86, 0.96, 1.0 })),
                         }),
                     }),
                     dropdown_node,

@@ -221,7 +221,7 @@ pub fn update(
 
             if (is_ctrl) {
                 try state.toggleSelection(ci.id);
-            } else if (state.isSelected(ci.id)) {} else {
+            } else if (!state.isSelected(ci.id) or state.selected_ids.count() > 1) {
                 try state.selectOnly(ci.id);
             }
         },
@@ -279,7 +279,7 @@ pub fn updateAdapted(
 
             if (is_ctrl) {
                 try state.toggleSelection(ci.id);
-            } else if (!state.isSelected(ci.id)) {
+            } else if (!state.isSelected(ci.id) or state.selected_ids.count() > 1) {
                 try state.selectOnly(ci.id);
             }
         },
@@ -472,21 +472,22 @@ pub fn onDropHandle(comptime MessageT: type) *const fn (?*const anyopaque, types
 pub const TreeDescriptor = struct {
     style: layout.Style = .{},
     row_style: layout.Style = .{},
+    content_width_rows: bool = false,
     indent_px: f32 = 16.0,
     expander_size: f32 = 20.0,
     expander_icon_id: u32 = CoreIcons.ArrowDropdown,
     expander_icon_tint: ?[4]f32 = null,
     show_indent_guides: bool = true,
-    guide_line_color: ?[4]f32 = null,
+    guide_line_color: ?layout.Color = null,
     selection_indicator_width: f32 = 2.0,
-    selection_indicator_color: ?[4]f32 = null,
-    active_row_color: ?[4]f32 = null,
-    hover_row_color: ?[4]f32 = null,
-    drop_indicator_color: ?[4]f32 = null,
+    selection_indicator_color: ?layout.Color = null,
+    active_row_color: ?layout.Color = null,
+    hover_row_color: ?layout.Color = null,
+    drop_indicator_color: ?layout.Color = null,
 };
 
-fn withAlpha(color: [4]f32, alpha: f32) [4]f32 {
-    return .{ color[0], color[1], color[2], alpha };
+fn withAlpha(color: layout.Color, alpha: f32) layout.Color {
+    return color.withAlpha(alpha);
 }
 
 pub fn TreeSourceLogic(comptime MessageT: type) type {
@@ -659,14 +660,14 @@ pub fn build(
                 preview_style.pointer_events = .none;
                 preview_style.opacity = 0.9;
                 preview_style.z_index = 1000;
-                if (preview_style.background_color[3] == 0.0) {
+                if (preview_style.background_color.a == 0) {
                     preview_style.background_color = withAlpha(tokens.bg_surface, 0.95);
                 }
                 if (!preview_style.border.hasAny()) {
                     preview_style.border = layout.Border.all(1.0, withAlpha(tokens.border_subtle, 0.8));
                 }
-                if (preview_style.shadow_color[3] == 0.0) {
-                    preview_style.shadow_color = .{ 0.0, 0.0, 0.0, 0.25 };
+                if (preview_style.shadow_color.a == 0) {
+                    preview_style.shadow_color = layout.Color.from(.{ 0.0, 0.0, 0.0, 0.25 });
                     preview_style.shadow_blur = 10.0;
                     preview_style.shadow_offset = .{ 0.0, 4.0 };
                 }
@@ -788,7 +789,6 @@ fn buildRow(
             .cursor = .pointer,
             .margin = .{ .right = 4.0 },
             .corner_radius = layout.CornerRadius.all(3.0),
-            .hover_color = withAlpha(tokens.bg_surface, 0.8),
         };
 
         const expander_events = if (toggle_msg) |msg|
@@ -809,7 +809,7 @@ fn buildRow(
             .icon_id = visuals.expander_icon_id,
             .intrinsic_size = .{ icon_size, icon_size },
             .style = icon_style,
-            .tint = visuals.expander_icon_tint orelse tokens.text_muted,
+            .tint = visuals.expander_icon_tint orelse tokens.text_muted.toArray(),
         });
 
         try row_children.append(alloc, try ctx.div(.{
@@ -839,7 +839,7 @@ fn buildRow(
         .style = .{
             .direction = .Row,
             .align_self = .Center,
-            .flex_grow = 1,
+            .flex_grow = if (visuals.content_width_rows) 0 else 1,
             .padding = vertical_padding,
         },
         .children = &.{user_content},
@@ -848,12 +848,16 @@ fn buildRow(
     row_style.direction = .Row;
     row_style.align_items = .Stretch;
     row_style.cursor = .pointer;
-    row_style.width = .Full;
+    if (visuals.content_width_rows) {
+        row_style.min_width = .Full;
+    } else {
+        row_style.width = .Full;
+    }
     row_style.position = .relative;
     if (row_style.hover_color == null) {
         row_style.hover_color = hover_color;
     }
-    row_style.background_color = if (item.is_selected) selected_color else .{ 0.0, 0.0, 0.0, 0.0 };
+    row_style.background_color = if (item.is_selected) selected_color else layout.Color.transparent;
 
     var overlay_children = std.ArrayList(?*Node(MessageT)).empty;
     defer overlay_children.deinit(alloc);

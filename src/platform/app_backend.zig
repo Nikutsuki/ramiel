@@ -196,6 +196,52 @@ pub const Backend = union(platform.BackendKind) {
         }
     }
 
+    pub fn enableCustomFrame(self: *Backend) void {
+        switch (self.*) {
+            .glfw => |*win| win.enableCustomFrame(),
+            .wayland => {},
+        }
+    }
+
+    pub fn setCaptionQuery(
+        self: *Backend,
+        ctx: ?*anyopaque,
+        query: *const fn (?*anyopaque, x: i32, y: i32) callconv(.c) bool,
+    ) void {
+        switch (self.*) {
+            .glfw => |*win| win.setCaptionQuery(ctx, query),
+            .wayland => {},
+        }
+    }
+
+    pub fn minimizeWindow(self: *Backend) void {
+        switch (self.*) {
+            .glfw => |*win| win.minimizeWindow(),
+            .wayland => {},
+        }
+    }
+
+    pub fn toggleMaximizeWindow(self: *Backend) void {
+        switch (self.*) {
+            .glfw => |*win| win.toggleMaximize(),
+            .wayland => {},
+        }
+    }
+
+    pub fn isWindowMaximized(self: *const Backend) bool {
+        return switch (self.*) {
+            .glfw => |*win| win.isMaximized(),
+            .wayland => false,
+        };
+    }
+
+    pub fn requestClose(self: *Backend) void {
+        switch (self.*) {
+            .glfw => |*win| win.closeWindow(),
+            .wayland => {},
+        }
+    }
+
     pub fn pointerInputSnapshot(self: *Backend) platform.PointerInputSnapshot {
         return switch (self.*) {
             .glfw => |*win| win.pointerInputSnapshot(),
@@ -217,12 +263,14 @@ pub const Backend = union(platform.BackendKind) {
                 for (client.key_queue[0..client.key_queue_len]) |kev| {
                     var is_ctrl = false;
                     var is_shift = false;
+                    var is_alt = false;
                     if (client.xkb_state) |xs| {
                         is_ctrl = wayland_backend.xkb.xkb_state_mod_name_is_active(xs, "Control", wayland_backend.xkb.XKB_STATE_MODS_EFFECTIVE) == 1;
                         is_shift = wayland_backend.xkb.xkb_state_mod_name_is_active(xs, "Shift", wayland_backend.xkb.XKB_STATE_MODS_EFFECTIVE) == 1;
+                        is_alt = wayland_backend.xkb.xkb_state_mod_name_is_active(xs, "Mod1", wayland_backend.xkb.XKB_STATE_MODS_EFFECTIVE) == 1;
                     }
                     if (raw_key_handler) |handler| handler(kev.evdev_key, kev.state);
-                    registry.pushKey(root, @intCast(kev.key), @intCast(kev.state), is_ctrl, is_shift);
+                    registry.pushKey(root, @intCast(kev.key), @intCast(kev.state), is_ctrl, is_shift, is_alt);
                 }
                 client.key_queue_len = 0;
 

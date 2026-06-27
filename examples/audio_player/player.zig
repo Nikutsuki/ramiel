@@ -9,7 +9,7 @@ const state_mod = @import("state.zig");
 const icons_mod = @import("icons.zig");
 const IconId = icons_mod.IconId;
 
-fn iconChild(ctx: anytype, id: IconId, dim: f32, color: [4]f32) anyerror!*lib.Node(@TypeOf(ctx.*).Message) {
+fn iconChild(ctx: anytype, id: IconId, dim: f32, color: layout.Color) anyerror!*lib.Node(@TypeOf(ctx.*).Message) {
     return ctx.components.icon(.{
         .icon_id = @intFromEnum(id),
         .scale = 1.0,
@@ -21,7 +21,7 @@ fn iconChild(ctx: anytype, id: IconId, dim: f32, color: [4]f32) anyerror!*lib.No
             s.pointer_events = .none;
             break :blk s;
         },
-        .tint = color,
+        .tint = color.toArray(),
         .alt_text = "",
         .fallback_state = .ready,
     });
@@ -353,7 +353,7 @@ fn buildContextMenu(ctx: anytype, song_id: state_mod.SongId, click_x: f32, click
     var backdrop: layout.Style = .{};
     backdrop.width = .Full;
     backdrop.height = .Full;
-    backdrop.background_color = .{ 0, 0, 0, 0.001 };
+    backdrop.background_color = layout.Color.from(.{ 0, 0, 0, 0.001 });
 
     _ = font;
     return ux.portal(.{
@@ -669,7 +669,7 @@ fn squareIconBtn(
     s.cursor = .pointer;
     s.hover_color = if (primary) tokens.action_hover else tokens.bg_subtle;
     s.transition = .{ .property = .{ .hover_color = true, .background_color = true }, .duration_ms = 80, .timing = .ease_out };
-    const tint: [4]f32 = if (primary) tokens.action_text else tokens.text_main;
+    const tint = if (primary) tokens.action_text else tokens.text_main;
     return ux.div(.{
         .id = id,
         .style = s,
@@ -722,7 +722,7 @@ fn iconBtn(
     label_s.text_color = if (primary) tokens.action_text else tokens.text_main;
     label_s.font_size = 11.0;
     label_s.pointer_events = .none;
-    const tint: [4]f32 = if (primary) tokens.action_text else tokens.text_main;
+    const tint = if (primary) tokens.action_text else tokens.text_main;
     return ux.div(.{
         .id = id,
         .style = s,
@@ -1091,7 +1091,7 @@ fn inputWithPlaceholderSeeded(
     input_style.width = .Full;
     input_style.font_size = font_size;
     input_style.padding = .{ .top = 0, .bottom = 0, .left = 0, .right = 0 };
-    input_style.background_color = .{ 0, 0, 0, 0 };
+    input_style.background_color = layout.Color.transparent;
     input_style.text_color = tokens.text_main;
     input_style.position = .absolute;
     input_style.left = 12.0;
@@ -1196,7 +1196,7 @@ fn songRow(ctx: anytype, song: *const state_mod.Song, index: usize) anyerror!*li
     row.align_items = .Center;
     row.gap = 16.0;
     row.padding = pad(28, 8);
-    row.background_color = if (playing) tokens.action_subtle else .{ 0, 0, 0, 0 };
+    row.background_color = if (playing) tokens.action_subtle else layout.Color.transparent;
     row.cursor = .pointer;
     row.hover_color = tokens.bg_elevated;
 
@@ -1228,7 +1228,7 @@ fn songRow(ctx: anytype, song: *const state_mod.Song, index: usize) anyerror!*li
             const c = state_mod.hslToRgb(t.hue, 0.5, 0.55);
             var chip: layout.Style = .{};
             chip.padding = pad(6, 2);
-            chip.background_color = .{ c[0], c[1], c[2], 0.35 };
+            chip.background_color = layout.Color.from(.{ c[0], c[1], c[2], 0.35 });
             chip.corner_radius = layout.CornerRadius.all(8.0);
             var chip_t: layout.Style = .{};
             chip_t.text_color = tokens.text_main;
@@ -1311,7 +1311,7 @@ fn buildPlaybar(ctx: anytype, state: *const PlayerState) anyerror!*lib.Node(@Typ
     var swatch: layout.Style = .{};
     swatch.width = .{ .exact = 56.0 };
     swatch.height = .{ .exact = 56.0 };
-    swatch.background_color = if (rt.current_song_id) |sid| state_mod.swatchColor(sid) else tokens.bg_elevated;
+    swatch.background_color = if (rt.current_song_id) |sid| layout.Color.from(state_mod.swatchColor(sid)) else tokens.bg_elevated;
     swatch.corner_radius = layout.CornerRadius.all(4.0);
 
     var info_box: layout.Style = .{};
@@ -1544,7 +1544,7 @@ fn transportBtn(
     s.corner_radius = layout.CornerRadius.all(dim / 2.0);
     s.cursor = .pointer;
     s.hover_color = if (primary) tokens.accent_hover else tokens.bg_elevated;
-    const tint: [4]f32 = if (primary) tokens.action_text else tokens.text_main;
+    const tint = if (primary) tokens.action_text else tokens.text_main;
     const icon_dim: f32 = if (primary) 22.0 else 18.0;
     return ux.div(.{
         .id = id,
@@ -1560,8 +1560,8 @@ fn pad(h: f32, v: f32) layout.Spacing {
     return .{ .top = v, .bottom = v, .left = h, .right = h };
 }
 
-fn ghost(c: [4]f32) [4]f32 {
-    return .{ c[0], c[1], c[2], 0.0 };
+fn ghost(c: layout.Color) layout.Color {
+    return c.withAlpha(0.0);
 }
 
 fn formatTime(arena: std.mem.Allocator, seconds: f32) ![]const u8 {
