@@ -32,11 +32,9 @@ pub const ResourceManager = struct {
     descriptor_sets: [MAX_FRAMES_IN_FLIGHT]vk.DescriptorSet,
     global_ubo_buffers: [MAX_FRAMES_IN_FLIGHT]Buffer,
 
-    vertex_buffer: Buffer,
-    index_buffer: Buffer,
+    instance_buffer: Buffer,
 
-    max_vertices: usize,
-    max_indices: usize,
+    max_instances: usize,
 
     texture_registry: TextureRegistry,
 
@@ -52,8 +50,7 @@ pub const ResourceManager = struct {
         io: std.Io,
         core: *Core,
         pipeline_layout: vk.DescriptorSetLayout,
-        max_vertices: usize,
-        max_indices: usize,
+        max_instances: usize,
     ) !ResourceManager {
         const pool_sizes = [_]vk.DescriptorPoolSize{
             .{
@@ -98,11 +95,9 @@ pub const ResourceManager = struct {
             global_ubo_buffers[i] = try Buffer.init(core, @sizeOf(GlobalUniforms), .{ .uniform_buffer_bit = true }, c.VMA_MEMORY_USAGE_CPU_TO_GPU, @intCast(c.VMA_ALLOCATION_CREATE_MAPPED_BIT | c.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT));
         }
 
-        const v_size = @sizeOf(@import("vertex.zig").Vertex) * max_vertices * MAX_FRAMES_IN_FLIGHT;
-        const i_size = @sizeOf(u32) * max_indices * MAX_FRAMES_IN_FLIGHT;
+        const inst_size = @sizeOf(@import("vertex.zig").Instance) * max_instances * MAX_FRAMES_IN_FLIGHT;
 
-        const vertex_buffer = try Buffer.init(core, v_size, .{ .vertex_buffer_bit = true }, c.VMA_MEMORY_USAGE_CPU_TO_GPU, @intCast(c.VMA_ALLOCATION_CREATE_MAPPED_BIT | c.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT));
-        const index_buffer = try Buffer.init(core, i_size, .{ .index_buffer_bit = true }, c.VMA_MEMORY_USAGE_CPU_TO_GPU, @intCast(c.VMA_ALLOCATION_CREATE_MAPPED_BIT | c.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT));
+        const instance_buffer = try Buffer.init(core, inst_size, .{ .vertex_buffer_bit = true }, c.VMA_MEMORY_USAGE_CPU_TO_GPU, @intCast(c.VMA_ALLOCATION_CREATE_MAPPED_BIT | c.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT));
 
         const texture_registry = try TextureRegistry.init(allocator, io, core, &descriptor_sets);
 
@@ -133,10 +128,8 @@ pub const ResourceManager = struct {
             .descriptor_pool = descriptor_pool,
             .descriptor_sets = descriptor_sets,
             .global_ubo_buffers = global_ubo_buffers,
-            .vertex_buffer = vertex_buffer,
-            .index_buffer = index_buffer,
-            .max_vertices = max_vertices,
-            .max_indices = max_indices,
+            .instance_buffer = instance_buffer,
+            .max_instances = max_instances,
             .texture_registry = texture_registry,
             .descriptor_dirty_mask = std.mem.zeroes([MAX_FRAMES_IN_FLIGHT]u32),
             .offscreen_bindings = std.mem.zeroes([MAX_TRACKED_BINDINGS]OffscreenBindingState),
@@ -148,26 +141,21 @@ pub const ResourceManager = struct {
 
     pub fn deinit(self: *ResourceManager, core: *Core) void {
         self.texture_registry.deinit(core);
-        self.vertex_buffer.deinit(core);
-        self.index_buffer.deinit(core);
+        self.instance_buffer.deinit(core);
         for (&self.global_ubo_buffers) |*buf| buf.deinit(core);
         core.vkd.destroyDescriptorPool(core.logical_device, self.descriptor_pool, null);
     }
 
-    pub fn resizeBuffers(self: *ResourceManager, core: *Core, new_max_v: usize, new_max_i: usize) !void {
+    pub fn resizeBuffers(self: *ResourceManager, core: *Core, new_max_instances: usize) !void {
         try core.vkd.deviceWaitIdle(core.logical_device);
 
-        self.vertex_buffer.deinit(core);
-        self.index_buffer.deinit(core);
+        self.instance_buffer.deinit(core);
 
-        const v_size = @sizeOf(@import("vertex.zig").Vertex) * new_max_v * MAX_FRAMES_IN_FLIGHT;
-        const i_size = @sizeOf(u32) * new_max_i * MAX_FRAMES_IN_FLIGHT;
+        const inst_size = @sizeOf(@import("vertex.zig").Instance) * new_max_instances * MAX_FRAMES_IN_FLIGHT;
 
-        self.vertex_buffer = try Buffer.init(core, v_size, .{ .vertex_buffer_bit = true }, c.VMA_MEMORY_USAGE_CPU_TO_GPU, @intCast(c.VMA_ALLOCATION_CREATE_MAPPED_BIT | c.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT));
-        self.index_buffer = try Buffer.init(core, i_size, .{ .index_buffer_bit = true }, c.VMA_MEMORY_USAGE_CPU_TO_GPU, @intCast(c.VMA_ALLOCATION_CREATE_MAPPED_BIT | c.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT));
+        self.instance_buffer = try Buffer.init(core, inst_size, .{ .vertex_buffer_bit = true }, c.VMA_MEMORY_USAGE_CPU_TO_GPU, @intCast(c.VMA_ALLOCATION_CREATE_MAPPED_BIT | c.VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT));
 
-        self.max_vertices = new_max_v;
-        self.max_indices = new_max_i;
+        self.max_instances = new_max_instances;
     }
 
     pub fn updateGlobalUbo(self: *ResourceManager, frame_index: usize, data: GlobalUniforms) void {

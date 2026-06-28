@@ -489,14 +489,13 @@ pub fn DevToolsState(comptime MessageT: type) type {
 
             for (batcher.layers.items) |layer| {
                 if (layer.z >= devtools_z_index) continue;
-                const v: u32 = @intCast(layer.data.vertices.items.len);
-                const idx: u32 = @intCast(layer.data.indices.items.len);
+                const inst: u32 = @intCast(layer.data.instances.items.len);
                 const cmds: u32 = @intCast(layer.data.commands.items.len);
-                if (v == 0 and cmds == 0) continue;
+                if (inst == 0 and cmds == 0) continue;
 
-                verts += v;
-                indices += idx;
-                quads += v / 4;
+                verts += inst * 4;
+                indices += inst * 6;
+                quads += inst;
                 draw_calls += cmds;
                 layer_count += 1;
                 if (layer.data.has_blur) blur_layers += 1;
@@ -505,8 +504,8 @@ pub fn DevToolsState(comptime MessageT: type) type {
                     self.metrics.layer_snapshots[self.metrics.layer_snapshot_count] = .{
                         .z = layer.z,
                         .draw_calls = cmds,
-                        .quads = v / 4,
-                        .indices = idx,
+                        .quads = inst,
+                        .indices = inst * 6,
                         .has_blur = layer.data.has_blur,
                     };
                     self.metrics.layer_snapshot_count += 1;

@@ -7,7 +7,7 @@ const kawase_frag_spv align(@alignOf(u32)) = @embedFile("kawase_frag_spv").*;
 const std = @import("std");
 const vk = @import("../../vk.zig");
 const Core = @import("core.zig").Core;
-const Vertex = @import("vertex.zig").Vertex;
+const Instance = @import("vertex.zig").Instance;
 const Mat4 = @import("math.zig").Mat4;
 
 pub const Pipeline = struct {
@@ -50,8 +50,8 @@ pub const Pipeline = struct {
             },
         };
 
-        const binding_desc = Vertex.getBindingDescription();
-        const attribute_descs = Vertex.getAttributeDescriptions();
+        const binding_desc = Instance.getBindingDescription();
+        const attribute_descs = Instance.getAttributeDescriptions();
 
         const vertex_input_info = vk.PipelineVertexInputStateCreateInfo{
             .flags = .{},
@@ -411,8 +411,8 @@ pub const Pipeline = struct {
             },
         };
 
-        const binding_desc = Vertex.getBindingDescription();
-        const attribute_descs = Vertex.getAttributeDescriptions();
+        const binding_desc = Instance.getBindingDescription();
+        const attribute_descs = Instance.getAttributeDescriptions();
 
         const vertex_input_info = vk.PipelineVertexInputStateCreateInfo{
             .flags = .{},

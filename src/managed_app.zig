@@ -63,6 +63,10 @@ fn windowConfig(comptime RunSpec: type) AppBackendConfig {
     return if (@hasDecl(RunSpec, "window")) RunSpec.window else .{ .title = "Ramiel" };
 }
 
+fn renderConfig(comptime RunSpec: type) app_mod.RenderConfig {
+    return if (@hasDecl(RunSpec, "render")) RunSpec.render else .{};
+}
+
 fn applyRunSpecBeforeSetup(comptime RunSpec: type, app: anytype) !void {
     if (@hasDecl(RunSpec, "default_font")) {
         const spec = RunSpec.default_font;
@@ -391,10 +395,11 @@ pub fn ManagedApp(comptime Spec: type) type {
             const allocator = rt.allocator();
             const io = init.io;
 
-            var app = try App.init(
+            var app = try App.initWithRenderConfig(
                 allocator,
                 io,
                 windowConfig(RunSpec),
+                renderConfig(RunSpec),
                 try initState(allocator),
                 update,
             );
@@ -520,10 +525,11 @@ pub fn SinglePageApp(
             const allocator = rt.allocator();
             const io = init.io;
 
-            var app = try App.init(
+            var app = try App.initWithRenderConfig(
                 allocator,
                 io,
                 windowConfig(RunSpec),
+                renderConfig(RunSpec),
                 try initState(allocator),
                 update,
             );

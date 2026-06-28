@@ -1,19 +1,20 @@
 #version 450
 
-layout(location = 0) in vec2  inPosition;
-layout(location = 1) in vec2  inUV;
-layout(location = 2) in vec4  inColor;
-layout(location = 3) in uint  inTexID;
-layout(location = 4) in vec4  inCornerRadii;    // [TL, TR, BR, BL] or [weight,0,0,0] for MSDF
-layout(location = 5) in vec4  inClipRect;
-layout(location = 6) in vec4  inClipRoundRect;  // [min_x, min_y, max_x, max_y]
-layout(location = 7) in vec4  inClipRoundRadii; // [TL, TR, BR, BL]
-layout(location = 8) in vec4  inBorderWidths;   // [top, right, bottom, left]
-layout(location = 9) in vec4  inOutlineWidths;  // [top, right, bottom, left]
-layout(location = 10) in vec4 inSdfParams;      // [softness, logical_w, logical_h, sdf_padding]
-layout(location = 11) in uvec4 inBorderColors;  // packed RGBA8 [top, right, bottom, left]
-layout(location = 12) in uvec4 inOutlineColors; // packed RGBA8 [top, right, bottom, left]
-layout(location = 13) in float inNoise;
+layout(location = 0) in vec4  inCorner01;   // x0,y0, x1,y1  (TL, TR)
+layout(location = 1) in vec4  inCorner23;   // x2,y2, x3,y3  (BR, BL)
+layout(location = 2) in vec4  inUVRect;     // umin,vmin, umax,vmax
+layout(location = 3) in vec4  inColor;
+layout(location = 4) in uint  inTexID;
+layout(location = 5) in vec4  inCornerRadii;    // [TL, TR, BR, BL] or [weight,0,0,0] for MSDF
+layout(location = 6) in vec4  inClipRect;
+layout(location = 7) in vec4  inClipRoundRect;  // [min_x, min_y, max_x, max_y]
+layout(location = 8) in vec4  inClipRoundRadii; // [TL, TR, BR, BL]
+layout(location = 9) in vec4  inBorderWidths;   // [top, right, bottom, left]
+layout(location = 10) in vec4 inOutlineWidths;  // [top, right, bottom, left]
+layout(location = 11) in vec4 inSdfParams;      // [softness, logical_w, logical_h, sdf_padding]
+layout(location = 12) in uvec4 inBorderColors;  // packed RGBA8 [top, right, bottom, left]
+layout(location = 13) in uvec4 inOutlineColors; // packed RGBA8 [top, right, bottom, left]
+layout(location = 14) in float inNoise;
 
 layout(location = 0) out vec4        fragColor;
 layout(location = 1) out vec2        fragUV;
@@ -36,9 +37,20 @@ layout(set = 0, binding = 0) uniform GlobalUBO {
 } ubo;
 
 void main() {
-    gl_Position     = ubo.projection * vec4(inPosition, 0.0, 1.0);
+    const int CORNER[6] = int[6](0, 1, 2, 0, 2, 3);
+    int ci = CORNER[gl_VertexIndex];
+
+    vec2 pos[4] = vec2[4](inCorner01.xy, inCorner01.zw, inCorner23.xy, inCorner23.zw);
+    vec2 uv[4] = vec2[4](
+        vec2(inUVRect.x, inUVRect.y), // TL
+        vec2(inUVRect.z, inUVRect.y), // TR
+        vec2(inUVRect.z, inUVRect.w), // BR
+        vec2(inUVRect.x, inUVRect.w)  // BL
+    );
+
+    gl_Position     = ubo.projection * vec4(pos[ci], 0.0, 1.0);
     fragColor       = inColor;
-    fragUV          = inUV;
+    fragUV          = uv[ci];
     fragTexID       = inTexID;
     fragCornerRadii = inCornerRadii;
     fragClipRect    = inClipRect;

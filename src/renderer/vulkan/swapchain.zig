@@ -11,6 +11,8 @@ fn compositeAlphaName(mode: vk.CompositeAlphaFlagsKHR) []const u8 {
     return "unknown";
 }
 
+pub const PresentPreference = enum { power_save, low_latency };
+
 pub const Swapchain = struct {
     handle: vk.SwapchainKHR,
     format: vk.SurfaceFormatKHR,
@@ -19,8 +21,9 @@ pub const Swapchain = struct {
     image_views: []vk.ImageView,
     transparent: bool,
     has_alpha_compositing: bool,
+    present_preference: PresentPreference,
 
-    pub fn init(core: *Core, old_handle: vk.SwapchainKHR, transparent: bool, fallback_extent: vk.Extent2D) !Swapchain {
+    pub fn init(core: *Core, old_handle: vk.SwapchainKHR, transparent: bool, fallback_extent: vk.Extent2D, present_preference: PresentPreference) !Swapchain {
         const caps = try core.vki.getPhysicalDeviceSurfaceCapabilitiesKHR(core.physical_device, core.surface);
         const extent = if (caps.current_extent.width != 0xFFFF_FFFF) caps.current_extent else blk: {
             // Wayland reports 0xFFFFFFFF current_extent: caller picks within min..max.
@@ -32,6 +35,8 @@ pub const Swapchain = struct {
         };
 
         const present_mode: vk.PresentModeKHR = blk: {
+            if (present_preference == .power_save) break :blk .fifo_khr;
+
             const supported = core.vki.getPhysicalDeviceSurfacePresentModesAllocKHR(
                 core.physical_device,
                 core.surface,
@@ -146,6 +151,7 @@ pub const Swapchain = struct {
             .image_views = image_views,
             .transparent = transparent,
             .has_alpha_compositing = !composite_alpha.opaque_bit_khr,
+            .present_preference = present_preference,
         };
     }
 
@@ -153,7 +159,7 @@ pub const Swapchain = struct {
         try core.vkd.deviceWaitIdle(core.logical_device);
 
         const old_handle = self.handle;
-        const new_swapchain = try Swapchain.init(core, old_handle, self.transparent, fallback_extent);
+        const new_swapchain = try Swapchain.init(core, old_handle, self.transparent, fallback_extent, self.present_preference);
 
         // Clean up the old swapchain (skip if already torn down)
         if (old_handle != .null_handle) {

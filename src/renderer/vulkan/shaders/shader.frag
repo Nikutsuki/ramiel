@@ -73,22 +73,29 @@ void main() {
         }
 
         float max_radius = max(0.0, min(half_size.x, half_size.y));
-        vec4 clip_radii = clamp(fragClipRoundRadii, vec4(0.0), vec4(max_radius));
         vec2 clip_center = (clip_min + clip_max) * 0.5;
-        vec2 clip_p = gl_FragCoord.xy - clip_center;
+        vec2 clip_q = abs(gl_FragCoord.xy - clip_center);
 
-        float clip_radius;
-        if (clip_p.x >= 0.0)
-            clip_radius = (clip_p.y >= 0.0) ? clip_radii.z : clip_radii.y; // BR : TR
-        else
-            clip_radius = (clip_p.y >= 0.0) ? clip_radii.w : clip_radii.x; // BL : TL
+        float r_max = min(max_round_radius, max_radius);
+        bool inside_edges  = clip_q.x <= half_size.x - 1.0 && clip_q.y <= half_size.y - 1.0;
+        bool outside_corner = clip_q.x <= half_size.x - r_max || clip_q.y <= half_size.y - r_max;
+        if (!(inside_edges && outside_corner)) {
+            vec4 clip_radii = clamp(fragClipRoundRadii, vec4(0.0), vec4(max_radius));
+            vec2 clip_p = gl_FragCoord.xy - clip_center;
 
-        vec2 clip_b = half_size - vec2(clip_radius);
-        vec2 clip_d = abs(clip_p) - clip_b;
-        float clip_dist = length(max(clip_d, vec2(0.0))) + min(max(clip_d.x, clip_d.y), 0.0) - clip_radius;
-        rounded_clip_cov = 1.0 - smoothstep(0.0, 1.0, clip_dist);
-        if (rounded_clip_cov <= 0.0) {
-            discard;
+            float clip_radius;
+            if (clip_p.x >= 0.0)
+                clip_radius = (clip_p.y >= 0.0) ? clip_radii.z : clip_radii.y; // BR : TR
+            else
+                clip_radius = (clip_p.y >= 0.0) ? clip_radii.w : clip_radii.x; // BL : TL
+
+            vec2 clip_b = half_size - vec2(clip_radius);
+            vec2 clip_d = abs(clip_p) - clip_b;
+            float clip_dist = length(max(clip_d, vec2(0.0))) + min(max(clip_d.x, clip_d.y), 0.0) - clip_radius;
+            rounded_clip_cov = 1.0 - smoothstep(0.0, 1.0, clip_dist);
+            if (rounded_clip_cov <= 0.0) {
+                discard;
+            }
         }
     }
 

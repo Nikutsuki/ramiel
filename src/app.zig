@@ -43,6 +43,24 @@ const assets_mod = @import("assets.zig");
 
 const glfw = @import("glfw");
 const build_options = @import("build_options");
+const vk = @import("vk.zig");
+pub const PresentPreference = @import("renderer/vulkan/swapchain.zig").PresentPreference;
+
+pub const RenderConfig = struct {
+    present_preference: PresentPreference = .power_save,
+    msaa: u8 = 1,
+    anim_max_hz: f64 = 60.0,
+
+    fn sampleCount(self: RenderConfig) vk.SampleCountFlags {
+        return switch (self.msaa) {
+            16 => .{ .@"16_bit" = true },
+            8 => .{ .@"8_bit" = true },
+            4 => .{ .@"4_bit" = true },
+            2 => .{ .@"2_bit" = true },
+            else => .{ .@"1_bit" = true },
+        };
+    }
+};
 
 pub fn Application(comptime StateType: type, comptime MessageType: type) type {
     return struct {
@@ -73,6 +91,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         file_dialog_result_mutex: std.Io.Mutex = .init,
         file_dialog_result: ?[]const u8 = null,
         video_poll_hz: f64 = 60.0,
+        anim_max_hz: f64 = 60.0,
         backend_key_handler: ?*const fn (key: u32, state: u32) void = null,
 
         update_fn: *const fn (app: *Self, msg: InteractionMessage(MessageType)) UpdateAction,
@@ -140,6 +159,17 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
             initial_state: StateType,
             update_fn: *const fn (*Self, InteractionMessage(MessageType)) UpdateAction,
         ) !Self {
+            return initWithRenderConfig(allocator, io, config, .{}, initial_state, update_fn);
+        }
+
+        pub fn initWithRenderConfig(
+            allocator: std.mem.Allocator,
+            io: std.Io,
+            config: platform.AppBackendConfig,
+            render_config: RenderConfig,
+            initial_state: StateType,
+            update_fn: *const fn (*Self, InteractionMessage(MessageType)) UpdateAction,
+        ) !Self {
             var tracy_allocator: ?*tracy.Allocator = null;
             var effective_allocator = allocator;
 
@@ -166,7 +196,10 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 win.renderSurface(),
                 win.nativeGlfwWindow(),
                 config.transparent,
-                .{ .sample_count = .{ .@"16_bit" = true } },
+                .{
+                    .sample_count = render_config.sampleCount(),
+                    .present_preference = render_config.present_preference,
+                },
             );
             errdefer engine.deinit();
 
@@ -233,6 +266,7 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 .video_manager = video_manager,
                 .icon_registry = icon_registry,
                 .video_poll_hz = video_poll_hz,
+                .anim_max_hz = render_config.anim_max_hz,
                 .devtools_state = devtools_state,
                 .devtools_missing_font_warned = false,
                 .devtools_requires_builder_warned = false,
@@ -1029,7 +1063,8 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
         }
 
         fn uiFrameTimeoutSeconds(self: *Self) f64 {
-            const hz = if (self.refresh_hz > 1.0) self.refresh_hz else 120.0;
+            var hz = if (self.refresh_hz > 1.0) self.refresh_hz else 120.0;
+            if (self.anim_max_hz > 1.0 and self.anim_max_hz < hz) hz = self.anim_max_hz;
             const period = 1.0 / hz;
             const elapsed = self.backend.timeSeconds() - self.last_frame_time;
             return @max(0.0, period - elapsed);

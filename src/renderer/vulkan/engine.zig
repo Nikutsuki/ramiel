@@ -6,9 +6,10 @@ const glfw = @import("glfw");
 const Core = @import("core.zig").Core;
 const RenderSurface = @import("surface.zig").RenderSurface;
 const Swapchain = @import("swapchain.zig").Swapchain;
+const PresentPreference = @import("swapchain.zig").PresentPreference;
 const RenderPass = @import("render_pass.zig").VulkanRenderPass;
 const Pipeline = @import("pipeline.zig").Pipeline;
-const Vertex = @import("vertex.zig").Vertex;
+const Instance = @import("vertex.zig").Instance;
 const Mat4 = @import("math.zig").Mat4;
 const QuadBatcher = @import("batcher.zig").QuadBatcher;
 const LayerEntry = @import("batcher.zig").LayerEntry;
@@ -39,8 +40,7 @@ const ResourceHandle = render_graph_module.ResourceHandle;
 const ResourceUsage = render_graph_module.ResourceUsage;
 const ResourceState = render_graph_module.ResourceState;
 
-const INITIAL_MAX_VERTICES: usize = 65536;
-const INITIAL_MAX_INDICES: usize = 98304; // 65536 * 1.5 - exact quad mesh ratio
+const INITIAL_MAX_INSTANCES: usize = 16384;
 const KAWASE_HANDLE_BASE: u32 = 10;
 const MAX_BINDLESS = Pipeline.MAX_BINDLESS_TEXTURES;
 const MAX_RENDER_PASSES = 128;
@@ -51,6 +51,7 @@ const MAX_KAWASE_CONTEXTS = MAX_RENDER_PASSES * 2;
 pub const Engine = struct {
     pub const RendererConfig = struct {
         sample_count: vk.SampleCountFlags = .{ .@"1_bit" = true },
+        present_preference: PresentPreference = .power_save,
     };
 
     allocator: std.mem.Allocator,
@@ -106,7 +107,7 @@ pub const Engine = struct {
             .width = if (initial_size.width > 0) initial_size.width else 800,
             .height = if (initial_size.height > 0) initial_size.height else 600,
         };
-        const swapchain = try Swapchain.init(&core, .null_handle, transparent, init_fallback);
+        const swapchain = try Swapchain.init(&core, .null_handle, transparent, init_fallback, renderer_config.present_preference);
         const sample_count = pickSupportedSampleCount(&core, renderer_config.sample_count);
 
         const use_dxgi_transparent_present = window != null and builtin.os.tag == .windows and transparent and
@@ -125,7 +126,7 @@ pub const Engine = struct {
             video_descriptor_set_layout,
         );
 
-        var resources = try ResourceManager.init(allocator, io, &core, pipeline.descriptor_set_layout, INITIAL_MAX_VERTICES, INITIAL_MAX_INDICES);
+        var resources = try ResourceManager.init(allocator, io, &core, pipeline.descriptor_set_layout, INITIAL_MAX_INSTANCES);
         const frames = try FrameManager.init(allocator, &core, &swapchain);
         const blur_effect = try BlurEffect.init(&core, &resources, swapchain.extent, swapchain.format.format, &pipeline);
 
@@ -377,24 +378,17 @@ pub const Engine = struct {
 
     // Call after frame-fence wait; persistently mapped buffer races CPU/GPU otherwise.
     fn uploadFrameData(self: *Engine, batcher: *QuadBatcher, frame_index: usize) void {
-        const frame_v_byte_start = frame_index * self.resources.max_vertices * @sizeOf(Vertex);
-        const frame_i_byte_start = frame_index * self.resources.max_indices * @sizeOf(u32);
+        const frame_byte_start = frame_index * self.resources.max_instances * @sizeOf(Instance);
 
-        var v_byte_offset: usize = 0;
-        var i_byte_offset: usize = 0;
+        var byte_offset: usize = 0;
 
         for (batcher.layers.items) |layer_entry| {
             const layer = layer_entry.data;
-            if (layer.vertices.items.len == 0) continue;
+            if (layer.instances.items.len == 0) continue;
 
-            const v_bytes = std.mem.sliceAsBytes(layer.vertices.items);
-            const i_bytes = std.mem.sliceAsBytes(layer.indices.items);
-
-            @memcpy(self.resources.vertex_buffer.mapped_ptr.?[frame_v_byte_start + v_byte_offset ..][0..v_bytes.len], v_bytes);
-            @memcpy(self.resources.index_buffer.mapped_ptr.?[frame_i_byte_start + i_byte_offset ..][0..i_bytes.len], i_bytes);
-
-            v_byte_offset += v_bytes.len;
-            i_byte_offset += i_bytes.len;
+            const bytes = std.mem.sliceAsBytes(layer.instances.items);
+            @memcpy(self.resources.instance_buffer.mapped_ptr.?[frame_byte_start + byte_offset ..][0..bytes.len], bytes);
+            byte_offset += bytes.len;
         }
 
         const width = @as(f32, @floatFromInt(self.swapchain.extent.width));
@@ -471,8 +465,7 @@ pub const Engine = struct {
             .start_command = 0,
             .end_layer = batcher.layers.items.len,
             .end_command = 0,
-            .base_v_offset = 0,
-            .base_i_offset = 0,
+            .base_instance_offset = 0,
             .mode = .normal,
         };
         executeUISlice(@ptrCast(&ui_ctx), cb);
@@ -552,19 +545,15 @@ pub const Engine = struct {
         try batcher.finalizeCurrentCommand();
 
         {
-            var total_v: usize = 0;
-            var total_i: usize = 0;
+            var total: usize = 0;
             for (batcher.layers.items) |layer_entry| {
-                total_v += layer_entry.data.vertices.items.len;
-                total_i += layer_entry.data.indices.items.len;
+                total += layer_entry.data.instances.items.len;
             }
-            if (total_v > self.resources.max_vertices or total_i > self.resources.max_indices) {
-                var new_v = self.resources.max_vertices;
-                var new_i = self.resources.max_indices;
-                while (new_v < total_v) new_v *= 2;
-                while (new_i < total_i) new_i *= 2;
-                std.log.info("geometry buffers grown: {d}→{d} vertices, {d}→{d} indices", .{ self.resources.max_vertices, new_v, self.resources.max_indices, new_i });
-                try self.resources.resizeBuffers(&self.core, new_v, new_i);
+            if (total > self.resources.max_instances) {
+                var new_n = self.resources.max_instances;
+                while (new_n < total) new_n *= 2;
+                std.log.info("instance buffer grown: {d}->{d} instances", .{ self.resources.max_instances, new_n });
+                try self.resources.resizeBuffers(&self.core, new_n);
             }
         }
 
@@ -725,22 +714,14 @@ pub const Engine = struct {
     }
 
     fn commandHasBackdropBlur(layer: anytype, cmd: DrawCommand) bool {
-        if (cmd.index_count == 0 or cmd.index_offset >= layer.indices.items.len) return false;
-
-        const first_index = layer.indices.items[cmd.index_offset];
-        if (first_index >= layer.vertices.items.len) return false;
-
-        const tex_id = layer.vertices.items[first_index].tex_id;
+        if (cmd.instance_count == 0 or cmd.instance_offset >= layer.instances.items.len) return false;
+        const tex_id = layer.instances.items[cmd.instance_offset].tex_id;
         return (tex_id & assets.EFFECT_BACKDROP_BLUR) != 0;
     }
 
     fn commandHasElementBlur(layer: anytype, cmd: DrawCommand) bool {
-        if (cmd.index_count == 0 or cmd.index_offset >= layer.indices.items.len) return false;
-
-        const first_index = layer.indices.items[cmd.index_offset];
-        if (first_index >= layer.vertices.items.len) return false;
-
-        const tex_id = layer.vertices.items[first_index].tex_id;
+        if (cmd.instance_count == 0 or cmd.instance_offset >= layer.instances.items.len) return false;
+        const tex_id = layer.instances.items[cmd.instance_offset].tex_id;
         return (tex_id & assets.EFFECT_ELEMENT_BLUR) != 0;
     }
 
@@ -893,10 +874,8 @@ pub const Engine = struct {
     fn populatePersistentPayloads(self: *Engine, ctx: FrameContext, batcher: *QuadBatcher, sorted_layers: []const LayerEntry, rebuild_topology: bool) !void {
         var current_slice_start_layer: usize = 0;
         var current_slice_start_cmd: usize = 0;
-        var slice_base_v_offset: i32 = 0;
-        var slice_base_i_offset: u32 = 0;
-        var running_v_offset: i32 = 0;
-        var running_i_offset: u32 = 0;
+        var slice_base_instance_offset: u32 = 0;
+        var running_instance_offset: u32 = 0;
 
         for (sorted_layers, 0..) |layer_entry, i| {
             for (layer_entry.data.commands.items, 0..) |cmd, cmd_i| {
@@ -918,8 +897,7 @@ pub const Engine = struct {
                     .start_command = current_slice_start_cmd,
                     .end_layer = i,
                     .end_command = cmd_i,
-                    .base_v_offset = slice_base_v_offset,
-                    .base_i_offset = slice_base_i_offset,
+                    .base_instance_offset = slice_base_instance_offset,
                     .mode = .normal,
                 };
 
@@ -949,8 +927,7 @@ pub const Engine = struct {
                         .start_command = cmd_i,
                         .end_layer = i,
                         .end_command = cmd_i + 1,
-                        .base_v_offset = running_v_offset,
-                        .base_i_offset = running_i_offset,
+                        .base_instance_offset = running_instance_offset,
                         .mode = .element_capture,
                     };
 
@@ -979,8 +956,7 @@ pub const Engine = struct {
                         .start_command = cmd_i,
                         .end_layer = i,
                         .end_command = cmd_i + 1,
-                        .base_v_offset = running_v_offset,
-                        .base_i_offset = running_i_offset,
+                        .base_instance_offset = running_instance_offset,
                         .mode = .element_composite,
                     };
 
@@ -1000,8 +976,7 @@ pub const Engine = struct {
 
                     current_slice_start_layer = i;
                     current_slice_start_cmd = cmd_i + 1;
-                    slice_base_v_offset = running_v_offset;
-                    slice_base_i_offset = running_i_offset;
+                    slice_base_instance_offset = running_instance_offset;
                     continue;
                 }
 
@@ -1023,14 +998,10 @@ pub const Engine = struct {
 
                 current_slice_start_layer = i;
                 current_slice_start_cmd = cmd_i;
-                slice_base_v_offset = running_v_offset;
-                slice_base_i_offset = running_i_offset;
+                slice_base_instance_offset = running_instance_offset;
             }
 
-            if (layer_entry.data.vertices.items.len > 0) {
-                running_v_offset += @intCast(layer_entry.data.vertices.items.len);
-                running_i_offset += @intCast(layer_entry.data.indices.items.len);
-            }
+            running_instance_offset += @intCast(layer_entry.data.instances.items.len);
         }
 
         const final_ui_ctx = try self.nextUISliceContext();
@@ -1042,8 +1013,7 @@ pub const Engine = struct {
             .start_command = current_slice_start_cmd,
             .end_layer = sorted_layers.len,
             .end_command = 0,
-            .base_v_offset = slice_base_v_offset,
-            .base_i_offset = slice_base_i_offset,
+            .base_instance_offset = slice_base_instance_offset,
             .mode = .normal,
         };
 
@@ -1159,11 +1129,9 @@ pub const Engine = struct {
         const viewport = vk.Viewport{ .x = 0.0, .y = 0.0, .width = @as(f32, @floatFromInt(self.swapchain.extent.width)), .height = @as(f32, @floatFromInt(self.swapchain.extent.height)), .min_depth = 0.0, .max_depth = 1.0 };
         vkd.cmdSetViewport(cb, 0, &[_]vk.Viewport{viewport});
 
-        const v_frame_offset: vk.DeviceSize = self.frames.current_frame_index * self.resources.max_vertices * @sizeOf(Vertex);
-        const i_frame_offset: vk.DeviceSize = self.frames.current_frame_index * self.resources.max_indices * @sizeOf(u32);
+        const inst_frame_offset: vk.DeviceSize = self.frames.current_frame_index * self.resources.max_instances * @sizeOf(Instance);
 
-        vkd.cmdBindVertexBuffers(cb, 0, &[_]vk.Buffer{self.resources.vertex_buffer.handle}, &[_]vk.DeviceSize{v_frame_offset});
-        vkd.cmdBindIndexBuffer(cb, self.resources.index_buffer.handle, i_frame_offset, .uint32);
+        vkd.cmdBindVertexBuffers(cb, 0, &[_]vk.Buffer{self.resources.instance_buffer.handle}, &[_]vk.DeviceSize{inst_frame_offset});
     }
 
     pub const UISliceContext = struct {
@@ -1174,8 +1142,7 @@ pub const Engine = struct {
         start_command: usize,
         end_layer: usize,
         end_command: usize,
-        base_v_offset: i32,
-        base_i_offset: u32,
+        base_instance_offset: u32,
         mode: UISliceMode,
     };
 
@@ -1195,8 +1162,7 @@ pub const Engine = struct {
         var bound_pipeline: PipelineKind = .none;
         var bound_video_descriptor: vk.DescriptorSet = .null_handle;
 
-        var current_v_offset: i32 = ctx.base_v_offset;
-        var current_i_offset: u32 = ctx.base_i_offset;
+        var current_instance_offset: u32 = ctx.base_instance_offset;
 
         for (ctx.layers, 0..) |layer_entry, layer_i| {
             if (layer_i < ctx.start_layer) continue;
@@ -1211,7 +1177,7 @@ pub const Engine = struct {
             }
             if (cmd_start > cmd_end) cmd_start = cmd_end;
 
-            if (layer.vertices.items.len > 0 and cmd_start < cmd_end) {
+            if (layer.instances.items.len > 0 and cmd_start < cmd_end) {
                 for (layer.commands.items[cmd_start..cmd_end]) |cmd| {
                     const use_video_pipeline = cmd.uses_video_pipeline and cmd.video_descriptor_set != .null_handle;
                     if (use_video_pipeline) {
@@ -1246,14 +1212,11 @@ pub const Engine = struct {
                     };
                     const layout = if (use_video_pipeline) ctx.engine.video_pipeline.layout else ctx.engine.pipeline.layout;
                     vkd.cmdPushConstants(cb, layout, .{ .fragment_bit = true }, 0, @sizeOf([4]f32), @ptrCast(&params));
-                    vkd.cmdDrawIndexed(cb, cmd.index_count, 1, current_i_offset + cmd.index_offset, current_v_offset, 0);
+                    vkd.cmdDraw(cb, 6, cmd.instance_count, 0, current_instance_offset + cmd.instance_offset);
                 }
             }
 
-            if (layer.vertices.items.len > 0) {
-                current_v_offset += @intCast(layer.vertices.items.len);
-                current_i_offset += @intCast(layer.indices.items.len);
-            }
+            current_instance_offset += @intCast(layer.instances.items.len);
 
             if (ctx.end_layer < ctx.layers.len and layer_i == ctx.end_layer) break;
         }

@@ -1,6 +1,6 @@
 const std = @import("std");
 const vk = @import("../../vk.zig");
-const Vertex = @import("vertex.zig").Vertex;
+const Instance = @import("vertex.zig").Instance;
 const assets = @import("../../assets.zig");
 const EFFECT_BACKDROP_BLUR = assets.EFFECT_BACKDROP_BLUR;
 const EFFECT_ELEMENT_BLUR = assets.EFFECT_ELEMENT_BLUR;
@@ -23,30 +23,27 @@ pub fn packColor(c: [4]f32) u32 {
 }
 
 pub const LayerData = struct {
-    vertices: std.ArrayList(Vertex),
-    indices: std.ArrayList(u32),
+    instances: std.ArrayList(Instance),
     commands: std.ArrayList(DrawCommand),
     has_blur: bool,
 
     pub fn init() LayerData {
         return LayerData{
-            .vertices = std.ArrayList(Vertex).empty,
-            .indices = std.ArrayList(u32).empty,
+            .instances = std.ArrayList(Instance).empty,
             .commands = std.ArrayList(DrawCommand).empty,
             .has_blur = false,
         };
     }
 
     pub fn deinit(self: *LayerData, allocator: std.mem.Allocator) void {
-        self.vertices.deinit(allocator);
-        self.indices.deinit(allocator);
+        self.instances.deinit(allocator);
         self.commands.deinit(allocator);
     }
 };
 
 pub const DrawCommand = struct {
-    index_count: u32,
-    index_offset: u32,
+    instance_count: u32,
+    instance_offset: u32,
     scissor: vk.Rect2D,
     params: [4]f32,
     uses_video_pipeline: bool = false,
@@ -253,15 +250,15 @@ pub const QuadBatcher = struct {
     pub fn finalizeCurrentCommand(self: *QuadBatcher) !void {
         var layer = self.current_layer orelse return;
         const last_offset = if (layer.commands.items.len > 0)
-            layer.commands.items[layer.commands.items.len - 1].index_offset +
-                layer.commands.items[layer.commands.items.len - 1].index_count
+            layer.commands.items[layer.commands.items.len - 1].instance_offset +
+                layer.commands.items[layer.commands.items.len - 1].instance_count
         else
             0;
-        const current_idx_count = @as(u32, @intCast(layer.indices.items.len)) - last_offset;
-        if (current_idx_count > 0) {
+        const current_count = @as(u32, @intCast(layer.instances.items.len)) - last_offset;
+        if (current_count > 0) {
             try layer.commands.append(self.allocator, DrawCommand{
-                .index_count = current_idx_count,
-                .index_offset = last_offset,
+                .instance_count = current_count,
+                .instance_offset = last_offset,
                 .scissor = self.current_scissor,
                 .params = self.current_params,
                 .uses_video_pipeline = self.current_uses_video_pipeline,
@@ -299,7 +296,6 @@ pub const QuadBatcher = struct {
         const clip = self.getCurrentClip();
         const round_clip_rect = self.current_round_clip_rect;
         const round_clip_radii = self.current_round_clip_radii;
-        const base_idx: u32 = @intCast(layer.vertices.items.len);
 
         // Decoration quads stash logical width/height in corner_radii; don't
         // let that flip them into the SDF_ROUNDED branch.
@@ -340,37 +336,6 @@ pub const QuadBatcher = struct {
         const uv1: f32 = base_u1 + uv_exp_u * du;
         const vv1: f32 = base_v1 + uv_exp_v * dv;
 
-        const make = struct {
-            fn v(
-                px: f32,
-                py: f32,
-                pu: f32,
-                pv: f32,
-                p: *const QuadProperties,
-                id: u32,
-                cl: [4]f32,
-                clip_round_rect: [4]f32,
-                clip_round_radii: [4]f32,
-            ) Vertex {
-                return .{
-                    .pos = .{ px, py },
-                    .uv = .{ pu, pv },
-                    .color = p.color,
-                    .tex_id = id,
-                    .corner_radii = p.corner_radii,
-                    .clip_rect = cl,
-                    .clip_round_rect = clip_round_rect,
-                    .clip_round_radii = clip_round_radii,
-                    .border_widths = p.border_widths,
-                    .outline_widths = p.outline_widths,
-                    .sdf_params = p.sdf_params,
-                    .border_colors = p.border_colors,
-                    .outline_colors = p.outline_colors,
-                    .noise = p.noise,
-                };
-            }
-        };
-
         var corners = [4][2]f32{
             .{ ex, ey },
             .{ ex + ew, ey },
@@ -391,16 +356,22 @@ pub const QuadBatcher = struct {
             }
         }
 
-        try layer.vertices.appendSlice(self.allocator, &[_]Vertex{
-            make.v(corners[0][0], corners[0][1], uv0, vv0, &props, combined_id, clip, round_clip_rect, round_clip_radii),
-            make.v(corners[1][0], corners[1][1], uv1, vv0, &props, combined_id, clip, round_clip_rect, round_clip_radii),
-            make.v(corners[2][0], corners[2][1], uv1, vv1, &props, combined_id, clip, round_clip_rect, round_clip_radii),
-            make.v(corners[3][0], corners[3][1], uv0, vv1, &props, combined_id, clip, round_clip_rect, round_clip_radii),
-        });
-
-        try layer.indices.appendSlice(self.allocator, &[_]u32{
-            base_idx, base_idx + 1, base_idx + 2,
-            base_idx, base_idx + 2, base_idx + 3,
+        try layer.instances.append(self.allocator, .{
+            .corner01 = .{ corners[0][0], corners[0][1], corners[1][0], corners[1][1] },
+            .corner23 = .{ corners[2][0], corners[2][1], corners[3][0], corners[3][1] },
+            .uv_rect = .{ uv0, vv0, uv1, vv1 },
+            .color = props.color,
+            .tex_id = combined_id,
+            .corner_radii = props.corner_radii,
+            .clip_rect = clip,
+            .clip_round_rect = round_clip_rect,
+            .clip_round_radii = round_clip_radii,
+            .border_widths = props.border_widths,
+            .outline_widths = props.outline_widths,
+            .sdf_params = props.sdf_params,
+            .border_colors = props.border_colors,
+            .outline_colors = props.outline_colors,
+            .noise = props.noise,
         });
 
         if (is_backdrop_blur) try self.finalizeCurrentCommand();
@@ -697,8 +668,7 @@ pub const QuadBatcher = struct {
 
     pub fn clear(self: *QuadBatcher, current_extent: vk.Extent2D) !void {
         for (self.layers.items) |*entry| {
-            entry.data.vertices.clearRetainingCapacity();
-            entry.data.indices.clearRetainingCapacity();
+            entry.data.instances.clearRetainingCapacity();
             entry.data.commands.clearRetainingCapacity();
             entry.data.has_blur = false;
         }

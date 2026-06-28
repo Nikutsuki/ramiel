@@ -1,5 +1,5 @@
 const std = @import("std");
-const Vertex = @import("../vulkan/vertex.zig").Vertex;
+const Instance = @import("../vulkan/vertex.zig").Instance;
 const QuadBatcher = @import("../vulkan/batcher.zig").QuadBatcher;
 const Core = @import("../vulkan/core.zig").Core;
 const font_module = @import("font_registry.zig");
@@ -151,8 +151,7 @@ const MeasureCache = struct {
 pub const TextLayouter = struct {
     allocator: std.mem.Allocator,
     hb_buffer: *c.hb_buffer_t,
-    vertices: std.ArrayList(Vertex),
-    indices: std.ArrayList(u32),
+    instances: std.ArrayList(Instance),
 
     core: ?*const Core = null,
     font_registry: ?*FontRegistry = null,
@@ -180,8 +179,7 @@ pub const TextLayouter = struct {
         return TextLayouter{
             .allocator = allocator,
             .hb_buffer = hb_buffer,
-            .vertices = std.ArrayList(Vertex).empty,
-            .indices = std.ArrayList(u32).empty,
+            .instances = std.ArrayList(Instance).empty,
             .core = null,
             .font_registry = null,
         };
@@ -272,7 +270,7 @@ pub const TextLayouter = struct {
 
         var last_safe_break: ?usize = null;
         var last_safe_break_x: f32 = 0.0;
-        var last_safe_break_v_idx: usize = self.vertices.items.len;
+        var last_safe_break_i_idx: usize = self.instances.items.len;
 
         for (segments.items) |segment| {
             if (truncated) break;
@@ -378,7 +376,7 @@ pub const TextLayouter = struct {
                 if (is_space) {
                     last_safe_break = cluster;
                     last_safe_break_x = cursor_x + x_advance;
-                    last_safe_break_v_idx = self.vertices.items.len;
+                    last_safe_break_i_idx = self.instances.items.len;
                 }
 
                 if (wrap_enabled and cursor_x + x_advance > max_width) {
@@ -386,9 +384,15 @@ pub const TextLayouter = struct {
                         const shift_x = last_safe_break_x;
                         const shift_y = line_height;
 
-                        for (self.vertices.items[last_safe_break_v_idx..]) |*v| {
-                            v.pos[0] -= shift_x;
-                            v.pos[1] += shift_y;
+                        for (self.instances.items[last_safe_break_i_idx..]) |*inst| {
+                            inst.corner01[0] -= shift_x;
+                            inst.corner01[1] += shift_y;
+                            inst.corner01[2] -= shift_x;
+                            inst.corner01[3] += shift_y;
+                            inst.corner23[0] -= shift_x;
+                            inst.corner23[1] += shift_y;
+                            inst.corner23[2] -= shift_x;
+                            inst.corner23[3] += shift_y;
                         }
 
                         cursor_x -= shift_x;
@@ -425,27 +429,19 @@ pub const TextLayouter = struct {
                     const pw = glyph.size[0] * glyph_scale;
                     const ph = glyph.size[1] * glyph_scale;
 
-                    const base_idx: u32 = @intCast(self.vertices.items.len);
                     const sx = snapPixel(px);
                     const sy = snapPixel(py);
                     const sw = snapSize(px, pw);
                     const sh = snapSize(py, ph);
 
-                    const quads = [_]Vertex{
-                        .{ .pos = .{ sx, sy }, .uv = .{ glyph.uv_min[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                        .{ .pos = .{ sx + sw, sy }, .uv = .{ glyph.uv_max[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                        .{ .pos = .{ sx + sw, sy + sh }, .uv = .{ glyph.uv_max[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                        .{ .pos = .{ sx, sy + sh }, .uv = .{ glyph.uv_min[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                    };
-
-                    try self.vertices.appendSlice(self.allocator, &quads);
-
-                    const quad_indices = [_]u32{
-                        base_idx, base_idx + 1, base_idx + 2,
-                        base_idx, base_idx + 2, base_idx + 3,
-                    };
-
-                    try self.indices.appendSlice(self.allocator, &quad_indices);
+                    try self.instances.append(self.allocator, .{
+                        .corner01 = .{ sx, sy, sx + sw, sy },
+                        .corner23 = .{ sx + sw, sy + sh, sx, sy + sh },
+                        .uv_rect = .{ glyph.uv_min[0], glyph.uv_min[1], glyph.uv_max[0], glyph.uv_max[1] },
+                        .color = color,
+                        .tex_id = combined_id,
+                        .corner_radii = glyph_corner_radii,
+                    });
                 }
 
                 cursor_x += x_advance;
@@ -465,27 +461,19 @@ pub const TextLayouter = struct {
                         const pw = glyph.size[0] * glyph_scale;
                         const ph = glyph.size[1] * glyph_scale;
 
-                        const base_idx: u32 = @intCast(self.vertices.items.len);
                         const sx = snapPixel(px);
                         const sy = snapPixel(py);
                         const sw = snapSize(px, pw);
                         const sh = snapSize(py, ph);
 
-                        const quads = [_]Vertex{
-                            .{ .pos = .{ sx, sy }, .uv = .{ glyph.uv_min[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                            .{ .pos = .{ sx + sw, sy }, .uv = .{ glyph.uv_max[0], glyph.uv_min[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                            .{ .pos = .{ sx + sw, sy + sh }, .uv = .{ glyph.uv_max[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                            .{ .pos = .{ sx, sy + sh }, .uv = .{ glyph.uv_min[0], glyph.uv_max[1] }, .color = color, .tex_id = combined_id, .corner_radii = glyph_corner_radii },
-                        };
-
-                        try self.vertices.appendSlice(self.allocator, &quads);
-
-                        const quad_indices = [_]u32{
-                            base_idx, base_idx + 1, base_idx + 2,
-                            base_idx, base_idx + 2, base_idx + 3,
-                        };
-
-                        try self.indices.appendSlice(self.allocator, &quad_indices);
+                        try self.instances.append(self.allocator, .{
+                            .corner01 = .{ sx, sy, sx + sw, sy },
+                            .corner23 = .{ sx + sw, sy + sh, sx, sy + sh },
+                            .uv_rect = .{ glyph.uv_min[0], glyph.uv_min[1], glyph.uv_max[0], glyph.uv_max[1] },
+                            .color = color,
+                            .tex_id = combined_id,
+                            .corner_radii = glyph_corner_radii,
+                        });
 
                         cursor_x += dot_advance;
                     }
@@ -496,7 +484,6 @@ pub const TextLayouter = struct {
 
     pub fn flushToBatcher(self: *TextLayouter, batcher: *QuadBatcher) !void {
         var layer = batcher.current_layer orelse unreachable;
-        const index_offset: u32 = @intCast(layer.vertices.items.len);
         const sc = batcher.current_scissor;
         const clip_rect: [4]f32 = .{
             @floatFromInt(sc.offset.x),
@@ -505,20 +492,13 @@ pub const TextLayouter = struct {
             @floatFromInt(sc.offset.y + @as(i32, @intCast(sc.extent.height))),
         };
 
-        var i_v: usize = 0;
-        while (i_v < self.vertices.items.len) : (i_v += 1) {
-            var v = self.vertices.items[i_v];
-            v.clip_rect = clip_rect;
-            try layer.vertices.append(batcher.allocator, v);
+        for (self.instances.items) |inst| {
+            var copy = inst;
+            copy.clip_rect = clip_rect;
+            try layer.instances.append(batcher.allocator, copy);
         }
 
-        var i: usize = 0;
-        while (i < self.indices.items.len) : (i += 1) {
-            try layer.indices.append(batcher.allocator, self.indices.items[i] + index_offset);
-        }
-
-        self.vertices.clearRetainingCapacity();
-        self.indices.clearRetainingCapacity();
+        self.instances.clearRetainingCapacity();
     }
 
     pub fn measureText(self: *TextLayouter, allocator: std.mem.Allocator, font_data: *FontData, text: []const u8, max_width: f32) MeasureResult {
@@ -970,8 +950,7 @@ pub const TextLayouter = struct {
 
     pub fn deinit(self: *TextLayouter) void {
         self.measure_cache.deinit(self.allocator);
-        self.vertices.deinit(self.allocator);
-        self.indices.deinit(self.allocator);
+        self.instances.deinit(self.allocator);
         c.hb_buffer_destroy(self.hb_buffer);
     }
 };
