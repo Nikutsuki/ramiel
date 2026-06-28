@@ -64,7 +64,7 @@ pub fn UIContext(comptime MessageT: type) type {
         default_family: ?[]const u8 = null,
         needs_redraw: bool = true,
 
-        id_map: std.AutoHashMap(NodeId, *Node(MessageT)),
+        id_map: std.AutoArrayHashMapUnmanaged(NodeId, *Node(MessageT)) = .empty,
         portal_list: std.ArrayList(*Node(MessageT)),
 
         interaction_registry: InteractionRegistry(MessageT),
@@ -269,7 +269,7 @@ pub fn UIContext(comptime MessageT: type) type {
                 .node_pool = node_pool,
                 .active_theme = initial_theme,
                 .needs_redraw = true,
-                .id_map = std.AutoHashMap(NodeId, *Node(MessageT)).init(child_allocator),
+                .id_map = .empty,
                 .portal_list = std.ArrayList(*Node(MessageT)).empty,
                 .interaction_registry = InteractionRegistry(MessageT).init(child_allocator),
                 .animation_registry = AnimationRegistry.init(child_allocator),
@@ -373,7 +373,7 @@ pub fn UIContext(comptime MessageT: type) type {
             if (id) |stable_id| {
                 node.id = stable_id;
                 if (!self.building) {
-                    try self.id_map.put(stable_id, node);
+                    try self.id_map.put(self.gpa, stable_id, node);
                 }
             }
         }
@@ -1001,7 +1001,7 @@ pub fn UIContext(comptime MessageT: type) type {
 
         pub fn reconcile(self: *@This(), new_root: *Node(MessageT)) !void {
             try reconcileNode(MessageT, self, self.root, new_root);
-            if (self.root.id) |id| try self.id_map.put(id, self.root);
+            if (self.root.id) |id| try self.id_map.put(self.gpa, id, self.root);
             _ = self.build_arena.reset(.retain_capacity);
             self.layout_dirty = true;
             self.paint_dirty = true;
@@ -1010,7 +1010,7 @@ pub fn UIContext(comptime MessageT: type) type {
         pub fn deinit(self: *@This()) void {
             self.animation_registry.deinit();
             self.interaction_registry.deinit();
-            self.id_map.deinit();
+            self.id_map.deinit(self.gpa);
             self.portal_list.deinit(self.gpa);
             self.post_layout_hooks.deinit(self.gpa);
             self.font_cache.deinit(self.gpa);
@@ -1062,7 +1062,7 @@ fn promoteToGPA(comptime MessageT: type, ctx: *UIContext(MessageT), desc: *Node(
     node.clip_children = desc.clip_children;
     node.id = desc.id;
     if (desc.id) |stable_id| {
-        try ctx.id_map.put(stable_id, node);
+        try ctx.id_map.put(ctx.gpa, stable_id, node);
     }
     node.child_memo_key = desc.child_memo_key;
     node.flags = .{};
@@ -1423,7 +1423,7 @@ fn cancelAnimationsInSubtree(comptime MessageT: type, ctx: *UIContext(MessageT),
 fn removeIdsInSubtree(comptime MessageT: type, ctx: *UIContext(MessageT), node: *Node(MessageT)) void {
     if (node.id) |id| {
         if (ctx.id_map.get(id)) |mapped| {
-            if (mapped == node) _ = ctx.id_map.remove(id);
+            if (mapped == node) _ = ctx.id_map.swapRemove(id);
         }
     }
     for (node.children.items) |child| {
@@ -1482,13 +1482,17 @@ fn childListHasIds(comptime MessageT: type, nodes: []const *Node(MessageT)) bool
     return false;
 }
 
-fn reconcileEqualAnonymousChildren(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *Node(MessageT), desc: *Node(MessageT)) std.mem.Allocator.Error!bool {
-    if (retained.children.items.len != desc.children.items.len) return false;
-    if (childListHasIds(MessageT, retained.children.items) or childListHasIds(MessageT, desc.children.items)) return false;
-
-    for (retained.children.items, desc.children.items) |ret_child, desc_child| {
-        if (std.meta.activeTag(ret_child.payload) != std.meta.activeTag(desc_child.payload)) return false;
+fn childrenAligned(comptime MessageT: type, retained: []const *Node(MessageT), desc: []const *Node(MessageT)) bool {
+    if (retained.len != desc.len) return false;
+    for (retained, desc) |ret_child, desc_child| {
+        if (ret_child.id != desc_child.id) return false;
+        if (ret_child.id == null and std.meta.activeTag(ret_child.payload) != std.meta.activeTag(desc_child.payload)) return false;
     }
+    return true;
+}
+
+fn reconcileAlignedChildren(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *Node(MessageT), desc: *Node(MessageT)) std.mem.Allocator.Error!bool {
+    if (!childrenAligned(MessageT, retained.children.items, desc.children.items)) return false;
 
     for (retained.children.items, desc.children.items, 0..) |ret_child, desc_child, i| {
         prefetchNodeIfEnabled(MessageT, desc.children.items, i);
@@ -1501,7 +1505,7 @@ fn reconcileEqualAnonymousChildren(comptime MessageT: type, ctx: *UIContext(Mess
 fn reconcileChildren(comptime MessageT: type, ctx: *UIContext(MessageT), retained: *Node(MessageT), desc: *Node(MessageT)) std.mem.Allocator.Error!void {
     const ret_count = retained.children.items.len;
 
-    if (try reconcileEqualAnonymousChildren(MessageT, ctx, retained, desc)) return;
+    if (try reconcileAlignedChildren(MessageT, ctx, retained, desc)) return;
 
     const scratch = try ctx.acquireScratch();
     defer ctx.releaseScratch(scratch);
