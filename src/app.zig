@@ -1099,6 +1099,10 @@ pub fn Application(comptime StateType: type, comptime MessageType: type) type {
                 timeout = 0.0;
             }
 
+            if (self.ui.interaction_registry.pending_focus_id != null) {
+                timeout = 0.0;
+            }
+
             if (self.devtools_state.is_active and self.devtools_state.active_tab == .profiler) {
                 const devtools_timeout = 1.0 / 60.0;
                 timeout = if (timeout) |t| @min(t, devtools_timeout) else devtools_timeout;

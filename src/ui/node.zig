@@ -85,6 +85,7 @@ pub const RenderPayload = union(enum) {
         /// its intrinsic height) and rendered in `placeholder_color`.
         placeholder: []const u8 = "",
         placeholder_color: ?layout_mod.Color = null,
+        select_all_on_focus: bool = false,
     },
     text_area: struct {
         buffer: std.ArrayList(u8),

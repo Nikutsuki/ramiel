@@ -284,6 +284,7 @@ pub fn TextInputOptionsFor(comptime MessageT: type) type {
         initial_text: []const u8 = "",
         placeholder: []const u8 = "",
         placeholder_color: ?layout.Color = null,
+        select_all_on_focus: bool = false,
         events: []const types.EventBinding(MessageT) = &.{},
         on_click: ?MessageT = null,
         on_pointer_down: ?MessageT = null,
@@ -576,6 +577,7 @@ pub fn Builder(comptime MessageT: type) type {
                 .initial_text = opts.initial_text,
                 .placeholder = opts.placeholder,
                 .placeholder_color = opts.placeholder_color,
+                .select_all_on_focus = opts.select_all_on_focus,
                 .events = try self.typedEvents(opts),
             });
         }
@@ -589,6 +591,7 @@ pub fn Builder(comptime MessageT: type) type {
                 .initial_text = optionalField(opts, "initial_text", []const u8, ""),
                 .placeholder = optionalField(opts, "placeholder", []const u8, ""),
                 .placeholder_color = optionalField(opts, "placeholder_color", ?layout.Color, null),
+                .select_all_on_focus = optionalField(opts, "select_all_on_focus", bool, false),
                 .events = try self.eventsFrom(opts),
             });
         }
@@ -825,6 +828,7 @@ pub fn ScopedBuilder(comptime AppMessageT: type, comptime LocalMessageT: type, c
                 .initial_text = optionalField(opts, "initial_text", []const u8, ""),
                 .placeholder = optionalField(opts, "placeholder", []const u8, ""),
                 .placeholder_color = optionalField(opts, "placeholder_color", ?layout.Color, null),
+                .select_all_on_focus = optionalField(opts, "select_all_on_focus", bool, false),
                 .events = try self.eventsFrom(opts),
             });
         }

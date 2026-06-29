@@ -531,6 +531,7 @@ pub fn UIContext(comptime MessageT: type) type {
             initial_text: []const u8 = "",
             placeholder: []const u8 = "",
             placeholder_color: ?layout.Color = null,
+            select_all_on_focus: bool = false,
 
             events: []const types.EventBinding(MessageT) = &.{},
         };
@@ -775,6 +776,7 @@ pub fn UIContext(comptime MessageT: type) type {
                     .max_width = desc.max_width,
                     .placeholder = desc.placeholder,
                     .placeholder_color = desc.placeholder_color,
+                    .select_all_on_focus = desc.select_all_on_focus,
                 },
             };
 
@@ -1125,6 +1127,7 @@ fn promoteToGPA(comptime MessageT: type, ctx: *UIContext(MessageT), desc: *Node(
                 .max_width = ti.max_width,
                 .placeholder = ti.placeholder,
                 .placeholder_color = ti.placeholder_color,
+                .select_all_on_focus = ti.select_all_on_focus,
             } };
             if (ti.buffer.items.len > 0) {
                 try node.payload.text_input.buffer.appendSlice(ctx.gpa, ti.buffer.items);
@@ -1327,6 +1330,7 @@ fn patchPayload(comptime MessageT: type, retained: *Node(MessageT), desc: *Node(
                 rti.max_width = dti.max_width;
                 rti.placeholder = dti.placeholder;
                 rti.placeholder_color = dti.placeholder_color;
+                rti.select_all_on_focus = dti.select_all_on_focus;
                 if (font_changed or max_width_changed) {
                     retained.markSizeDirty();
                 }
@@ -1343,6 +1347,7 @@ fn patchPayload(comptime MessageT: type, retained: *Node(MessageT), desc: *Node(
                     .max_width = dti.max_width,
                     .placeholder = dti.placeholder,
                     .placeholder_color = dti.placeholder_color,
+                    .select_all_on_focus = dti.select_all_on_focus,
                 } };
                 if (dti.buffer.items.len > 0) {
                     try retained.payload.text_input.buffer.appendSlice(
@@ -1435,6 +1440,7 @@ fn clearInteractionRefsInSubtree(comptime MessageT: type, ctx: *UIContext(Messag
     if (ctx.interaction_registry.focused_node == node) {
         ctx.interaction_registry.focused_node = null;
     }
+    node.is_focused = false;
     if (ctx.interaction_registry.hovered_node == node) {
         ctx.interaction_registry.hovered_node = null;
     }

@@ -598,6 +598,16 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                     target.is_focused = true;
                     self.pending_focus_id = null;
                     self.layout_requested = true;
+                    switch (target.payload) {
+                        .text_input => |*ti| {
+                            if (ti.select_all_on_focus and ti.buffer.items.len > 0) {
+                                ti.selection_anchor = 0;
+                                ti.cursor_index = ti.buffer.items.len;
+                                self.paint_requested = true;
+                            }
+                        },
+                        else => {},
+                    }
                 }
             }
 
@@ -925,6 +935,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
             }
 
             if (self.right_just_released) {
+                var handled = false;
                 if (self.hovered_node) |target| {
                     var ctx_target: ?*Node(MessageT) = target;
                     while (ctx_target) |n| {
@@ -934,9 +945,34 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
                                 .y = @floatCast(self.mouse_y),
                                 .mods = self.mouse_mods,
                             } });
+                            handled = true;
+                            break;
+                        }
+                        if (n.claims_input) {
+                            handled = true;
                             break;
                         }
                         ctx_target = n.parent;
+                    }
+                }
+
+                if (!handled) {
+                    var best: ?HitCandidate = null;
+                    var render_order: u64 = 0;
+                    self.collectHitCandidate(root, &best, &render_order, 0, false);
+                    if (best) |candidate| {
+                        var ctx_target: ?*Node(MessageT) = candidate.node;
+                        while (ctx_target) |n| {
+                            if (n.hasEventBinding(.context_menu)) {
+                                self.dispatchNodeEvent(n, .context_menu, .{ .mouse = .{
+                                    .x = @floatCast(self.mouse_x),
+                                    .y = @floatCast(self.mouse_y),
+                                    .mods = self.mouse_mods,
+                                } });
+                                break;
+                            }
+                            ctx_target = n.parent;
+                        }
                     }
                 }
             }
