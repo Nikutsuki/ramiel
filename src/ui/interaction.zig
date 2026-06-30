@@ -1674,7 +1674,7 @@ pub fn InteractionRegistry(comptime MessageT: type) type {
 
         fn processScrollWheel(self: *Self) void {
             if (self.scroll_delta_x == 0.0 and self.scroll_delta_y == 0.0) return;
-            if (self.active_drag_node != null) return;
+            if (self.pointer_locked_for_drag) return;
 
             const has_vertical_scroll_target = blk: {
                 var t = self.hovered_node;
